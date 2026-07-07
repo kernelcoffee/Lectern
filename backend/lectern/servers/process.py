@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
+import time
 from collections.abc import Awaitable, Callable
 
 import psutil
@@ -21,6 +23,8 @@ from ..ws import ConsoleHub
 
 # Vanilla/Fabric print e.g. `[Server thread/INFO]: Done (12.345s)! For help, …`.
 _DONE_MARKER = "Done ("
+# Modded servers emit ANSI color/cursor codes; strip them before display.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 # Grace period after terminate() before escalating to a psutil tree kill.
 _TERMINATE_GRACE = 10
 
@@ -44,6 +48,7 @@ class ServerProcess:
         self._proc: asyncio.subprocess.Process | None = None
         self._pump_task: asyncio.Task[None] | None = None
         self._stopping = False
+        self.started_at: float | None = None  # wall-clock, for uptime display
 
     @property
     def running(self) -> bool:
@@ -61,6 +66,7 @@ class ServerProcess:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
+        self.started_at = time.time()
         self._pump_task = asyncio.create_task(self._pump())
 
     async def _pump(self) -> None:
@@ -70,7 +76,9 @@ class ServerProcess:
                 raw = await self._proc.stdout.readline()
                 if not raw:
                     break
-                line = raw.decode(errors="replace").rstrip("\n")
+                # Strip ANSI escape codes before publishing: the browser console
+                # renders plain text, and modded servers love colored output.
+                line = _ANSI_RE.sub("", raw.decode(errors="replace")).rstrip("\r\n")
                 self.hub.publish(self.server_id, line)
                 if not self._stopping and _DONE_MARKER in line:
                     await self.on_state(self.server_id, "running")

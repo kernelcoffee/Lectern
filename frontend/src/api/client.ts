@@ -38,6 +38,14 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
   }).then((r) => handle<T>(r));
 }
 
+export function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return fetch(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then((r) => handle<T>(r));
+}
+
 export function apiDelete(path: string): Promise<void> {
   return fetch(path, { method: "DELETE" }).then((r) => handle<void>(r));
 }

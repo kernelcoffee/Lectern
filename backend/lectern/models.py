@@ -156,3 +156,101 @@ class InstallProgressRead(SQLModel):
     message: str
     done: bool
     error: str | None
+
+
+class ServerSettingsUpdate(SQLModel):
+    """PATCH payload for the Lectern-owned settings of a server (M5).
+
+    These are the knobs stored on the ``Server`` row (as opposed to Minecraft's
+    own ``server.properties``, edited via the properties endpoints). Every
+    field is optional — only the fields present in the request are applied,
+    the rest keep their current values (standard JSON-merge PATCH semantics).
+
+    Semantics of each field:
+
+    - ``name`` — display name; no on-disk effect.
+    - ``port`` — the TCP game port. Special-cased in the endpoint: it is also
+      written to ``server-port`` in ``server.properties``, because the file is
+      what the Minecraft process actually reads; the DB column is only used as
+      the default when rendering a fresh file and for display.
+    - ``memory_mb`` — JVM heap; becomes ``-Xmx/-Xms`` in the launch command at
+      the *next* start (running servers are unaffected until restarted).
+    - ``jvm_args`` — extra whitespace-separated JVM flags, inserted between the
+      memory flags and ``-jar``.
+    - ``auto_start`` — start this server when Lectern boots (wired in M11).
+    - ``crash_restart`` — restart automatically after a crash (capped at 3
+      consecutive attempts; see ``servers/manager.py``).
+    - ``stop_command`` — console command sent for a graceful stop (``stop`` for
+      vanilla/Fabric; Bedrock or plugins may differ).
+    - ``shutdown_timeout`` — seconds to wait after ``stop_command`` before
+      escalating to terminate/kill.
+
+    Bounds are enforced here so bad values are rejected with a 422 before
+    touching the record (e.g. a 70 GB heap or a 0-second timeout).
+    """
+
+    name: str | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
+    memory_mb: int | None = Field(default=None, ge=256, le=65536)
+    jvm_args: str | None = None
+    auto_start: bool | None = None
+    crash_restart: bool | None = None
+    stop_command: str | None = None
+    shutdown_timeout: int | None = Field(default=None, ge=5, le=600)
+
+
+class PropertiesRead(SQLModel):
+    """Response of ``GET /servers/{id}/properties``.
+
+    - ``properties`` — the parsed ``server.properties`` key/value pairs, all
+      values as raw strings exactly as stored in the file. Empty dict if the
+      file doesn't exist yet (server still installing).
+    - ``definitions`` — the typed metadata map for *well-known* keys
+      (``servers/properties.py::DEFINITIONS``): type (boolean/integer/enum/
+      string), enum values, integer min/max, and a human description. The
+      frontend uses it to render proper widgets (toggle, select, number input)
+      and the PATCH endpoint validates against it. Keys not present in the map
+      are legal free-form strings — modded servers add their own.
+    """
+
+    properties: dict[str, str]
+    definitions: dict[str, dict]
+
+
+class PingRead(SQLModel):
+    """Server List Ping result — what the Minecraft server itself reports.
+
+    Only present in ``ServerStatsRead`` when the server answered the status
+    ping (i.e. fully booted and listening); ``None`` while starting.
+    ``favicon`` is the ``data:image/png;base64,…`` URI straight from the
+    server, or ``None`` when it has no icon.
+    """
+
+    online: int
+    max: int
+    players: list[str]  # sample of online player names (server-truncated)
+    motd: str  # flattened to plain text (formatting codes stripped)
+    version: str  # e.g. "1.20.1" or a modded brand string
+    favicon: str | None
+
+
+class ServerStatsRead(SQLModel):
+    """Response of ``GET /servers/{id}/stats`` — a point-in-time snapshot.
+
+    Computed on request (frontend polls; no background loop, see technical.md
+    §5). Field availability degrades gracefully:
+
+    - server not running → ``running=False`` and every other field ``None``;
+    - process up but still booting → resource fields set, ``ping`` ``None``;
+    - fully up → everything set (subject to the server having an icon etc.).
+
+    ``cpu_percent`` is measured between two consecutive polls of this endpoint
+    (psutil semantics), so the very first reading after a start is ``0.0``.
+    """
+
+    running: bool
+    pid: int | None = None
+    uptime_seconds: int | None = None
+    cpu_percent: float | None = None
+    memory_mb: float | None = None  # RSS of the java process (+children)
+    ping: PingRead | None = None

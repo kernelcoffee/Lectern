@@ -12,10 +12,11 @@ endpoint; a WebSocket feed is layered on in M4.
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..config import get_settings
 from ..db import engine
@@ -95,10 +96,26 @@ def set_eula(server_dir: Path, accepted: bool) -> None:
 # --- pipeline --------------------------------------------------------------
 
 
+def _record_deleted(session: Session, server_id: str) -> bool:
+    """True if the server row vanished (deleted mid-install). Uses a fresh
+    query — the session's identity map would happily hand back the cached
+    object and a later commit would resurrect the deleted row."""
+    session.expire_all()
+    return session.exec(select(Server.id).where(Server.id == server_id)).first() is None
+
+
+def _discard_install(server_id: str) -> None:
+    """Drop the partially-installed directory of a deleted server."""
+    shutil.rmtree(get_settings().servers_dir / server_id, ignore_errors=True)
+    _set(server_id, "deleted", "Server was deleted during install", done=True, error="deleted")
+
+
 async def install_server(server_id: str) -> None:
     """Provision the server on disk. Owns its own DB session (the request's is
     already closed by the time this background task runs) and never raises —
-    failures are recorded on the record (``install_failed``) and in progress."""
+    failures are recorded on the record (``install_failed``) and in progress.
+    If the server is deleted while installing, the pipeline discards its work
+    instead of resurrecting the row."""
     _set(server_id, "starting", "Preparing…")
     try:
         with Session(engine) as session:
@@ -110,6 +127,9 @@ async def install_server(server_id: str) -> None:
                 await _run(session, server)
                 _set(server_id, "done", "Ready", done=True)
             except Exception as exc:  # noqa: BLE001 — surfaced to the user, not swallowed
+                if _record_deleted(session, server_id):
+                    _discard_install(server_id)
+                    return
                 server.status = ServerStatus.install_failed.value
                 session.add(server)
                 session.commit()
@@ -120,7 +140,10 @@ async def install_server(server_id: str) -> None:
 
 async def _run(session: Session, server: Server) -> None:
     settings = get_settings()
-    server_dir = settings.servers_dir / server.id
+    # Resolve to absolute paths before persisting: the launch subprocess runs
+    # with cwd=server dir, so a relative java_path (LECTERN_DATA=./data) would
+    # be resolved against the wrong directory and fail with FileNotFoundError.
+    server_dir = (settings.servers_dir / server.id).resolve()
     server_dir.mkdir(parents=True, exist_ok=True)
 
     provider = get_server_type(server.type)
@@ -143,11 +166,17 @@ async def _run(session: Session, server: Server) -> None:
     (server_dir / "eula.txt").write_text("eula=false\n")
     (server_dir / "server.properties").write_text(render_server_properties(server.port))
 
+    # The downloads above can take minutes — bail out (and clean up) if the
+    # record was deleted meanwhile, instead of re-inserting it below.
+    if _record_deleted(session, server.id):
+        _discard_install(server.id)
+        return
+
     server.path = str(server_dir)
     server.server_jar = spec.jar_name
     server.loader_version = spec.loader_version if provider.needs_loader else None
     server.java_major = java_major
-    server.java_path = str(java_exe)
+    server.java_path = str(Path(java_exe).resolve())
     server.status = ServerStatus.stopped.value
     session.add(server)
     session.commit()

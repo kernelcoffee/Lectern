@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import shutil
+import time
 from pathlib import Path
 
 from fastapi import (
@@ -24,15 +25,22 @@ from fastapi import (
 )
 from sqlmodel import Session, select
 
+from ..config import get_settings
 from ..db import get_session
 from ..models import (
     InstallProgressRead,
+    PingRead,
+    PropertiesRead,
     Server,
     ServerCreate,
     ServerDetailRead,
     ServerRead,
+    ServerSettingsUpdate,
+    ServerStatsRead,
     ServerStatus,
 )
+from ..servers import properties as props
+from ..servers import stats as stats_mod
 from ..servers.install import eula_accepted, get_progress, install_server, set_eula
 from ..servers.manager import ManagerError, manager
 
@@ -108,6 +116,10 @@ async def server_action(
     if action not in _ACTIONS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown action: {action}")
     try:
+        if action == "start":
+            # A user-initiated start wipes crash history so a server that
+            # exhausted its auto-restart attempts gets a fresh set.
+            manager.reset_crash_count(server_id)
         await getattr(manager, action)(server_id)
     except ManagerError as exc:
         raise HTTPException(exc.status_code, str(exc))
@@ -150,6 +162,143 @@ def server_progress(
     )
 
 
+@router.patch("/{server_id}", response_model=ServerDetailRead)
+def update_server_settings(
+    server_id: str,
+    payload: ServerSettingsUpdate,
+    session: Session = Depends(get_session),
+) -> ServerDetailRead:
+    """Update Lectern-owned settings (JSON-merge semantics: only fields present
+    in the request are applied). Memory/JVM changes take effect at the next
+    start; a port change is also written into ``server.properties`` because
+    that file — not the DB column — is what the Minecraft process reads."""
+    server = session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    for key, value in updates.items():
+        setattr(server, key, value)
+
+    if "port" in updates and server.path:
+        server_dir = Path(server.path)
+        file_props = props.read_properties(server_dir)
+        file_props["server-port"] = str(updates["port"])
+        props.write_properties(server_dir, file_props)
+
+    session.add(server)
+    session.commit()
+    session.refresh(server)
+    return _detail(server)
+
+
+@router.get("/{server_id}/properties", response_model=PropertiesRead)
+def get_properties(
+    server_id: str, session: Session = Depends(get_session)
+) -> PropertiesRead:
+    """Current ``server.properties`` plus the typed definitions map the UI
+    renders widgets from. 409 until the install pipeline has created the
+    server directory."""
+    server = session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+    if not server.path:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Server is not installed yet")
+    return PropertiesRead(
+        properties=props.read_properties(Path(server.path)),
+        definitions=props.definitions_payload(),
+    )
+
+
+@router.patch("/{server_id}/properties", response_model=PropertiesRead)
+def patch_properties(
+    server_id: str,
+    updates: dict[str, str | int | bool | None],
+    session: Session = Depends(get_session),
+) -> PropertiesRead:
+    """Merge ``updates`` into ``server.properties``.
+
+    Values are validated against the typed definitions (bad enum/int/bool →
+    422 listing every offending key); ``null`` removes a key; unknown keys are
+    stored as free-form strings. ``server-port`` is mirrored to the record's
+    ``port`` column so the UI shows the truth. Changes apply at next start —
+    Minecraft only reads the file on boot."""
+    server = session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+    if not server.path:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Server is not installed yet")
+
+    server_dir = Path(server.path)
+    file_props = props.read_properties(server_dir)
+
+    errors: list[str] = []
+    for key, value in updates.items():
+        if value is None:
+            file_props.pop(key, None)
+            continue
+        try:
+            file_props[key] = props.normalize_value(key, value)
+        except ValueError as exc:
+            errors.append(str(exc))
+    if errors:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "; ".join(errors))
+
+    props.write_properties(server_dir, file_props)
+
+    # Keep the record's port column in sync with the file (the file wins).
+    new_port = file_props.get("server-port")
+    if new_port is not None and new_port.isdigit() and int(new_port) != server.port:
+        server.port = int(new_port)
+        session.add(server)
+        session.commit()
+
+    return PropertiesRead(
+        properties=file_props, definitions=props.definitions_payload()
+    )
+
+
+@router.get("/{server_id}/stats", response_model=ServerStatsRead)
+async def server_stats(
+    server_id: str, session: Session = Depends(get_session)
+) -> ServerStatsRead:
+    """Point-in-time stats snapshot (frontend polls this; no background loop).
+
+    Resource usage comes from psutil on the live process; player counts/MOTD
+    from a Server List Ping to localhost on the *effective* port — read from
+    ``server.properties``, not the DB column, since that's what the process
+    actually bound (see docs/references/crafty-4.md)."""
+    server = session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+
+    proc = manager.get_process(server_id)
+    if proc is None or proc.pid is None:
+        return ServerStatsRead(running=False)
+
+    usage = stats_mod.resource_usage(proc.pid)
+
+    # Effective port: the file wins over the DB column.
+    port = server.port
+    if server.path:
+        file_port = props.read_properties(Path(server.path)).get("server-port")
+        if file_port is not None and file_port.isdigit():
+            port = int(file_port)
+
+    ping = await stats_mod.server_list_ping("127.0.0.1", port)
+
+    return ServerStatsRead(
+        running=True,
+        pid=proc.pid,
+        uptime_seconds=(
+            int(time.time() - proc.started_at) if proc.started_at else None
+        ),
+        cpu_percent=usage.cpu_percent if usage else None,
+        memory_mb=usage.memory_mb if usage else None,
+        ping=PingRead(**ping.__dict__) if ping else None,
+    )
+
+
 @router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_server(
     server_id: str, session: Session = Depends(get_session)
@@ -161,8 +310,11 @@ async def delete_server(
     if manager.is_running(server_id):
         with contextlib.suppress(ManagerError):
             await manager.kill(server_id)
+    # server.path is only set once install completes, so also remove the
+    # canonical directory — covers deleting a server mid-install.
     if server.path:
         shutil.rmtree(Path(server.path), ignore_errors=True)
+    shutil.rmtree(get_settings().servers_dir / server_id, ignore_errors=True)
     session.delete(server)
     session.commit()
 

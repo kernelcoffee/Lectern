@@ -25,6 +25,9 @@ from ..ws import ConsoleHub
 from .process import ServerProcess
 
 _RESTART_DELAY = 3  # seconds before a crash-restart
+# Give up after this many consecutive crashes (counter resets when a start
+# reaches `running`) so a boot-looping server doesn't restart forever.
+_MAX_CRASH_RESTARTS = 3
 
 
 class ManagerError(Exception):
@@ -53,12 +56,18 @@ class ServerManager:
     def __init__(self) -> None:
         self.hub = ConsoleHub()
         self._procs: dict[str, ServerProcess] = {}
+        self._crash_counts: dict[str, int] = {}
 
     # --- queries -----------------------------------------------------------
 
     def is_running(self, server_id: str) -> bool:
         proc = self._procs.get(server_id)
         return bool(proc and proc.running)
+
+    def get_process(self, server_id: str) -> ServerProcess | None:
+        """The live process for a server, if any (used by the stats endpoint)."""
+        proc = self._procs.get(server_id)
+        return proc if proc is not None and proc.running else None
 
     # --- status plumbing ---------------------------------------------------
 
@@ -74,11 +83,29 @@ class ServerManager:
 
     async def _on_state(self, server_id: str, status: str) -> None:
         server = self._write_status(server_id, status)
+        if status == ServerStatus.running.value:
+            self._crash_counts.pop(server_id, None)
         if status in (ServerStatus.stopped.value, ServerStatus.crashed.value):
             self._procs.pop(server_id, None)
             if status == ServerStatus.crashed.value and server is not None and server.crash_restart:
-                self.hub.publish(server_id, "[lectern] crash detected — restarting…")
+                crashes = self._crash_counts.get(server_id, 0) + 1
+                self._crash_counts[server_id] = crashes
+                if crashes > _MAX_CRASH_RESTARTS:
+                    self.hub.publish(
+                        server_id,
+                        f"[lectern] crashed {crashes} times in a row — giving up on auto-restart",
+                    )
+                    return
+                self.hub.publish(
+                    server_id,
+                    f"[lectern] crash detected — restarting… (attempt {crashes}/{_MAX_CRASH_RESTARTS})",
+                )
                 asyncio.create_task(self._delayed_restart(server_id))
+
+    def reset_crash_count(self, server_id: str) -> None:
+        """Forget crash history — called on a user-initiated start so a server
+        that exhausted its auto-restarts gets a fresh set of attempts."""
+        self._crash_counts.pop(server_id, None)
 
     async def _delayed_restart(self, server_id: str) -> None:
         await asyncio.sleep(_RESTART_DELAY)
@@ -157,7 +184,9 @@ class ServerManager:
 
     def reconcile(self) -> None:
         """At startup no processes exist; downgrade any stale live statuses so
-        the UI doesn't show a phantom running server after a restart."""
+        the UI doesn't show a phantom running server after a restart. Installs
+        run in-process, so a record still `installing` after a restart can
+        never finish — mark it failed rather than spinning forever."""
         stale = (
             ServerStatus.starting.value,
             ServerStatus.running.value,
@@ -167,6 +196,12 @@ class ServerManager:
             rows = session.exec(select(Server).where(Server.status.in_(stale))).all()
             for server in rows:
                 server.status = ServerStatus.stopped.value
+                session.add(server)
+            installing = session.exec(
+                select(Server).where(Server.status == ServerStatus.installing.value)
+            ).all()
+            for server in installing:
+                server.status = ServerStatus.install_failed.value
                 session.add(server)
             session.commit()
 

@@ -1,3 +1,25 @@
+// Server detail page — the hub for one server.
+//
+// Page anatomy (top to bottom):
+//   status chip + name → meta line → EULA gate (until accepted) →
+//   start/stop/restart/kill controls → StatsBar (only while running) →
+//   tab bar (Console | Properties) → active tab.
+//
+// Data flow:
+//   * `server` (ServerDetail) is fetched once on mount and refreshed after
+//     every action; while status is a transition ("starting"/"stopping") we
+//     poll every 1.5 s so the chip follows the process without a WebSocket.
+//   * The Console tab has its own WebSocket (useConsoleSocket) — independent
+//     of this polling.
+//   * StatsBar polls GET /stats on its own 5 s timer; mounting it only when
+//     status === "running" is what starts/stops that polling.
+//   * PropertiesTab reports saved settings back via onServerUpdate so the
+//     meta line (port/memory) updates without a refetch.
+//
+// Tabs are plain conditional rendering (no router): `tab` state picks which
+// component is mounted. Console unmounts while on Properties, dropping its
+// WebSocket; history replays from the server buffer when it remounts.
+
 import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
 import {
@@ -9,6 +31,10 @@ import {
   ServerStatus,
 } from "../../api/servers";
 import Console from "./Console";
+import PropertiesTab from "./PropertiesTab";
+import StatsBar from "./StatsBar";
+
+type Tab = "console" | "properties";
 
 const STATUS_STYLES: Record<ServerStatus, string> = {
   installing: "bg-sky-500 text-slate-900",
@@ -41,6 +67,7 @@ export default function ServerDetail({
   const [server, setServer] = useState<ServerDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<ServerAction | "eula" | null>(null);
+  const [tab, setTab] = useState<Tab>("console");
 
   const refresh = useCallback(async () => {
     try {
@@ -187,16 +214,67 @@ export default function ServerDetail({
         </div>
       )}
 
-      {/* Console */}
+      {/* Live stats — mounted only while running, which is also what starts
+          and stops the underlying 5s polling (see StatsBar). */}
+      {server.status === "running" && <StatsBar serverId={serverId} />}
+
+      {/* Tabs — plain conditional rendering, no router. */}
       {!installing && (
-        <section className="space-y-2">
-          <h3 className="text-sm font-medium text-slate-300">Console</h3>
-          <Console serverId={serverId} />
-        </section>
+        <>
+          <div className="flex gap-1 border-b border-slate-800">
+            <TabButton
+              label="Console"
+              active={tab === "console"}
+              onClick={() => setTab("console")}
+            />
+            <TabButton
+              label="Properties"
+              active={tab === "properties"}
+              onClick={() => setTab("properties")}
+            />
+          </div>
+
+          {tab === "console" && (
+            <section className="space-y-2">
+              <Console serverId={serverId} />
+            </section>
+          )}
+          {tab === "properties" && (
+            <PropertiesTab
+              serverId={serverId}
+              server={server}
+              onServerUpdate={setServer}
+            />
+          )}
+        </>
       )}
 
       {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
+  );
+}
+
+function TabButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={
+        "px-4 py-2 text-sm rounded-t border-b-2 -mb-px " +
+        (active
+          ? "border-emerald-500 text-slate-100"
+          : "border-transparent text-slate-400 hover:text-slate-200")
+      }
+    >
+      {label}
+    </button>
   );
 }
 
