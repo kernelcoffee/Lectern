@@ -1,0 +1,30 @@
+# Lectern runtime data (db, java runtimes, caches, backups, server files)
+/data/
+backend/data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.env
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+# compiled outputs of vite.config.ts
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Editor / OS
+.DS_Store
+.idea/
+*.swp
+
+# Reference projects are read-only inspiration, not part of the build
+/references/

@@ -1,0 +1,26 @@
+# Development image for the backend (hot-reload via mounted source).
+#
+# Built from the *repo root* context (see docker-compose.yml) so the shared
+# ../README.md referenced by pyproject.toml is reachable at build time.
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# curl/ca-certificates for outbound HTTPS. Lectern auto-downloads the per-version
+# JRE it needs at runtime, so no base JRE is baked in.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# The editable install needs pyproject, the package source, and the readme all
+# present. Copy just those first so the dependency layer is cached across changes
+# to tests/other files.
+COPY README.md /README.md
+COPY backend/pyproject.toml ./pyproject.toml
+COPY backend/lectern ./lectern
+RUN pip install --no-cache-dir -e ".[dev]"
+
+COPY backend/ .
+
+EXPOSE 8000
+CMD ["uvicorn", "lectern.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

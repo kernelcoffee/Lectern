@@ -1,0 +1,23 @@
+# Keep the build context small (backend builds from the repo root).
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+
+# Node / frontend build artifacts
+**/node_modules
+frontend/dist
+
+# Runtime data (db, downloaded JREs, caches, backups, server files)
+data
+backend/data
+
+# Local reference material (large; not part of the app)
+references
+
+# VCS / editor
+.git
+.gitignore
+**/.DS_Store
