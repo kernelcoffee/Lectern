@@ -127,11 +127,11 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-5">
+    <div className="p-6 space-y-5">
       <h2 className="text-xl font-semibold">New server</h2>
 
       {/* Server type pills (Crafty's edition tabs) */}
-      <div className="flex gap-1 border-b border-slate-800">
+      <div className="flex gap-1 border-b border-slate-800 max-w-3xl">
         {types.map((t) => (
           <button
             key={t.key}
@@ -159,7 +159,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
           e.preventDefault();
           submit();
         }}
-        className="rounded-lg border border-slate-800 p-5 space-y-5"
+        className="rounded-lg border border-slate-800 p-5 space-y-5 max-w-3xl"
       >
         <div className="grid sm:grid-cols-2 gap-4">
           <label className="text-sm space-y-1 sm:col-span-2">

@@ -123,7 +123,7 @@ function LecternSettingsForm({
   return (
     <section className="space-y-3">
       <h3 className="text-sm font-medium text-slate-300">Lectern settings</h3>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {SETTINGS_FIELDS.map((f) => (
           <label key={f.key} className="block text-xs text-slate-400 space-y-1">
             <span>
@@ -234,7 +234,11 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
   return (
     <section className="space-y-3">
       <h3 className="text-sm font-medium text-slate-300">server.properties</h3>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <p className="text-xs text-slate-500">
+        Blank fields aren't in the file yet — Minecraft writes its full
+        defaults on first start; only fields you change here are saved.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {rows.map((key) => (
           <PropertyField
             key={key}
@@ -292,12 +296,14 @@ function PropertyField({
 
   let input;
   if (definition?.type === "boolean") {
+    // Not the shared BoolSelect: a key absent from the file must show as
+    // unset ("—"), not silently as false.
     input = (
-      <BoolSelect
-        value={value === "true"}
-        onChange={(v) => onChange(v ? "true" : "false")}
-        highlight={edited}
-      />
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={base}>
+        {value === "" && <option value="">—</option>}
+        <option value="true">true</option>
+        <option value="false">false</option>
+      </select>
     );
   } else if (definition?.type === "enum" && definition.values) {
     input = (

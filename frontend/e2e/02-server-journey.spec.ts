@@ -36,8 +36,21 @@ test("full server journey: create → mods → properties → delete @full", asy
     timeout: 300_000,
   });
 
+  // --- conflict guard: same name (or port) is refused with a clear 409 ----
+  await page.locator("aside").getByRole("button", { name: "New server" }).click();
+  await page.getByLabel("Minecraft version").selectOption("1.20.1", {
+    timeout: 15_000,
+  });
+  await page.getByLabel("Server name").fill("e2e-journey");
+  await page.getByRole("button", { name: "Build server" }).click();
+  await expect(page.getByText(/already exists/)).toBeVisible();
+  await page.locator("aside").getByRole("button", { name: "Dashboard" }).click();
+
   // --- open detail; EULA gate is shown for a fresh server -----------------
-  await row.getByRole("button", { name: "e2e-journey" }).click();
+  await page
+    .locator("tr", { hasText: "e2e-journey" })
+    .getByRole("button", { name: "e2e-journey" })
+    .click();
   await expect(page.getByText(/accept the/i)).toBeVisible();
 
   // --- Mods tab: browse real Modrinth, install Fabric API -----------------

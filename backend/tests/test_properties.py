@@ -187,3 +187,19 @@ def test_patch_settings_bounds(client, engine, tmp_path):
 
 def test_patch_settings_missing_server_404(client):
     assert client.patch("/api/servers/nope", json={"memory_mb": 2048}).status_code == 404
+
+
+def test_patch_server_port_conflict_409(client, engine, tmp_path):
+    server_id = _installed_server(client, engine, tmp_path)
+    client.post(
+        "/api/servers", json={"name": "Other", "type": "vanilla", "mc_version": "1.21", "port": 25600}
+    )
+    resp = client.patch(
+        f"/api/servers/{server_id}/properties", json={"server-port": 25600}
+    )
+    assert resp.status_code == 409
+    assert "25600" in resp.json()["detail"]
+    # File untouched by the rejected edit.
+    from lectern.servers.properties import read_properties
+
+    assert read_properties(tmp_path)["server-port"] == "25565"

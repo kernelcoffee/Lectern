@@ -72,12 +72,34 @@ def list_servers(session: Session = Depends(get_session)) -> list[Server]:
     return list(session.exec(select(Server).order_by(Server.created_at)).all())
 
 
+def _check_conflicts(
+    session: Session, *, name: str | None, port: int | None, exclude_id: str | None = None
+) -> None:
+    """409 when another server already uses this name (case-insensitive) or
+    port. Ports must be unique across all servers — several records could
+    share one if never run together, but that's a foot-gun, not a feature."""
+    for other in session.exec(select(Server)).all():
+        if other.id == exclude_id:
+            continue
+        if name is not None and other.name.strip().lower() == name.strip().lower():
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f'A server named "{other.name}" already exists',
+            )
+        if port is not None and other.port == port:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f'Port {port} is already used by "{other.name}"',
+            )
+
+
 @router.post("", response_model=ServerRead, status_code=status.HTTP_201_CREATED)
 def create_server(
     payload: ServerCreate,
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
 ) -> Server:
+    _check_conflicts(session, name=payload.name, port=payload.port)
     server = Server(
         name=payload.name,
         type=payload.type.value,
@@ -177,6 +199,12 @@ def update_server_settings(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
 
     updates = payload.model_dump(exclude_unset=True)
+    _check_conflicts(
+        session,
+        name=updates.get("name"),
+        port=updates.get("port"),
+        exclude_id=server_id,
+    )
     for key, value in updates.items():
         setattr(server, key, value)
 
@@ -243,6 +271,12 @@ def patch_properties(
             errors.append(str(exc))
     if errors:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "; ".join(errors))
+
+    # A server-port change flows into the record below — reject conflicts
+    # before anything is written.
+    requested_port = file_props.get("server-port")
+    if "server-port" in updates and requested_port is not None and requested_port.isdigit():
+        _check_conflicts(session, name=None, port=int(requested_port), exclude_id=server_id)
 
     props.write_properties(server_dir, file_props)
 

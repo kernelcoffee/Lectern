@@ -140,7 +140,7 @@ export default function ServerDetail({
 
   if (!server) {
     return (
-      <div className="max-w-3xl mx-auto p-6 space-y-4">
+      <div className="p-6 space-y-4">
         <button onClick={onBack} className="text-sm text-slate-400 hover:text-slate-200">
           ← Back
         </button>
@@ -158,7 +158,7 @@ export default function ServerDetail({
     server.status === "installing" || server.status === "install_failed";
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-5">
+    <div className="p-6 space-y-5">
       <button onClick={onBack} className="text-sm text-slate-400 hover:text-slate-200">
         ← Dashboard
       </button>

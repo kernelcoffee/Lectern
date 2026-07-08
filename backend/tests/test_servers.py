@@ -110,3 +110,49 @@ def test_create_validation_error(client):
     # Missing required mc_version.
     resp = client.post("/api/servers", json={"name": "x", "type": "fabric"})
     assert resp.status_code == 422
+
+
+# --- name/port conflict validation ------------------------------------------
+
+
+def _create(client, name, port=25565):
+    return client.post(
+        "/api/servers",
+        json={"name": name, "type": "vanilla", "mc_version": "1.21", "port": port},
+    )
+
+
+def test_create_duplicate_name_409(client):
+    assert _create(client, "Alpha", 25565).status_code == 201
+    resp = _create(client, "alpha ", 25600)  # case/whitespace-insensitive
+    assert resp.status_code == 409
+    assert "already exists" in resp.json()["detail"]
+
+
+def test_create_duplicate_port_409(client):
+    assert _create(client, "Alpha", 25565).status_code == 201
+    resp = _create(client, "Beta", 25565)
+    assert resp.status_code == 409
+    assert "25565" in resp.json()["detail"]
+
+
+def test_create_distinct_name_and_port_ok(client):
+    assert _create(client, "Alpha", 25565).status_code == 201
+    assert _create(client, "Beta", 25566).status_code == 201
+
+
+def test_settings_patch_conflicts_409(client):
+    alpha = _create(client, "Alpha", 25565).json()["id"]
+    _create(client, "Beta", 25566)
+
+    assert (
+        client.patch(f"/api/servers/{alpha}", json={"name": "Beta"}).status_code
+        == 409
+    )
+    assert (
+        client.patch(f"/api/servers/{alpha}", json={"port": 25566}).status_code
+        == 409
+    )
+    # Re-saving its own values is not a conflict.
+    resp = client.patch(f"/api/servers/{alpha}", json={"name": "Alpha", "port": 25565})
+    assert resp.status_code == 200
