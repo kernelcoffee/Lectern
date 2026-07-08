@@ -38,6 +38,10 @@ test("full server journey: create → mods → properties → delete @full", asy
 
   // --- conflict guard: same name (or port) is refused with a clear 409 ----
   await page.locator("aside").getByRole("button", { name: "New server" }).click();
+  // The suggestion iterates past the taken port (e2e-journey holds 25565).
+  await expect(page.getByLabel("Server port")).toHaveValue("25566", {
+    timeout: 10_000,
+  });
   await page.getByLabel("Minecraft version").selectOption("1.20.1", {
     timeout: 15_000,
   });

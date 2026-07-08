@@ -16,7 +16,11 @@ import {
   getServerTypes,
   ServerTypeInfo,
 } from "../api/catalog";
-import { createServer, ServerType } from "../api/servers";
+import {
+  createServer,
+  ServerType,
+  suggestServerDefaults,
+} from "../api/servers";
 
 const TYPE_LABELS: Record<string, string> = {
   vanilla: "Vanilla",
@@ -45,8 +49,23 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
   const fail = (e: unknown) =>
     setError(e instanceof ApiError ? e.message : String(e));
 
+  // Prefill name/port with the backend's first-free suggestion ("New server
+  // 2", port 25566, …) so stacking servers needs no manual deconfliction.
+  // Applied only to untouched fields — a slow response must never overwrite
+  // something the user already typed.
+  const applySuggestion = () =>
+    suggestServerDefaults()
+      .then((s) => {
+        setName((prev) => (prev === "" ? s.name : prev));
+        setPort((prev) => (prev === 25565 ? s.port : prev));
+      })
+      .catch(() => {
+        // Suggestions are a convenience — the form still works without them.
+      });
+
   // Load types once and preselect the first (vanilla).
   useEffect(() => {
+    applySuggestion();
     getServerTypes()
       .then((ts) => {
         setTypes(ts);
@@ -97,6 +116,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     setMcVersion("");
     setLoaders([]);
     setLoader("");
+    applySuggestion();
   }
 
   const ready =

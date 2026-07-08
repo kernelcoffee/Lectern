@@ -36,6 +36,7 @@ from ..models import (
     ServerDetailRead,
     ServerRead,
     ServerSettingsUpdate,
+    ServerSuggestRead,
     ServerStatsRead,
     ServerStatus,
 )
@@ -70,6 +71,25 @@ def _detail(server: Server) -> ServerDetailRead:
 @router.get("", response_model=list[ServerRead])
 def list_servers(session: Session = Depends(get_session)) -> list[Server]:
     return list(session.exec(select(Server).order_by(Server.created_at)).all())
+
+
+# NB: declared before GET /{server_id} so "suggest" isn't read as an id.
+@router.get("/suggest", response_model=ServerSuggestRead)
+def suggest_defaults(session: Session = Depends(get_session)) -> ServerSuggestRead:
+    """First free name/port for the create form (mirrors _check_conflicts:
+    names compared case/whitespace-insensitively, ports across all servers)."""
+    servers = session.exec(select(Server)).all()
+    taken_names = {s.name.strip().lower() for s in servers}
+    base = "New server"
+    name, n = base, 2
+    while name.lower() in taken_names:
+        name = f"{base} {n}"
+        n += 1
+    taken_ports = {s.port for s in servers}
+    port = 25565
+    while port in taken_ports:
+        port += 1
+    return ServerSuggestRead(name=name, port=port)
 
 
 def _check_conflicts(

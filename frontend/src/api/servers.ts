@@ -111,6 +111,9 @@ export interface ServerStats {
 }
 
 export const listServers = () => apiGet<Server[]>("/api/servers");
+/** Next free name/port defaults for the create form. */
+export const suggestServerDefaults = () =>
+  apiGet<{ name: string; port: number }>("/api/servers/suggest");
 export const getServer = (id: string) =>
   apiGet<ServerDetail>(`/api/servers/${id}`);
 export const createServer = (body: ServerCreate) =>

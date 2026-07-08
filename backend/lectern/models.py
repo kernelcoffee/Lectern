@@ -136,6 +136,14 @@ class ServerCreate(SQLModel):
     memory_mb: int = 2048
 
 
+class ServerSuggestRead(SQLModel):
+    """Suggested defaults for the create-server form: the first name/port not
+    already taken (name "New server", "New server 2", …; port 25565 upward)."""
+
+    name: str
+    port: int
+
+
 class ServerRead(SQLModel):
     id: str
     name: str

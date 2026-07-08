@@ -156,3 +156,32 @@ def test_settings_patch_conflicts_409(client):
     # Re-saving its own values is not a conflict.
     resp = client.patch(f"/api/servers/{alpha}", json={"name": "Alpha", "port": 25565})
     assert resp.status_code == 200
+
+
+# --- create-form default suggestions -----------------------------------------
+
+
+def test_suggest_defaults_empty(client):
+    assert client.get("/api/servers/suggest").json() == {
+        "name": "New server",
+        "port": 25565,
+    }
+
+
+def test_suggest_defaults_iterate(client):
+    _create(client, "New server", 25565)
+    assert client.get("/api/servers/suggest").json() == {
+        "name": "New server 2",
+        "port": 25566,
+    }
+    _create(client, "new server 2 ", 25566)  # case/whitespace still counts
+    assert client.get("/api/servers/suggest").json() == {
+        "name": "New server 3",
+        "port": 25567,
+    }
+
+
+def test_suggest_defaults_fills_port_gap(client):
+    _create(client, "Alpha", 25566)  # 25565 itself is free
+    suggestion = client.get("/api/servers/suggest").json()
+    assert suggestion["port"] == 25565

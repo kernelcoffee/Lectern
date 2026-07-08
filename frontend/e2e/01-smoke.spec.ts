@@ -28,8 +28,17 @@ test("create page: fabric form loads real catalog and gates submit", async ({
   await page.locator("aside").getByRole("button", { name: "New server" }).click();
   await expect(page.getByRole("heading", { name: "New server" })).toBeVisible();
 
+  // Name and port are prefilled with the first free suggestion.
+  await expect(page.getByLabel("Server name")).toHaveValue("New server", {
+    timeout: 10_000,
+  });
+  await expect(page.getByLabel("Server port")).toHaveValue("25565");
+
   // Type pills — vanilla preselected, switch to Fabric.
   await page.getByRole("button", { name: /Fabric/ }).click();
+
+  // Build is gated on picking a version (name already suggested).
+  await expect(page.getByRole("button", { name: "Build server" })).toBeDisabled();
 
   // Real Minecraft version list for Fabric, then loader builds for 1.20.1.
   const version = page.getByLabel("Minecraft version");
@@ -38,14 +47,18 @@ test("create page: fabric form loads real catalog and gates submit", async ({
   const loader = page.getByLabel("Fabric loader build");
   await expect(loader).toBeVisible({ timeout: 15_000 });
   await expect(loader).not.toHaveValue("", { timeout: 15_000 });
-
-  // Build is gated on a name.
-  await expect(page.getByRole("button", { name: "Build server" })).toBeDisabled();
-  await page.getByLabel("Server name").fill("smoke-test");
   await expect(page.getByRole("button", { name: "Build server" })).toBeEnabled();
 
-  // Reset clears the form (don't submit — that's the @full journey).
+  // …and on a non-empty name.
+  await page.getByLabel("Server name").fill("");
+  await expect(page.getByRole("button", { name: "Build server" })).toBeDisabled();
+
+  // Reset clears the version and re-suggests the name (don't submit — that's
+  // the @full journey).
   await page.getByRole("button", { name: "Reset" }).click();
+  await expect(page.getByLabel("Server name")).toHaveValue("New server", {
+    timeout: 10_000,
+  });
   await expect(page.getByRole("button", { name: "Build server" })).toBeDisabled();
 });
 
