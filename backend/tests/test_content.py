@@ -202,7 +202,9 @@ def test_install_unknown_version_400(client, engine, tmp_path, catalog):
     assert resp.status_code == 400
 
 
-def test_vanilla_server_409(client, engine, tmp_path, catalog):
+def test_mod_on_vanilla_server_400(client, engine, tmp_path, catalog):
+    # Vanilla servers can hold resource packs but not mods — the refusal
+    # happens at resolution time (the project's type decides, M7).
     server_id = client.post(
         "/api/servers", json={"name": "V", "type": "vanilla", "mc_version": "1.20.1"}
     ).json()["id"]
@@ -214,7 +216,8 @@ def test_vanilla_server_409(client, engine, tmp_path, catalog):
     resp = client.post(
         f"/api/servers/{server_id}/content", json={"project_id": "P_fapi"}
     )
-    assert resp.status_code == 409
+    assert resp.status_code == 400
+    assert "cannot load" in resp.json()["detail"]
 
 
 # --- toggle / remove ----------------------------------------------------------

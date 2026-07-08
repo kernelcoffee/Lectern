@@ -34,9 +34,10 @@ import {
 import Console from "./Console";
 import ModsTab from "./ModsTab";
 import PropertiesTab from "./PropertiesTab";
+import ResourcePacksTab from "./ResourcePacksTab";
 import StatsBar from "./StatsBar";
 
-type Tab = "console" | "mods" | "properties";
+type Tab = "console" | "mods" | "resourcepacks" | "properties";
 
 // Server types that load mods — the Mods tab only renders for these.
 const MODDED_TYPES: ServerDetailType["type"][] = ["fabric", "quilt", "paper"];
@@ -266,6 +267,11 @@ export default function ServerDetail({
               />
             )}
             <TabButton
+              label="Resource packs"
+              active={tab === "resourcepacks"}
+              onClick={() => setTab("resourcepacks")}
+            />
+            <TabButton
               label="Properties"
               active={tab === "properties"}
               onClick={() => setTab("properties")}
@@ -278,6 +284,9 @@ export default function ServerDetail({
             </section>
           )}
           {tab === "mods" && <ModsTab serverId={serverId} server={server} />}
+          {tab === "resourcepacks" && (
+            <ResourcePacksTab serverId={serverId} server={server} />
+          )}
           {tab === "properties" && (
             <PropertiesTab
               serverId={serverId}

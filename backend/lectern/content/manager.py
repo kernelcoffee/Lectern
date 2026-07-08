@@ -205,9 +205,23 @@ async def _resolve_install_set(
 ) -> list[tuple[dict, dict]]:
     """The requested project + its dependency closure, as (project, version)
     pairs. ``skip_projects`` (already-installed ids) prune the walk; a
-    processed set guards cycles. Dependency names come from one bulk call."""
+    processed set guards cycles. Dependency names come from one bulk call.
+
+    The loader facet only applies to mods/plugins — resource packs are
+    loaderless on Modrinth (only the game version filters them), and a mod
+    can't be installed at all without a loader (vanilla server)."""
     root_project = await source.get_project(project_ref)
     root_id = root_project["id"]
+
+    kind = root_project.get("project_type", "mod")
+    if kind in ("mod", "plugin"):
+        if loader is None:
+            raise ContentError(
+                f"{root_project.get('title', project_ref)} is a {kind} — "
+                "this server type cannot load it"
+            )
+    else:
+        loader = None
 
     versions = await source.list_versions(root_id, loader=loader, mc_version=mc_version)
     if version_id is not None:
@@ -304,9 +318,16 @@ async def install(
             file = modrinth.primary_file(version)
             if file is None:
                 raise ContentError(f"{project.get('title')}: version has no files")
+            # Store the loader the item was actually resolved under — None
+            # for loaderless kinds (resource packs), whatever the server is.
+            item_loader = (
+                loader
+                if project.get("project_type", "mod") in ("mod", "plugin")
+                else None
+            )
             new_item = _build_item(
                 project, version, file,
-                loader=loader, mc_version=mc_version, channel=channel,
+                loader=item_loader, mc_version=mc_version, channel=channel,
             )
             old_item = by_project.get(new_item["project_id"])
             if old_item is not None:
@@ -380,20 +401,22 @@ async def remove(
         _sync_rows(session, server_id, items)
 
 
-async def check_updates(
-    server_dir: Path, *, loader: str | None, mc_version: str
-) -> list[dict]:
+async def check_updates(server_dir: Path, *, mc_version: str) -> list[dict]:
     """Installed items with a newer qualifying version. Returns
-    ``[{item, new_version}]`` (manifest item + Modrinth version dict)."""
+    ``[{item, new_version}]`` (manifest item + Modrinth version dict).
+    Each item is checked with the loader it was installed under (``None``
+    for loaderless kinds like resource packs)."""
     results: list[dict] = []
     for item in read_manifest(server_dir):
         if not item.get("project_id") or not item.get("version_id"):
-            continue  # manually-dropped file — nothing to check against
+            continue  # generated/uploaded file — nothing to check against
         source = get_source(item["source"])
+        if not hasattr(source, "check_update"):
+            continue  # e.g. vanillatweaks — regenerate instead of update
         newest = await source.check_update(
             item["project_id"],
             item["version_id"],
-            loader=loader,
+            loader=item.get("loader"),
             mc_version=mc_version,
             channel=item.get("channel", "release"),
         )
@@ -408,20 +431,22 @@ async def apply_update(
     server_dir: Path,
     item_id: str,
     *,
-    loader: str | None,
     mc_version: str,
 ) -> ContentItem:
-    """Swap an installed item's file for the newest qualifying version."""
+    """Swap an installed item's file for the newest qualifying version
+    (checked under the loader the item was installed with)."""
     async with _lock(server_id):
         items = read_manifest(server_dir)
         item = _find(items, item_id)
         if not item.get("project_id"):
             raise ContentError("Item has no source project — cannot update")
         source = get_source(item["source"])
+        if not hasattr(source, "check_update"):
+            raise ContentError("This item is regenerated, not updated")
         newest = await source.check_update(
             item["project_id"],
             item["version_id"] or "",
-            loader=loader,
+            loader=item.get("loader"),
             mc_version=mc_version,
             channel=item.get("channel", "release"),
         )

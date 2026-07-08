@@ -12,11 +12,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
 from ..content import manager as content
+from ..content import resourcepacks as rp
 from ..content.manager import ContentError
+from ..content.resourcepacks import ResourcePackError
 from ..db import get_session
 from ..models import (
     ContentInstallRequest,
@@ -26,15 +29,22 @@ from ..models import (
     ContentUpdateRead,
     ReleaseChannel,
     Server,
+    ServerResourcePackUpdate,
+    VanillaTweaksInstallRequest,
 )
 from ..providers import modrinth
+from ..providers import vanillatweaks as vt
 from ..providers.base import ChecksumMismatch
+from ..providers.vanillatweaks import VanillaTweaksError
 
 router = APIRouter(prefix="/api", tags=["content"])
 
-# Which loader category to search Modrinth with, per server type. Vanilla has
-# no entry — it can't load mods, and the API refuses content ops for it.
+# Which loader category to search/install Modrinth mods with, per server
+# type. Vanilla has no entry — mods are refused for it (by the manager),
+# while loaderless kinds (resource packs) work on every type.
 _LOADERS = {"fabric": "fabric", "quilt": "quilt", "paper": "paper"}
+
+_MAX_UPLOAD = 100 * 1024 * 1024  # 100 MB — generous for a resource pack
 
 
 def _get_server(server_id: str, session: Session) -> Server:
@@ -44,19 +54,15 @@ def _get_server(server_id: str, session: Session) -> Server:
     return server
 
 
-def _content_context(server: Server) -> tuple[str, Path]:
-    """(loader, server_dir) for content operations, or the right HTTP error."""
-    loader = _LOADERS.get(server.type)
-    if loader is None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            f"{server.type} servers do not support mods",
-        )
+def _content_context(server: Server) -> tuple[str | None, Path]:
+    """(loader-or-None, server_dir) for content operations. The loader is
+    ``None`` for loaderless server types — installing a *mod* then fails in
+    the manager; resource packs go through fine."""
     if not server.path:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "Server is not installed yet"
         )
-    return loader, Path(server.path)
+    return _LOADERS.get(server.type), Path(server.path)
 
 
 # --- catalog-ish (server-agnostic) -----------------------------------------
@@ -157,10 +163,8 @@ async def content_updates(
 ) -> list[ContentUpdateRead]:
     """Installed items with a newer version qualifying under their channel."""
     server = _get_server(server_id, session)
-    loader, server_dir = _content_context(server)
-    found = await content.check_updates(
-        server_dir, loader=loader, mc_version=server.mc_version
-    )
+    _, server_dir = _content_context(server)
+    found = await content.check_updates(server_dir, mc_version=server.mc_version)
     return [
         ContentUpdateRead(
             item_id=entry["item"]["id"],
@@ -209,14 +213,13 @@ async def update_content(
 ) -> ContentItem:
     """Swap the item's file for the newest version allowed by its channel."""
     server = _get_server(server_id, session)
-    loader, server_dir = _content_context(server)
+    _, server_dir = _content_context(server)
     try:
         return await content.apply_update(
             session,
             server_id,
             server_dir,
             item_id,
-            loader=loader,
             mc_version=server.mc_version,
         )
     except ContentError as exc:
@@ -245,3 +248,140 @@ async def delete_content(
         await content.remove(session, server_id, server_dir, item_id)
     except ContentError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+
+# --- resource packs (M7) -----------------------------------------------------
+
+
+@router.get("/servers/{server_id}/vanillatweaks/categories")
+async def vanillatweaks_categories(
+    server_id: str, session: Session = Depends(get_session)
+) -> dict:
+    """VT resource-pack categories for this server's Minecraft version
+    (raw Vanilla Tweaks payload; 502 when their unofficial API is down)."""
+    server = _get_server(server_id, session)
+    try:
+        return await vt.categories(server.mc_version)
+    except VanillaTweaksError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+
+@router.post(
+    "/servers/{server_id}/vanillatweaks",
+    response_model=ContentItemRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def install_vanillatweaks(
+    server_id: str,
+    body: VanillaTweaksInstallRequest,
+    session: Session = Depends(get_session),
+) -> ContentItem:
+    """Generate + install a VT pack from a share code or explicit selection.
+    Replaces the server's previous VT pack; an unchanged selection is a
+    no-op (fingerprint match)."""
+    server = _get_server(server_id, session)
+    _, server_dir = _content_context(server)
+    packs = body.packs
+    try:
+        if body.share_code:
+            definition = await vt.resolve_share_code(body.share_code.strip())
+            if definition.get("type") not in (None, "resourcepacks"):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"Share code is for {definition['type']}, not resource packs",
+                )
+            packs = definition.get("packs") or {}
+        if not packs:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "No packs selected"
+            )
+        return await rp.install_vanillatweaks(
+            session, server_id, server_dir, packs=packs, mc_version=server.mc_version
+        )
+    except VanillaTweaksError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    except ResourcePackError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.post(
+    "/servers/{server_id}/content/upload",
+    response_model=ContentItemRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_content(
+    server_id: str,
+    file: UploadFile,
+    session: Session = Depends(get_session),
+) -> ContentItem:
+    """Upload a resource-pack zip (validated via its pack.mcmeta)."""
+    server = _get_server(server_id, session)
+    _, server_dir = _content_context(server)
+    data = await file.read(_MAX_UPLOAD + 1)
+    if len(data) > _MAX_UPLOAD:
+        raise HTTPException(
+            status.HTTP_413_CONTENT_TOO_LARGE, "Pack exceeds 100 MB"
+        )
+    try:
+        return await rp.install_upload(
+            session,
+            server_id,
+            server_dir,
+            filename=file.filename or "resource-pack.zip",
+            data=data,
+        )
+    except ResourcePackError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/servers/{server_id}/content/{item_id}/file")
+def download_content_file(
+    server_id: str,
+    item_id: str,
+    session: Session = Depends(get_session),
+) -> FileResponse:
+    """Serve an item's file — this is the URL ``resource-pack`` points at so
+    Minecraft clients can fetch the pack."""
+    server = _get_server(server_id, session)
+    _, server_dir = _content_context(server)
+    item = session.get(ContentItem, item_id)
+    if item is None or item.server_id != server_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Content item not found")
+    path = server_dir / content.KIND_DIRS.get(item.kind, item.kind) / item.filename
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not on disk")
+    return FileResponse(path, filename=item.filename)
+
+
+@router.post("/servers/{server_id}/content/{item_id}/serve")
+def set_server_pack(
+    server_id: str,
+    item_id: str,
+    body: ServerResourcePackUpdate,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Set (or clear) this pack as the server's ``resource-pack`` prompt.
+
+    The URL is derived from this request's origin — it must be reachable by
+    the *players'* machines (works on a LAN; a proxied/dev origin follows
+    whatever host the browser used). Applies at next server start.
+    """
+    server = _get_server(server_id, session)
+    _, server_dir = _content_context(server)
+    item = session.get(ContentItem, item_id)
+    if item is None or item.server_id != server_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Content item not found")
+    if item.kind != "resourcepack":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Not a resource pack")
+
+    if body.enabled:
+        path = server_dir / content.KIND_DIRS["resourcepack"] / item.filename
+        if not path.exists():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "File not on disk")
+        url = f"{str(request.base_url).rstrip('/')}/api/servers/{server_id}/content/{item_id}/file"
+        sha1 = rp.sha1_of(path)
+        rp.set_server_resource_pack(server_dir, url=url, sha1=sha1)
+        return {"resource_pack": url, "resource_pack_sha1": sha1}
+    rp.set_server_resource_pack(server_dir, url="", sha1="")
+    return {"resource_pack": None, "resource_pack_sha1": None}

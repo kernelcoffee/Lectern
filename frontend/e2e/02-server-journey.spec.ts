@@ -104,6 +104,27 @@ test("full server journey: create → mods → properties → delete @full", asy
   await modRow.getByRole("button", { name: "Remove" }).click();
   await expect(page.getByText("No mods installed yet")).toBeVisible();
 
+  // --- Resource Packs tab: upload a pack, offer it in game, remove --------
+  await page.getByRole("button", { name: "Resource packs" }).click();
+  await expect(page.getByText("No resource packs yet")).toBeVisible();
+  const fileChooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Upload zip" }).click();
+  await (await fileChooserPromise).setFiles("e2e/fixtures/e2e-pack.zip");
+
+  const packRow = page.locator("li", { hasText: "E2E test pack" });
+  await expect(packRow).toBeVisible({ timeout: 15_000 });
+
+  // Point the server's resource-pack prompt at it (writes server.properties).
+  await packRow.getByRole("button", { name: "Use in game" }).click();
+  await expect(page.getByText("offered in game")).toBeVisible({ timeout: 15_000 });
+  await packRow.getByRole("button", { name: "Stop offering" }).click();
+  await expect(page.getByText("offered in game")).not.toBeVisible({
+    timeout: 15_000,
+  });
+
+  await packRow.getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByText("No resource packs yet")).toBeVisible();
+
   // --- Properties tab: edit a property and persist it ---------------------
   await page.getByRole("button", { name: "Properties" }).click();
   // Two Save buttons on this tab (settings vs server.properties), and the

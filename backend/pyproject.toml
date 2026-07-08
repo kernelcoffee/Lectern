@@ -12,6 +12,8 @@ dependencies = [
     "apscheduler>=3.10",
     "psutil>=5.9",
     "pydantic-settings>=2.4",
+    # FastAPI multipart form parsing (resource-pack upload, M7).
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

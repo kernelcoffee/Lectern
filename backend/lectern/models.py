@@ -281,6 +281,26 @@ class ContentItemUpdate(SQLModel):
     channel: ReleaseChannel | None = None
 
 
+class VanillaTweaksInstallRequest(SQLModel):
+    """POST payload to generate + install a Vanilla Tweaks pack (M7).
+
+    Either a ``share_code`` (resolved through VT's API — the friendlier path)
+    or an explicit ``packs`` selection ``{category: [packId, …]}``. When both
+    are present the share code wins.
+    """
+
+    share_code: str | None = None
+    packs: dict[str, list[str]] | None = None
+
+
+class ServerResourcePackUpdate(SQLModel):
+    """POST payload for the optional in-game resource-pack prompt: enable
+    points ``resource-pack``/``resource-pack-sha1`` at the item's download
+    URL; disable clears both keys."""
+
+    enabled: bool = True
+
+
 class ContentUpdateRead(SQLModel):
     """One entry of ``GET /servers/{id}/content/updates`` — an installed item
     with a newer qualifying version available."""
