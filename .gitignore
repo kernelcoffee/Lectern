@@ -28,3 +28,6 @@ frontend/vite.config.d.ts
 
 # Reference projects are read-only inspiration, not part of the build
 /references/
+
+# E2E (Playwright)
+.e2e-data/

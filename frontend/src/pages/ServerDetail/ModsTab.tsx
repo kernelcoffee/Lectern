@@ -313,6 +313,7 @@ function BrowseModal({
       onClick={onClose}
     >
       <div
+        data-testid="browse-modal"
         className="bg-slate-900 border border-slate-700 rounded-lg w-full max-w-2xl p-4 space-y-3"
         onClick={(e) => e.stopPropagation()}
       >
