@@ -17,15 +17,22 @@ test("full server journey: create → mods → properties → delete @full", asy
   // --- create a Fabric 1.20.1 server on the New-server page ----------------
   await page.goto("/");
   await page.locator("aside").getByRole("button", { name: "New server" }).click();
-  await page.getByRole("button", { name: /Fabric/ }).click();
-  await page.getByLabel("Minecraft version").selectOption("1.20.1", {
+  await page.getByLabel("Server type").selectOption("fabric", {
     timeout: 15_000,
   });
+  // Wait for the fabric reload (loader field appears with the newest build
+  // for the auto-preselected latest version), then pin MC 1.20.1.
   await expect(page.getByLabel("Fabric loader build")).not.toHaveValue("", {
     timeout: 15_000,
   });
+  await page.getByLabel("Minecraft version").selectOption("1.20.1", {
+    timeout: 15_000,
+  });
   await page.getByLabel("Server name").fill("e2e-journey");
-  await page.getByRole("button", { name: "Build server" }).click();
+  // Build waits out the loader refetch for 1.20.1 (disabled while loading).
+  const build = page.getByRole("button", { name: "Build server" });
+  await expect(build).toBeEnabled({ timeout: 15_000 });
+  await build.click();
 
   // Back on the dashboard: the table row appears in the sidebar + table and
   // flips from installing to stopped once jar + JRE are in place.

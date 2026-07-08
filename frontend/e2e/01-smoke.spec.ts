@@ -21,54 +21,67 @@ test("app shell: sidebar, dashboard default, backend health", async ({
   await expect(page.getByText("Welcome to Lectern!")).toBeVisible();
 });
 
-test("create page: fabric form loads real catalog and gates submit", async ({
+test("create page: everything preselected, fabric via dropdown, submit gating", async ({
   page,
 }) => {
   await page.goto("/");
   await page.locator("aside").getByRole("button", { name: "New server" }).click();
   await expect(page.getByRole("heading", { name: "New server" })).toBeVisible();
 
-  // Name and port are prefilled with the first free suggestion.
+  // Name/port prefilled with the first free suggestion; type defaults to
+  // vanilla and the latest stable version is preselected — a fresh page is
+  // submittable as-is.
   await expect(page.getByLabel("Server name")).toHaveValue("New server", {
     timeout: 10_000,
   });
   await expect(page.getByLabel("Server port")).toHaveValue("25565");
+  await expect(page.getByLabel("Server type")).toHaveValue("vanilla", {
+    timeout: 15_000,
+  });
+  await expect(page.getByLabel("Minecraft version")).not.toHaveValue("", {
+    timeout: 15_000,
+  });
+  await expect(page.getByRole("button", { name: "Build server" })).toBeEnabled();
 
-  // Type pills — vanilla preselected, switch to Fabric.
-  await page.getByRole("button", { name: /Fabric/ }).click();
-
-  // Build is gated on picking a version (name already suggested).
-  await expect(page.getByRole("button", { name: "Build server" })).toBeDisabled();
-
-  // Real Minecraft version list for Fabric, then loader builds for 1.20.1.
-  const version = page.getByLabel("Minecraft version");
-  await expect(version).toBeVisible({ timeout: 15_000 });
-  await version.selectOption("1.20.1");
+  // Switch to Fabric via the dropdown: versions reload (latest preselected
+  // again) and the newest loader build comes prefilled.
+  await page.getByLabel("Server type").selectOption("fabric");
+  await expect(page.getByLabel("Minecraft version")).not.toHaveValue("", {
+    timeout: 15_000,
+  });
   const loader = page.getByLabel("Fabric loader build");
   await expect(loader).toBeVisible({ timeout: 15_000 });
   await expect(loader).not.toHaveValue("", { timeout: 15_000 });
+  // Older versions remain selectable.
+  await page.getByLabel("Minecraft version").selectOption("1.20.1");
+  await expect(loader).not.toHaveValue("", { timeout: 15_000 });
   await expect(page.getByRole("button", { name: "Build server" })).toBeEnabled();
 
-  // …and on a non-empty name.
+  // Submit is gated on a non-empty name.
   await page.getByLabel("Server name").fill("");
   await expect(page.getByRole("button", { name: "Build server" })).toBeDisabled();
 
-  // Reset clears the version and re-suggests the name (don't submit — that's
-  // the @full journey).
+  // Reset re-suggests the name and re-preselects the latest version (don't
+  // submit — that's the @full journey).
   await page.getByRole("button", { name: "Reset" }).click();
   await expect(page.getByLabel("Server name")).toHaveValue("New server", {
     timeout: 10_000,
   });
-  await expect(page.getByRole("button", { name: "Build server" })).toBeDisabled();
+  await expect(page.getByLabel("Minecraft version")).not.toHaveValue("", {
+    timeout: 15_000,
+  });
+  await expect(page.getByRole("button", { name: "Build server" })).toBeEnabled();
 });
 
 test("vanilla type has no loader field", async ({ page }) => {
   await page.goto("/");
   await page.locator("aside").getByRole("button", { name: "New server" }).click();
-  // Vanilla is preselected (first type); its version list loads.
-  await expect(page.getByLabel("Minecraft version")).toBeVisible({
+  // Vanilla is the default type; latest version preselected, no loader field.
+  await expect(page.getByLabel("Server type")).toHaveValue("vanilla", {
     timeout: 15_000,
   });
-  await page.getByLabel("Minecraft version").selectOption("1.20.1");
+  await expect(page.getByLabel("Minecraft version")).not.toHaveValue("", {
+    timeout: 15_000,
+  });
   await expect(page.getByLabel("Fabric loader build")).not.toBeVisible();
 });

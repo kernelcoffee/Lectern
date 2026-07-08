@@ -1,11 +1,13 @@
-// New-server page, Crafty-wizard-inspired: server type as pill tabs, then one
-// card with the identity fields (name, Minecraft version, loader build) and a
-// "Quick settings" section (port, memory), closed by Build/Reset buttons.
+// New-server page, Crafty-wizard-inspired: one card with the identity fields
+// (name, server type, Minecraft version, loader build) and a "Quick settings"
+// section (port, memory), closed by Build/Reset buttons.
 //
-// The old 4-step wizard is folded into a single form: picking a type loads its
-// version list, picking a version loads loader builds (Fabric), everything
-// else is just fields. Submit posts the record and the backend installs in
-// the background — the caller navigates to the dashboard where the row shows
+// Everything is preselected to the most common choice: first server type,
+// latest stable Minecraft version (both catalogs are newest-first), newest
+// loader build — so a fresh page is submittable as-is. Picking a type reloads
+// its version list (re-preselecting the latest), picking a version reloads
+// loader builds. Submit posts the record and the backend installs in the
+// background — the caller navigates to the dashboard where the row shows
 // live install progress.
 
 import { useEffect, useState } from "react";
@@ -82,7 +84,10 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     setLoader("");
     setLoadingVersions(true);
     try {
-      setMcVersions(await getMinecraftVersions(t.key));
+      const versions = await getMinecraftVersions(t.key);
+      setMcVersions(versions);
+      // Preselect the latest stable (catalogs are newest-first).
+      if (versions.length > 0) await chooseVersion(versions[0], t);
     } catch (e) {
       fail(e);
     } finally {
@@ -90,13 +95,17 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     }
   }
 
-  async function chooseVersion(v: string) {
+  // `forType` avoids reading stale state when called from chooseType.
+  async function chooseVersion(v: string, forType: ServerTypeInfo | null = type) {
     setMcVersion(v);
-    if (!type?.needs_loader || !v) {
+    if (!forType?.needs_loader || !v) {
       setLoaders([]);
       setLoader("");
       return;
     }
+    // Clear the previous version's build immediately — it must not be
+    // submittable against the new version while the list loads.
+    setLoader("");
     setLoadingLoaders(true);
     try {
       const ls = await getFabricLoaders(v);
@@ -113,10 +122,14 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     setName("");
     setPort(25565);
     setMemory(2048);
-    setMcVersion("");
-    setLoaders([]);
-    setLoader("");
     applySuggestion();
+    if (type) {
+      chooseType(type); // re-preselects the latest version (+ newest loader)
+    } else {
+      setMcVersion("");
+      setLoaders([]);
+      setLoader("");
+    }
   }
 
   const ready =
@@ -150,30 +163,6 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     <div className="p-6 space-y-5">
       <h2 className="text-xl font-semibold">New server</h2>
 
-      {/* Server type pills (Crafty's edition tabs) */}
-      <div className="flex gap-1 border-b border-slate-800 max-w-3xl">
-        {types.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => chooseType(t)}
-            className={
-              "px-4 py-2 text-sm rounded-t border-b-2 -mb-px " +
-              (type?.key === t.key
-                ? "border-emerald-500 text-slate-100"
-                : "border-transparent text-slate-400 hover:text-slate-200")
-            }
-          >
-            {TYPE_LABELS[t.key] ?? t.key}
-            {t.needs_loader && (
-              <span className="ml-1.5 text-[10px] text-slate-500">mod loader</span>
-            )}
-          </button>
-        ))}
-        {types.length === 0 && (
-          <p className="px-2 py-2 text-sm text-slate-500">Loading types…</p>
-        )}
-      </div>
-
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -192,6 +181,27 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
               placeholder="My new server"
               className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5"
             />
+          </label>
+
+          <label className="text-sm space-y-1">
+            <span className="text-slate-400">Server type</span>
+            <select
+              value={type?.key ?? ""}
+              onChange={(e) => {
+                const t = types.find((x) => x.key === e.target.value);
+                if (t) chooseType(t);
+              }}
+              disabled={types.length === 0}
+              className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 disabled:opacity-50"
+            >
+              {types.length === 0 && <option value="">Loading types…</option>}
+              {types.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {TYPE_LABELS[t.key] ?? t.key}
+                  {t.needs_loader ? " (mod loader)" : ""}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="text-sm space-y-1">
