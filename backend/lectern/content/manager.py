@@ -129,6 +129,35 @@ def _sync_rows(session: Session, server_id: str, items: list[dict]) -> None:
     session.commit()
 
 
+def ensure_synced(session: Session, server_id: str, server_dir: Path) -> None:
+    """Re-mirror rows from the manifest when the two disagree.
+
+    The manifest is the source of truth; rows can go stale if a past sync
+    failed after files were already placed (e.g. the pre-column-migration
+    500) or if the server directory was restored/edited out of band. Cheap
+    no-op when everything matches — safe to call from the list endpoint.
+    """
+    items = read_manifest(server_dir)
+    rows = session.exec(
+        select(ContentItem).where(ContentItem.server_id == server_id)
+    ).all()
+    manifest_state = {
+        (
+            i["id"],
+            i.get("version_id"),
+            i.get("channel", "release"),
+            i.get("enabled", True),
+            i["filename"],
+        )
+        for i in items
+    }
+    row_state = {
+        (r.id, r.version_id, r.channel, r.enabled, r.filename) for r in rows
+    }
+    if manifest_state != row_state:
+        _sync_rows(session, server_id, items)
+
+
 # --- resolution ------------------------------------------------------------
 
 

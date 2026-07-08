@@ -118,15 +118,18 @@ export default function ModsTab({
       await refresh();
     });
 
-  const install = (hit: SearchHit, includeOptional: boolean) =>
-    run("install", async () => {
-      const installed = await installContent(serverId, {
-        project_id: hit.project_id,
-        include_optional_deps: includeOptional,
-      });
-      setNotice(`Installed: ${installed.map((i) => i.name).join(", ")}`);
-      await refresh();
+  // Runs inside the browse modal, which shows its own busy/error/success —
+  // errors must NOT land in the tab's error slot (it's hidden behind the
+  // modal). Throws so the modal can catch and display.
+  const install = async (hit: SearchHit, includeOptional: boolean) => {
+    const installed = await installContent(serverId, {
+      project_id: hit.project_id,
+      include_optional_deps: includeOptional,
     });
+    setNotice(`Installed: ${installed.map((i) => i.name).join(", ")}`);
+    await refresh();
+    return installed;
+  };
 
   const updateFor = (id: string) => updates?.find((u) => u.item_id === id);
 
@@ -239,7 +242,6 @@ export default function ModsTab({
         <BrowseModal
           server={server}
           installedProjects={new Set((items ?? []).map((i) => i.project_id ?? ""))}
-          busy={busy === "install"}
           onInstall={install}
           onClose={() => setBrowsing(false)}
         />
@@ -253,14 +255,12 @@ export default function ModsTab({
 function BrowseModal({
   server,
   installedProjects,
-  busy,
   onInstall,
   onClose,
 }: {
   server: ServerDetail;
   installedProjects: Set<string>;
-  busy: boolean;
-  onInstall: (hit: SearchHit, includeOptional: boolean) => Promise<void>;
+  onInstall: (hit: SearchHit, includeOptional: boolean) => Promise<{ name: string }[]>;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -268,6 +268,22 @@ function BrowseModal({
   const [searching, setSearching] = useState(false);
   const [includeOptional, setIncludeOptional] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [installing, setInstalling] = useState<string | null>(null); // project_id
+  const [installNotice, setInstallNotice] = useState<string | null>(null);
+
+  async function install(hit: SearchHit) {
+    setInstalling(hit.project_id);
+    setError(null);
+    setInstallNotice(null);
+    try {
+      const installed = await onInstall(hit, includeOptional);
+      setInstallNotice(`Installed: ${installed.map((i) => i.name).join(", ")}`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setInstalling(null);
+    }
+  }
 
   // Search as the user types (debounced); empty query = Modrinth's most
   // popular mods for this loader + MC version, a sensible starting page.
@@ -328,6 +344,7 @@ function BrowseModal({
         </label>
 
         {error && <p className="text-sm text-red-400">{error}</p>}
+        {installNotice && <p className="text-xs text-sky-400">{installNotice}</p>}
         {searching && <p className="text-xs text-slate-500">Searching…</p>}
 
         <ul className="divide-y divide-slate-800">
@@ -350,11 +367,15 @@ function BrowseModal({
                   <p className="text-xs text-slate-500 truncate">{hit.description}</p>
                 </div>
                 <button
-                  onClick={() => onInstall(hit, includeOptional)}
-                  disabled={busy || installed}
+                  onClick={() => install(hit)}
+                  disabled={installing !== null || installed}
                   className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded px-2.5 py-1 text-xs font-medium text-slate-900 shrink-0"
                 >
-                  {installed ? "Installed" : busy ? "…" : "Install"}
+                  {installed
+                    ? "Installed"
+                    : installing === hit.project_id
+                      ? "Installing…"
+                      : "Install"}
                 </button>
               </li>
             );

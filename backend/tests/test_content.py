@@ -14,10 +14,10 @@ import json
 from pathlib import Path
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from lectern.content import manager as content
-from lectern.models import Server
+from lectern.models import ContentItem, Server
 
 # --- fake Modrinth catalog ---------------------------------------------------
 #
@@ -248,6 +248,22 @@ def test_remove_cleans_up(client, engine, tmp_path, catalog):
     assert not (tmp_path / "mods/P_opt-3.0.0.jar").exists()
     # Unknown item — 404.
     assert client.delete(f"/api/servers/{sid}/content/{item['id']}").status_code == 404
+
+
+def test_list_resyncs_rows_from_manifest(client, engine, tmp_path, catalog):
+    """The manifest is the source of truth: if the DB mirror is lost (e.g. a
+    sync that failed mid-way, as with the pre-migration 500), listing repairs
+    it instead of returning stale rows."""
+    sid = _fabric_server(client, engine, tmp_path)
+    client.post(f"/api/servers/{sid}/content", json={"project_id": "P_opt"})
+    with Session(engine) as session:
+        for row in session.exec(select(ContentItem)).all():
+            session.delete(row)
+        session.commit()
+
+    listed = client.get(f"/api/servers/{sid}/content").json()
+    assert [i["name"] for i in listed] == ["Opt"]
+    assert listed[0]["id"] == _manifest(tmp_path)[0]["id"]
 
 
 # --- updates -------------------------------------------------------------------

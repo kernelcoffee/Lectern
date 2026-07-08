@@ -102,7 +102,11 @@ async def project_versions(
 def list_content(
     server_id: str, session: Session = Depends(get_session)
 ) -> list[ContentItem]:
-    _get_server(server_id, session)
+    server = _get_server(server_id, session)
+    if server.path:
+        # Manifest is the source of truth — repair the row mirror if a past
+        # sync failed or the server dir was changed out of band.
+        content.ensure_synced(session, server_id, Path(server.path))
     return list(
         session.exec(
             select(ContentItem)
