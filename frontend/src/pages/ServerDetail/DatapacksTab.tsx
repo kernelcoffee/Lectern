@@ -1,20 +1,21 @@
-// Resource Packs tab — the installed list; all ingestion (Modrinth browse,
-// Vanilla Tweaks generation, upload) lives in the shared ContentBrowser.
+// Datapacks tab — server-side gameplay content living in the world's
+// datapacks folder ({level-name}/datapacks). Sources: Modrinth datapacks,
+// Vanilla Tweaks datapacks + crafting tweaks (both land here — a crafting-
+// tweaks zip IS a datapack), and direct uploads; all via the shared
+// ContentBrowser.
 //
-// "Use in game" points the server's resource-pack/resource-pack-sha1 at the
-// pack (served by the backend) so clients get the download prompt; one pack
-// at a time, applies at next start. The active one is derived from the
-// server.properties URL (it embeds the item id).
+// Enable/disable renames the zip (Minecraft only loads *.zip in the
+// datapacks dir); changes apply the next time the server starts.
 
 import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
 import {
   ContentItem,
   listContent,
+  patchContent,
   removeContent,
-  serveResourcePack,
 } from "../../api/content";
-import { getProperties, ServerDetail } from "../../api/servers";
+import { ServerDetail } from "../../api/servers";
 import ContentBrowser from "./ContentBrowser";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -23,7 +24,7 @@ const SOURCE_LABEL: Record<string, string> = {
   upload: "Uploaded",
 };
 
-export default function ResourcePacksTab({
+export default function DatapacksTab({
   serverId,
   server,
 }: {
@@ -31,25 +32,14 @@ export default function ResourcePacksTab({
   server: ServerDetail;
 }) {
   const [items, setItems] = useState<ContentItem[] | null>(null);
-  const [servedId, setServedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       const all = await listContent(serverId);
-      setItems(all.filter((i) => i.kind === "resourcepack"));
-      // Which pack is the in-game one? The resource-pack URL embeds the item id.
-      try {
-        const props = await getProperties(serverId);
-        const url = props.properties["resource-pack"] ?? "";
-        const match = url.match(/\/content\/([0-9a-f]{32})\/file/);
-        setServedId(match ? match[1] : null);
-      } catch {
-        setServedId(null);
-      }
+      setItems(all.filter((i) => i.kind === "datapack"));
       setError(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -63,15 +53,20 @@ export default function ResourcePacksTab({
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
     setError(null);
-    setNotice(null);
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof ApiError || e instanceof Error ? e.message : String(e));
+      setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(null);
     }
   }
+
+  const toggle = (item: ContentItem) =>
+    run(item.id, async () => {
+      await patchContent(serverId, item.id, { enabled: !item.enabled });
+      await refresh();
+    });
 
   const remove = (item: ContentItem) =>
     run(item.id, async () => {
@@ -79,42 +74,29 @@ export default function ResourcePacksTab({
       await refresh();
     });
 
-  const toggleServe = (item: ContentItem) =>
-    run(item.id, async () => {
-      const enable = servedId !== item.id;
-      await serveResourcePack(serverId, item.id, enable);
-      setNotice(
-        enable
-          ? `${item.name} will be offered to players (next start).`
-          : "In-game resource-pack prompt removed (next start).",
-      );
-      await refresh();
-    });
-
   return (
     <section className="space-y-4">
       <div className="flex items-center gap-2">
         <h3 className="text-sm font-medium text-slate-300 flex-1">
-          Installed packs{" "}
+          Installed datapacks{" "}
           {items && <span className="text-slate-500">({items.length})</span>}
         </h3>
         <button
           onClick={() => setBrowsing(true)}
           className="bg-emerald-600 hover:bg-emerald-500 rounded px-3 py-1.5 text-sm font-medium text-slate-900"
         >
-          Add packs
+          Add datapacks
         </button>
       </div>
 
-      {notice && <p className="text-xs text-sky-400">{notice}</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {!items ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : items.length === 0 ? (
         <p className="text-sm text-slate-500">
-          No resource packs yet — add some from Modrinth, Vanilla Tweaks, or an
-          upload.
+          No datapacks yet — add gameplay tweaks from Modrinth or Vanilla
+          Tweaks (datapacks & crafting tweaks), or upload a zip.
         </p>
       ) : (
         <ul className="divide-y divide-slate-800 rounded-lg border border-slate-800">
@@ -122,30 +104,22 @@ export default function ResourcePacksTab({
             <li key={item.id} className="flex items-center gap-3 p-3">
               <div className="flex-1 min-w-0">
                 <p className="text-sm truncate">
-                  {item.name}{" "}
+                  <span className={item.enabled ? "" : "text-slate-500 line-through"}>
+                    {item.name}
+                  </span>{" "}
                   <span className="text-xs text-slate-500">
                     {SOURCE_LABEL[item.source] ?? item.source}
                     {item.version_number && ` · ${item.version_number}`}
                   </span>
-                  {servedId === item.id && (
-                    <span className="ml-2 text-xs text-emerald-400">
-                      offered in game
-                    </span>
-                  )}
                 </p>
                 <p className="text-xs text-slate-500 truncate">{item.filename}</p>
               </div>
               <button
-                onClick={() => toggleServe(item)}
+                onClick={() => toggle(item)}
                 disabled={busy !== null}
-                className={
-                  "rounded px-2.5 py-1 text-xs disabled:opacity-50 " +
-                  (servedId === item.id
-                    ? "bg-slate-700 hover:bg-slate-600"
-                    : "bg-sky-700 hover:bg-sky-600")
-                }
+                className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded px-2.5 py-1 text-xs"
               >
-                {servedId === item.id ? "Stop offering" : "Use in game"}
+                {item.enabled ? "Disable" : "Enable"}
               </button>
               <button
                 onClick={() => remove(item)}
@@ -160,13 +134,14 @@ export default function ResourcePacksTab({
       )}
 
       <p className="text-xs text-slate-500">
-        The in-game prompt takes effect the next time the server starts.
+        Datapacks live in the world's datapacks folder and take effect the
+        next time the server starts.
       </p>
 
       {browsing && (
         <ContentBrowser
           server={server}
-          initialType="resourcepack"
+          initialType="datapack"
           onChanged={refresh}
           onClose={() => setBrowsing(false)}
         />

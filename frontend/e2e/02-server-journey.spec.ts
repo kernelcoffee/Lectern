@@ -68,23 +68,24 @@ test("full server journey: create → mods → properties → delete @full", asy
   await page.getByRole("button", { name: "Mods", exact: true }).click();
   await expect(page.getByText("No mods installed yet")).toBeVisible();
 
-  await page.getByRole("button", { name: "Browse Modrinth" }).click();
-  // Scope everything to the modal — once the install lands, the installed
-  // list behind it also gains a "Fabric API" <li>.
-  const modal = page.getByTestId("browse-modal");
-  await modal.getByPlaceholder("Search mods…").fill("fabric api");
-  const fabricApiRow = modal.locator("li", { hasText: "Fabric API" }).first();
+  await page.getByRole("button", { name: "Add mods" }).click();
+  // Scope everything to the browser popup — once the install lands, the
+  // installed list behind it also gains a "Fabric API" <li>.
+  const browser = page.getByTestId("content-browser");
+  await expect(browser.getByRole("button", { name: "Modrinth" })).toBeVisible();
+  await browser.getByPlaceholder("Search mods…").fill("fabric api");
+  const fabricApiRow = browser.locator("li", { hasText: "Fabric API" }).first();
   await expect(fabricApiRow).toBeVisible({ timeout: 20_000 });
   await fabricApiRow.getByRole("button", { name: "Install" }).click();
 
-  // Success is reported inside the modal, and the hit flips to "Installed".
-  await expect(modal.getByText(/^Installed: Fabric API/)).toBeVisible({
+  // Success is reported inside the popup, and the hit flips to "Installed".
+  await expect(browser.getByText(/^Installed: Fabric API/)).toBeVisible({
     timeout: 60_000,
   });
   await expect(
     fabricApiRow.getByRole("button", { name: "Installed" }),
   ).toBeVisible();
-  await modal.getByRole("button", { name: "✕ Close" }).click();
+  await browser.getByRole("button", { name: "✕ Close" }).click();
 
   // Installed list shows it; the mod row exposes disable/remove.
   const modRow = page.locator("li", { hasText: "Fabric API" });
@@ -104,12 +105,19 @@ test("full server journey: create → mods → properties → delete @full", asy
   await modRow.getByRole("button", { name: "Remove" }).click();
   await expect(page.getByText("No mods installed yet")).toBeVisible();
 
-  // --- Resource Packs tab: upload a pack, offer it in game, remove --------
+  // --- Resource Packs tab: upload via the browser, offer in game, remove --
   await page.getByRole("button", { name: "Resource packs" }).click();
   await expect(page.getByText("No resource packs yet")).toBeVisible();
+  await page.getByRole("button", { name: "Add packs" }).click();
+  const rpBrowser = page.getByTestId("content-browser");
+  await rpBrowser.getByRole("button", { name: "Upload" }).click();
   const fileChooserPromise = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Upload zip" }).click();
+  await rpBrowser.getByRole("button", { name: "Choose zip file…" }).click();
   await (await fileChooserPromise).setFiles("e2e/fixtures/e2e-pack.zip");
+  await expect(rpBrowser.getByText(/^Uploaded: E2E test pack/)).toBeVisible({
+    timeout: 15_000,
+  });
+  await rpBrowser.getByRole("button", { name: "✕ Close" }).click();
 
   const packRow = page.locator("li", { hasText: "E2E test pack" });
   await expect(packRow).toBeVisible({ timeout: 15_000 });
@@ -124,6 +132,27 @@ test("full server journey: create → mods → properties → delete @full", asy
 
   await packRow.getByRole("button", { name: "Remove" }).click();
   await expect(page.getByText("No resource packs yet")).toBeVisible();
+
+  // --- Datapacks tab: upload a datapack zip, toggle, remove ----------------
+  await page.getByRole("button", { name: "Datapacks", exact: true }).click();
+  await expect(page.getByText("No datapacks yet")).toBeVisible();
+  await page.getByRole("button", { name: "Add datapacks" }).click();
+  const dpBrowser = page.getByTestId("content-browser");
+  await dpBrowser.getByRole("button", { name: "Upload" }).click();
+  const dpChooser = page.waitForEvent("filechooser");
+  await dpBrowser.getByRole("button", { name: "Choose zip file…" }).click();
+  await (await dpChooser).setFiles("e2e/fixtures/e2e-pack.zip");
+  await expect(dpBrowser.getByText(/^Uploaded: E2E test pack/)).toBeVisible({
+    timeout: 15_000,
+  });
+  await dpBrowser.getByRole("button", { name: "✕ Close" }).click();
+
+  const dpRow = page.locator("li", { hasText: "E2E test pack" });
+  await expect(dpRow).toBeVisible();
+  await dpRow.getByRole("button", { name: "Disable" }).click();
+  await expect(dpRow.getByRole("button", { name: "Enable" })).toBeVisible();
+  await dpRow.getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByText("No datapacks yet")).toBeVisible();
 
   // --- Properties tab: edit a property and persist it ---------------------
   await page.getByRole("button", { name: "Properties" }).click();

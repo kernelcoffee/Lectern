@@ -23,15 +23,13 @@ import {
   checkContentUpdates,
   ContentItem,
   ContentUpdate,
-  installContent,
   listContent,
   patchContent,
   ReleaseChannel,
   removeContent,
-  SearchHit,
 } from "../../api/content";
 import { ServerDetail } from "../../api/servers";
-import BrowseModal from "./BrowseModal";
+import ContentBrowser from "./ContentBrowser";
 
 const CHANNELS: ReleaseChannel[] = ["release", "beta", "alpha"];
 
@@ -121,21 +119,6 @@ export default function ModsTab({
       await refresh();
     });
 
-  const [includeOptional, setIncludeOptional] = useState(false);
-
-  // Runs inside the browse modal, which shows its own busy/error/success —
-  // errors must NOT land in the tab's error slot (it's hidden behind the
-  // modal). Throws so the modal can catch and display.
-  const install = async (hit: SearchHit) => {
-    const installed = await installContent(serverId, {
-      project_id: hit.project_id,
-      include_optional_deps: includeOptional,
-    });
-    setNotice(`Installed: ${installed.map((i) => i.name).join(", ")}`);
-    await refresh();
-    return installed;
-  };
-
   const updateFor = (id: string) => updates?.find((u) => u.item_id === id);
 
   return (
@@ -164,7 +147,7 @@ export default function ModsTab({
           onClick={() => setBrowsing(true)}
           className="bg-emerald-600 hover:bg-emerald-500 rounded px-3 py-1.5 text-sm font-medium text-slate-900"
         >
-          Browse Modrinth
+          Add mods
         </button>
       </div>
 
@@ -244,23 +227,11 @@ export default function ModsTab({
       </p>
 
       {browsing && (
-        <BrowseModal
+        <ContentBrowser
           server={server}
-          projectType="mod"
-          loader={server.type}
-          installedProjects={new Set((items ?? []).map((i) => i.project_id ?? ""))}
-          onInstall={install}
+          initialType="mod"
+          onChanged={refresh}
           onClose={() => setBrowsing(false)}
-          extraControls={
-            <label className="flex items-center gap-2 text-xs text-slate-400">
-              <input
-                type="checkbox"
-                checked={includeOptional}
-                onChange={(e) => setIncludeOptional(e.target.checked)}
-              />
-              Also install optional dependencies
-            </label>
-          }
         />
       )}
     </section>

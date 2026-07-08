@@ -74,6 +74,8 @@ async def search_content(
     project_type: str = "mod",
     loader: str | None = None,
     mc_version: str | None = None,
+    categories: str | None = None,  # comma-separated Modrinth category slugs
+    index: str = "relevance",
     limit: int = 20,
     offset: int = 0,
 ) -> dict:
@@ -83,9 +85,22 @@ async def search_content(
         project_type=project_type,
         loader=loader,
         mc_version=mc_version,
+        categories=[c for c in (categories or "").split(",") if c],
+        index=index,
         limit=min(limit, 50),
         offset=offset,
     )
+
+
+@router.get("/content/categories")
+async def content_categories(project_type: str = "mod") -> list[dict]:
+    """Modrinth category tags for one project type (name + header)."""
+    tags = await modrinth.list_categories()
+    return [
+        {"name": t["name"], "header": t.get("header", "categories")}
+        for t in tags
+        if t.get("project_type") == project_type
+    ]
 
 
 @router.get("/content/projects/{project_id}/versions")
@@ -148,6 +163,7 @@ async def install_content(
             mc_version=server.mc_version,
             channel=body.channel.value,
             include_optional_deps=body.include_optional_deps,
+            kind=body.kind,
         )
     except ContentError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
@@ -266,37 +282,53 @@ async def vanillatweaks_categories(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
 
+@router.get("/servers/{server_id}/vanillatweaks/categories/{pack_type}")
+async def vanillatweaks_typed_categories(
+    server_id: str, pack_type: str, session: Session = Depends(get_session)
+) -> dict:
+    """VT categories for one pack type (resourcepacks|datapacks|craftingtweaks)."""
+    server = _get_server(server_id, session)
+    try:
+        return await vt.categories(server.mc_version, pack_type)
+    except VanillaTweaksError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+
 @router.post(
     "/servers/{server_id}/vanillatweaks",
-    response_model=ContentItemRead,
+    response_model=list[ContentItemRead],
     status_code=status.HTTP_201_CREATED,
 )
 async def install_vanillatweaks(
     server_id: str,
     body: VanillaTweaksInstallRequest,
     session: Session = Depends(get_session),
-) -> ContentItem:
-    """Generate + install a VT pack from a share code or explicit selection.
-    Replaces the server's previous VT pack; an unchanged selection is a
-    no-op (fingerprint match)."""
+) -> list[ContentItem]:
+    """Generate + install a VT selection (share code or explicit packs).
+    Replaces the server's previous VT set of the same type; an unchanged
+    selection is a no-op (fingerprint match). A share code carries its own
+    pack type, which wins over ``pack_type``. Datapack sets return one item
+    per extracted pack."""
     server = _get_server(server_id, session)
     _, server_dir = _content_context(server)
     packs = body.packs
+    pack_type = body.pack_type
     try:
         if body.share_code:
             definition = await vt.resolve_share_code(body.share_code.strip())
-            if definition.get("type") not in (None, "resourcepacks"):
-                raise HTTPException(
-                    status.HTTP_400_BAD_REQUEST,
-                    f"Share code is for {definition['type']}, not resource packs",
-                )
             packs = definition.get("packs") or {}
+            pack_type = definition.get("type") or pack_type
         if not packs:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, "No packs selected"
             )
         return await rp.install_vanillatweaks(
-            session, server_id, server_dir, packs=packs, mc_version=server.mc_version
+            session,
+            server_id,
+            server_dir,
+            packs=packs,
+            mc_version=server.mc_version,
+            pack_type=pack_type,
         )
     except VanillaTweaksError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
@@ -312,9 +344,10 @@ async def install_vanillatweaks(
 async def upload_content(
     server_id: str,
     file: UploadFile,
+    kind: str = "resourcepack",
     session: Session = Depends(get_session),
 ) -> ContentItem:
-    """Upload a resource-pack zip (validated via its pack.mcmeta)."""
+    """Upload a resource-pack or datapack zip (validated via pack.mcmeta)."""
     server = _get_server(server_id, session)
     _, server_dir = _content_context(server)
     data = await file.read(_MAX_UPLOAD + 1)
@@ -327,8 +360,9 @@ async def upload_content(
             session,
             server_id,
             server_dir,
-            filename=file.filename or "resource-pack.zip",
+            filename=file.filename or "pack.zip",
             data=data,
+            kind=kind,
         )
     except ResourcePackError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
@@ -347,7 +381,7 @@ def download_content_file(
     item = session.get(ContentItem, item_id)
     if item is None or item.server_id != server_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Content item not found")
-    path = server_dir / content.KIND_DIRS.get(item.kind, item.kind) / item.filename
+    path = content.kind_dir(server_dir, item.kind) / item.filename
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not on disk")
     return FileResponse(path, filename=item.filename)
@@ -376,7 +410,7 @@ def set_server_pack(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Not a resource pack")
 
     if body.enabled:
-        path = server_dir / content.KIND_DIRS["resourcepack"] / item.filename
+        path = content.kind_dir(server_dir, "resourcepack") / item.filename
         if not path.exists():
             raise HTTPException(status.HTTP_404_NOT_FOUND, "File not on disk")
         url = f"{str(request.base_url).rstrip('/')}/api/servers/{server_id}/content/{item_id}/file"

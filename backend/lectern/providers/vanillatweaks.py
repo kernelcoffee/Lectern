@@ -5,13 +5,19 @@ are the endpoints the website itself uses (same ones mc-image-helper relies
 on; see docs/references/mc-image-helper.md), so everything here is isolated
 behind this module and fails as a clean ``VanillaTweaksError``.
 
-- Catalog:    GET /assets/resources/json/{major.minor}/rpcategories.json
+- Catalog:    GET /assets/resources/json/{major.minor}/{rp|dp|ct}categories.json
 - Share code: GET /assets/server/sharecode.php?code={code}
-              → {"type": "resourcepacks", "version": "1.20", "packs": {...}}
-- Generate:   POST /assets/server/zipresourcepacks.php
+              → {"type": "resourcepacks"|"datapacks"|"craftingtweaks",
+                 "version": "1.20", "packs": {...}}
+- Generate:   POST /assets/server/zip{type}.php
               form: packs=<json {category: [packId, …]}>, version={major.minor}
               → {"status": "success", "link": "/download/…zip"}
 - Download:   GET {base}{link}
+
+Delivery differs per type (mirrors mc-image-helper): resource packs and
+crafting tweaks are ONE zip (a crafting-tweaks zip is itself a datapack);
+the datapacks download is a **zip of individual datapack zips** that must be
+extracted into the world's datapacks dir (the link even says UNZIP_ME).
 
 VT versions are MAJOR.MINOR ("1.20"), not patch releases — ``vt_version``
 truncates. ``selection_fingerprint`` hashes the canonicalized selection so an
@@ -33,6 +39,14 @@ BASE = "https://vanillatweaks.net"
 
 _CATEGORIES_TTL = 86400
 
+# VT pack types → their category catalog file. Keys are VT's own type names
+# (same strings share codes carry in "type").
+PACK_TYPES = {
+    "resourcepacks": "rpcategories",
+    "datapacks": "dpcategories",
+    "craftingtweaks": "ctcategories",
+}
+
 
 class VanillaTweaksError(Exception):
     """Vanilla Tweaks unreachable or answered something unexpected."""
@@ -46,29 +60,39 @@ def vt_version(mc_version: str) -> str:
     return ".".join(mc_version.split(".")[:2])
 
 
-def selection_fingerprint(packs: dict[str, list[str]], mc_version: str) -> str:
+def selection_fingerprint(
+    packs: dict[str, list[str]], mc_version: str, pack_type: str = "resourcepacks"
+) -> str:
     """Stable hash of a pack selection: category order and pack order within a
-    category don't matter, the VT (major.minor) version does."""
+    category don't matter; the VT (major.minor) version and pack type do."""
     canonical = {
         category: sorted(names)
         for category, names in sorted(packs.items())
         if names
     }
-    payload = json.dumps({"version": vt_version(mc_version), "packs": canonical})
+    payload = json.dumps(
+        {"type": pack_type, "version": vt_version(mc_version), "packs": canonical}
+    )
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
 # --- network ----------------------------------------------------------------
 
 
-async def categories(mc_version: str) -> dict[str, Any]:
-    """Resource-pack categories/packs for a MC version (raw VT payload)."""
-    url = f"{BASE}/assets/resources/json/{vt_version(mc_version)}/rpcategories.json"
+async def categories(
+    mc_version: str, pack_type: str = "resourcepacks"
+) -> dict[str, Any]:
+    """Categories/packs of one VT type for a MC version (raw VT payload)."""
+    catalog = PACK_TYPES.get(pack_type)
+    if catalog is None:
+        raise VanillaTweaksError(f"Unknown Vanilla Tweaks type: {pack_type}")
+    url = f"{BASE}/assets/resources/json/{vt_version(mc_version)}/{catalog}.json"
     try:
         return await get_json(url, ttl=_CATEGORIES_TTL)
     except (httpx.HTTPError, json.JSONDecodeError) as exc:
         raise VanillaTweaksError(
-            f"Vanilla Tweaks categories unavailable for {vt_version(mc_version)}: {exc}"
+            f"Vanilla Tweaks {pack_type} categories unavailable for "
+            f"{vt_version(mc_version)}: {exc}"
         ) from exc
 
 
@@ -90,9 +114,13 @@ async def resolve_share_code(code: str) -> dict[str, Any]:
     return definition
 
 
-async def generate(packs: dict[str, list[str]], mc_version: str) -> str:
-    """Ask VT to build a resource-pack zip; returns the absolute download URL."""
-    url = f"{BASE}/assets/server/zipresourcepacks.php"
+async def generate(
+    packs: dict[str, list[str]], mc_version: str, pack_type: str = "resourcepacks"
+) -> str:
+    """Ask VT to build a pack zip of ``pack_type``; returns the download URL."""
+    if pack_type not in PACK_TYPES:
+        raise VanillaTweaksError(f"Unknown Vanilla Tweaks type: {pack_type}")
+    url = f"{BASE}/assets/server/zip{pack_type}.php"
     try:
         async with httpx.AsyncClient(
             headers={"User-Agent": USER_AGENT}, timeout=120.0, follow_redirects=True

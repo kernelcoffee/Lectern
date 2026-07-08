@@ -39,15 +39,24 @@ CHANNELS = ("release", "beta", "alpha")
 
 
 def build_facets(
-    *, project_type: str, loader: str | None, mc_version: str | None
+    *,
+    project_type: str,
+    loader: str | None,
+    mc_version: str | None,
+    categories: list[str] | None = None,
 ) -> str:
     """Modrinth facets: a JSON array of AND-ed OR-groups.
 
-    Resource packs have no loader; mods filter by loader category.
+    Resource packs have no loader; mods filter by loader category. Selected
+    categories are AND-ed (each in its own group), matching the site's
+    filter behaviour. Loaders and content categories share the same facet
+    key ("categories:…") on Modrinth.
     """
     facets: list[list[str]] = [[f"project_type:{project_type}"]]
     if loader:
         facets.append([f"categories:{loader}"])
+    for category in categories or []:
+        facets.append([f"categories:{category}"])
     if mc_version:
         facets.append([f"versions:{mc_version}"])
     return json.dumps(facets)
@@ -100,12 +109,18 @@ def dependency_ids(version: dict[str, Any], *, include_optional: bool) -> list[s
 # --- network ---------------------------------------------------------------
 
 
+# Sort orders Modrinth supports for search (the "index" parameter).
+SORT_INDEXES = ("relevance", "downloads", "follows", "newest", "updated")
+
+
 async def search(
     query: str,
     *,
     project_type: str = "mod",
     loader: str | None = None,
     mc_version: str | None = None,
+    categories: list[str] | None = None,
+    index: str = "relevance",
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -115,12 +130,23 @@ async def search(
     params = {
         "query": query,
         "facets": build_facets(
-            project_type=project_type, loader=loader, mc_version=mc_version
+            project_type=project_type,
+            loader=loader,
+            mc_version=mc_version,
+            categories=categories,
         ),
+        "index": index if index in SORT_INDEXES else "relevance",
         "limit": limit,
         "offset": offset,
     }
     return await get_json(f"{BASE}/search", params=params, ttl=_SEARCH_TTL)
+
+
+async def list_categories() -> list[dict[str, Any]]:
+    """Modrinth's category taxonomy (``GET /tag/category``): each entry has
+    ``name``, ``project_type`` and ``header`` (e.g. "categories",
+    "resolutions"). Loaders are NOT in here — they're a separate tag list."""
+    return await get_json(f"{BASE}/tag/category", ttl=86400)
 
 
 async def list_versions(

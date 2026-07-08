@@ -35,11 +35,22 @@ from sqlmodel import Session, select
 from ..models import ContentItem
 from ..providers import modrinth
 from ..providers.base import download_file
+from ..servers import properties as props
 
 MANIFEST_PATH = ".lectern/manifest.json"
 
-# Where each content kind lives inside a server directory.
+# Where each content kind lives inside a server directory. Datapacks are
+# special-cased in ``kind_dir`` — they are per-world.
 KIND_DIRS = {"mod": "mods", "plugin": "plugins", "resourcepack": "resourcepacks"}
+
+
+def kind_dir(server_dir: Path, kind: str) -> Path:
+    """Target directory for a content kind. Datapacks live inside the world
+    (``{level-name}/datapacks``, default world name "world")."""
+    if kind == "datapack":
+        world = props.read_properties(server_dir).get("level-name") or "world"
+        return server_dir / world / "datapacks"
+    return server_dir / KIND_DIRS.get(kind, kind)
 
 # ``ContentSource`` registry (docs/technical.md §2). Modules exposing:
 # search / list_versions / get_project / get_projects / check_update.
@@ -82,13 +93,13 @@ def write_manifest(server_dir: Path, items: list[dict]) -> None:
 
 def item_file(server_dir: Path, item: dict) -> Path:
     """On-disk path of an item's file, honouring the ``.disabled`` suffix."""
-    base = server_dir / KIND_DIRS.get(item["kind"], item["kind"]) / item["filename"]
+    base = kind_dir(server_dir, item["kind"]) / item["filename"]
     return base if item.get("enabled", True) else base.with_name(base.name + ".disabled")
 
 
 def _delete_item_file(server_dir: Path, item: dict) -> None:
     """Remove an item's file whichever enabled-variant is on disk."""
-    base = server_dir / KIND_DIRS.get(item["kind"], item["kind"]) / item["filename"]
+    base = kind_dir(server_dir, item["kind"]) / item["filename"]
     base.unlink(missing_ok=True)
     base.with_name(base.name + ".disabled").unlink(missing_ok=True)
 
@@ -171,11 +182,11 @@ def _side(project: dict) -> str:
 
 def _build_item(
     project: dict, version: dict, file: dict, *, loader: str | None,
-    mc_version: str, channel: str,
+    mc_version: str, channel: str, kind: str | None = None,
 ) -> dict:
     return {
         "id": uuid.uuid4().hex,
-        "kind": project.get("project_type", "mod"),
+        "kind": kind or project.get("project_type", "mod"),
         "source": "modrinth",
         "project_id": version["project_id"],
         "version_id": version["id"],
@@ -202,6 +213,7 @@ async def _resolve_install_set(
     channel: str,
     include_optional: bool,
     skip_projects: set[str],
+    kind: str | None = None,
 ) -> list[tuple[dict, dict]]:
     """The requested project + its dependency closure, as (project, version)
     pairs. ``skip_projects`` (already-installed ids) prune the walk; a
@@ -209,19 +221,25 @@ async def _resolve_install_set(
 
     The loader facet only applies to mods/plugins — resource packs are
     loaderless on Modrinth (only the game version filters them), and a mod
-    can't be installed at all without a loader (vanilla server)."""
+    can't be installed at all without a loader (vanilla server). A requested
+    ``kind`` of "datapack" overrides: Modrinth models datapacks as mods whose
+    versions carry the pseudo-loader "datapack", so that facet selects the
+    datapack build of a project that also ships as a mod."""
     root_project = await source.get_project(project_ref)
     root_id = root_project["id"]
 
-    kind = root_project.get("project_type", "mod")
-    if kind in ("mod", "plugin"):
-        if loader is None:
-            raise ContentError(
-                f"{root_project.get('title', project_ref)} is a {kind} — "
-                "this server type cannot load it"
-            )
+    if kind == "datapack":
+        loader = "datapack"
     else:
-        loader = None
+        project_kind = kind or root_project.get("project_type", "mod")
+        if project_kind in ("mod", "plugin"):
+            if loader is None:
+                raise ContentError(
+                    f"{root_project.get('title', project_ref)} is a {project_kind} — "
+                    "this server type cannot load it"
+                )
+        else:
+            loader = None
 
     versions = await source.list_versions(root_id, loader=loader, mc_version=mc_version)
     if version_id is not None:
@@ -287,11 +305,13 @@ async def install(
     mc_version: str,
     channel: str = "release",
     include_optional_deps: bool = False,
+    kind: str | None = None,
 ) -> list[ContentItem]:
     """Install a project (+ dependency closure) and return the affected rows.
 
     Re-installing an already-present project replaces its file/version in
-    place (row id and enabled state survive).
+    place (row id and enabled state survive). ``kind`` forces the content
+    kind ("datapack" installs a project's datapack build).
     """
     source = get_source(source_key)
     async with _lock(server_id):
@@ -310,6 +330,7 @@ async def install(
             # The requested project itself may be reinstalled; deps that are
             # already present are skipped.
             skip_projects=installed_projects,
+            kind=kind,
         )
 
         by_project = {i.get("project_id"): i for i in items if i.get("project_id")}
@@ -319,15 +340,18 @@ async def install(
             if file is None:
                 raise ContentError(f"{project.get('title')}: version has no files")
             # Store the loader the item was actually resolved under — None
-            # for loaderless kinds (resource packs), whatever the server is.
-            item_loader = (
-                loader
-                if project.get("project_type", "mod") in ("mod", "plugin")
-                else None
-            )
+            # for loaderless kinds (resource packs), "datapack" for datapack
+            # builds, whatever the server runs for mods/plugins.
+            if kind == "datapack":
+                item_loader: str | None = "datapack"
+            elif project.get("project_type", "mod") in ("mod", "plugin"):
+                item_loader = loader
+            else:
+                item_loader = None
             new_item = _build_item(
                 project, version, file,
                 loader=item_loader, mc_version=mc_version, channel=channel,
+                kind=kind,
             )
             old_item = by_project.get(new_item["project_id"])
             if old_item is not None:

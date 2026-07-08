@@ -58,6 +58,8 @@ export interface ContentInstallRequest {
   version_id?: string; // omit → newest allowed by channel
   channel?: ReleaseChannel;
   include_optional_deps?: boolean;
+  /** Force the kind — "datapack" installs a project's datapack build. */
+  kind?: "datapack";
 }
 
 export interface ContentUpdate {
@@ -68,22 +70,36 @@ export interface ContentUpdate {
   new_version_number: string;
 }
 
+export type SortIndex = "relevance" | "downloads" | "follows" | "newest" | "updated";
+
 export const searchContent = (params: {
   query: string;
-  project_type?: string; // "mod" (default) | "resourcepack"
-  loader?: string; // omit for loaderless kinds (resource packs)
+  project_type?: string; // "mod" (default) | "resourcepack" | "datapack"
+  loader?: string; // omit for loaderless kinds (resource packs, datapacks)
   mc_version: string;
+  categories?: string[]; // Modrinth category slugs (AND-ed)
+  index?: SortIndex;
+  limit?: number;
   offset?: number;
 }) => {
   const qs = new URLSearchParams({
     query: params.query,
     project_type: params.project_type ?? "mod",
     mc_version: params.mc_version,
+    index: params.index ?? "relevance",
+    limit: String(params.limit ?? 20),
     offset: String(params.offset ?? 0),
   });
   if (params.loader) qs.set("loader", params.loader);
+  if (params.categories?.length) qs.set("categories", params.categories.join(","));
   return apiGet<SearchResponse>(`/api/content/search?${qs}`);
 };
+
+/** Modrinth category tags for one project type (name + header grouping). */
+export const getModrinthCategories = (projectType: string) =>
+  apiGet<{ name: string; header: string }[]>(
+    `/api/content/categories?project_type=${projectType}`,
+  );
 
 export const listContent = (serverId: string) =>
   apiGet<ContentItem[]>(`/api/servers/${serverId}/content`);
@@ -121,27 +137,38 @@ export interface VtCategory {
   categories?: VtCategory[];
 }
 
-export const getVtCategories = (serverId: string) =>
+export type VtPackType = "resourcepacks" | "datapacks" | "craftingtweaks";
+
+export const getVtCategories = (serverId: string, packType: VtPackType) =>
   apiGet<{ categories: VtCategory[] }>(
-    `/api/servers/${serverId}/vanillatweaks/categories`,
+    `/api/servers/${serverId}/vanillatweaks/categories/${packType}`,
   );
 
-/** Generate + install a VT pack from a share code or explicit selection. */
+/** Generate + install a VT selection (share code or explicit packs). A share
+ * code carries its own pack type. Datapack sets return one item per pack. */
 export const installVanillaTweaks = (
   serverId: string,
-  body: { share_code?: string; packs?: Record<string, string[]> },
-) => apiPost<ContentItem>(`/api/servers/${serverId}/vanillatweaks`, body);
+  body: {
+    share_code?: string;
+    packs?: Record<string, string[]>;
+    pack_type?: VtPackType;
+  },
+) => apiPost<ContentItem[]>(`/api/servers/${serverId}/vanillatweaks`, body);
 
 export const uploadResourcePack = async (
   serverId: string,
   file: File,
+  kind: "resourcepack" | "datapack" = "resourcepack",
 ): Promise<ContentItem> => {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`/api/servers/${serverId}/content/upload`, {
-    method: "POST",
-    body: form,
-  });
+  const res = await fetch(
+    `/api/servers/${serverId}/content/upload?kind=${kind}`,
+    {
+      method: "POST",
+      body: form,
+    },
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(

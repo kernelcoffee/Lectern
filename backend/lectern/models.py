@@ -272,6 +272,10 @@ class ContentInstallRequest(SQLModel):
     channel: ReleaseChannel = ReleaseChannel.release
     include_optional_deps: bool = False
     source: str = "modrinth"
+    # Force the content kind: "datapack" installs a project's datapack build
+    # (Modrinth models those as mods with the pseudo-loader "datapack").
+    # None → the project's own type decides.
+    kind: str | None = None
 
 
 class ContentItemUpdate(SQLModel):
@@ -286,11 +290,13 @@ class VanillaTweaksInstallRequest(SQLModel):
 
     Either a ``share_code`` (resolved through VT's API — the friendlier path)
     or an explicit ``packs`` selection ``{category: [packId, …]}``. When both
-    are present the share code wins.
+    are present the share code wins — including its own pack type.
+    ``pack_type`` is a VT type name: resourcepacks | datapacks | craftingtweaks.
     """
 
     share_code: str | None = None
     packs: dict[str, list[str]] | None = None
+    pack_type: str = "resourcepacks"
 
 
 class ServerResourcePackUpdate(SQLModel):
