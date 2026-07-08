@@ -31,3 +31,4 @@ frontend/vite.config.d.ts
 
 # E2E (Playwright)
 .e2e-data/
+test-results/
