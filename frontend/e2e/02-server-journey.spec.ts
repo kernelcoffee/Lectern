@@ -1,7 +1,7 @@
 // @full — the real end-to-end journey, from the docs/functional.md §5.1 happy
 // path (minus starting Minecraft, which backend tests cover): create a Fabric
-// server through the wizard, watch the install finish, manage mods against
-// real Modrinth, edit a property, delete the server.
+// server on the New-server page, watch the dashboard follow the install,
+// manage mods against real Modrinth, edit a property, delete the server.
 //
 // Run with:  E2E_FULL=1 npx playwright test
 // Network: Fabric server jar (~1 MB), Temurin JRE (~45 MB, cached in
@@ -14,21 +14,30 @@ test("full server journey: create → mods → properties → delete @full", asy
 }) => {
   test.setTimeout(600_000);
 
-  // --- create a Fabric 1.20.1 server through the wizard -------------------
+  // --- create a Fabric 1.20.1 server on the New-server page ----------------
   await page.goto("/");
+  await page.locator("aside").getByRole("button", { name: "New server" }).click();
   await page.getByRole("button", { name: /Fabric/ }).click();
-  await page.locator("select").selectOption("1.20.1", { timeout: 15_000 });
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByLabel("Name").fill("e2e-journey");
-  await page.getByRole("button", { name: "Create server" }).click();
+  await page.getByLabel("Minecraft version").selectOption("1.20.1", {
+    timeout: 15_000,
+  });
+  await expect(page.getByLabel("Fabric loader build")).not.toHaveValue("", {
+    timeout: 15_000,
+  });
+  await page.getByLabel("Server name").fill("e2e-journey");
+  await page.getByRole("button", { name: "Build server" }).click();
 
-  // The list shows the row installing, then flips to stopped (jar + JRE).
-  const row = page.locator("li", { hasText: "e2e-journey" });
+  // Back on the dashboard: the table row appears in the sidebar + table and
+  // flips from installing to stopped once jar + JRE are in place.
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  const row = page.locator("tr", { hasText: "e2e-journey" });
   await expect(row).toBeVisible();
-  await expect(row.getByText("stopped")).toBeVisible({ timeout: 300_000 });
+  await expect(row.getByText("stopped", { exact: true })).toBeVisible({
+    timeout: 300_000,
+  });
 
   // --- open detail; EULA gate is shown for a fresh server -----------------
-  await row.getByRole("button", { name: /e2e-journey/ }).click();
+  await row.getByRole("button", { name: "e2e-journey" }).click();
   await expect(page.getByText(/accept the/i)).toBeVisible();
 
   // --- Mods tab: browse real Modrinth, install Fabric API -----------------
@@ -84,10 +93,13 @@ test("full server journey: create → mods → properties → delete @full", asy
   await propsSection.getByRole("button", { name: "Save" }).click();
   await expect(propsSection.getByText("unsaved changes")).not.toBeVisible();
 
-  // Reload drops the state-based routing back to the list — re-open the
-  // server and confirm the value came back from the file on disk.
+  // Reload drops the state-based routing back to the dashboard — re-open the
+  // server from the sidebar and confirm the value came back from the file.
   await page.reload();
-  await page.getByRole("button", { name: /e2e-journey/ }).click();
+  await page
+    .locator("aside")
+    .getByRole("button", { name: "e2e-journey" })
+    .click();
   await page.getByRole("button", { name: "Properties" }).click();
   await expect(
     page
@@ -96,11 +108,9 @@ test("full server journey: create → mods → properties → delete @full", asy
       .getByLabel("motd", { exact: true }),
   ).toHaveValue("e2e was here", { timeout: 15_000 });
 
-  // --- delete the server from the list -------------------------------------
-  await page.getByRole("button", { name: "← Back to servers" }).click();
-  await page
-    .locator("li", { hasText: "e2e-journey" })
-    .getByRole("button", { name: "Delete" })
-    .click();
-  await expect(page.getByText("No servers yet. Create one below.")).toBeVisible();
+  // --- delete from the detail page (confirm dialog) ------------------------
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Delete server" }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByText("Welcome to Lectern!")).toBeVisible();
 });

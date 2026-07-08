@@ -24,6 +24,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
 import {
   acceptEula,
+  deleteServer,
   getServer,
   serverAction,
   ServerAction,
@@ -64,13 +65,15 @@ function controlsFor(status: ServerStatus) {
 export default function ServerDetail({
   serverId,
   onBack,
+  onDeleted,
 }: {
   serverId: string;
   onBack: () => void;
+  onDeleted: () => void;
 }) {
   const [server, setServer] = useState<ServerDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<ServerAction | "eula" | null>(null);
+  const [busy, setBusy] = useState<ServerAction | "eula" | "delete" | null>(null);
   const [tab, setTab] = useState<Tab>("console");
 
   const refresh = useCallback(async () => {
@@ -118,6 +121,23 @@ export default function ServerDetail({
     }
   }
 
+  async function doDelete() {
+    if (
+      !window.confirm(
+        `Delete "${server?.name}"? This removes the server and all its files.`,
+      )
+    )
+      return;
+    setBusy("delete");
+    try {
+      await deleteServer(serverId);
+      onDeleted();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+      setBusy(null);
+    }
+  }
+
   if (!server) {
     return (
       <div className="max-w-3xl mx-auto p-6 space-y-4">
@@ -140,7 +160,7 @@ export default function ServerDetail({
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-5">
       <button onClick={onBack} className="text-sm text-slate-400 hover:text-slate-200">
-        ← Back to servers
+        ← Dashboard
       </button>
 
       <div className="flex items-center gap-3">
@@ -150,6 +170,13 @@ export default function ServerDetail({
           {server.status}
         </span>
         <h2 className="text-xl font-semibold flex-1 truncate">{server.name}</h2>
+        <button
+          onClick={doDelete}
+          disabled={busy !== null}
+          className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+        >
+          {busy === "delete" ? "Deleting…" : "Delete server"}
+        </button>
       </div>
       <p className="text-xs text-slate-400 -mt-3">
         {server.type} · MC {server.mc_version}

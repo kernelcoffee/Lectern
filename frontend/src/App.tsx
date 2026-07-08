@@ -1,44 +1,95 @@
-import { useEffect, useState } from "react";
+// App shell — Crafty-inspired layout: fixed left sidebar (dashboard link +
+// server list + "new server"), main content on the right.
+//
+// Routing stays state-based (no router dep): `route` picks the page. The
+// server list lives here because the sidebar and every page share it —
+// children mutate through `reload` and navigate through `go`. While any
+// server is installing we poll the list so sidebar + dashboard follow the
+// install without a manual refresh.
+
+import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "./api/client";
-import ServerList from "./pages/ServerList";
+import { listServers, Server } from "./api/servers";
+import Sidebar from "./components/Sidebar";
+import CreateServer from "./pages/CreateServer";
+import Dashboard from "./pages/Dashboard";
 import ServerDetail from "./pages/ServerDetail";
 
 type Health = { status: string; version: string };
 
+export type Route =
+  | { view: "dashboard" }
+  | { view: "create" }
+  | { view: "server"; id: string };
+
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
-  const [error, setError] = useState(false);
-  // Lightweight routing: which server's detail page is open (null = list).
-  const [selected, setSelected] = useState<string | null>(null);
+  const [healthError, setHealthError] = useState(false);
+  const [route, setRoute] = useState<Route>({ view: "dashboard" });
+  const [servers, setServers] = useState<Server[]>([]);
 
   useEffect(() => {
-    apiGet<Health>("/api/health").then(setHealth).catch(() => setError(true));
+    apiGet<Health>("/api/health")
+      .then(setHealth)
+      .catch(() => setHealthError(true));
   }, []);
 
+  const reload = useCallback(async () => {
+    try {
+      setServers(await listServers());
+    } catch {
+      // Backend unreachable — the header badge already says so.
+    }
+  }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  // Follow installs live: poll while any server is still provisioning.
+  const anyInstalling = servers.some((s) => s.status === "installing");
+  useEffect(() => {
+    if (!anyInstalling) return;
+    const t = window.setInterval(reload, 2000);
+    return () => window.clearInterval(t);
+  }, [anyInstalling, reload]);
+
+  const go = useCallback((r: Route) => setRoute(r), []);
+
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100">
-      <header className="border-b border-slate-800">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-baseline justify-between">
-          <div>
-            <h1 className="text-xl font-semibold">Lectern</h1>
-            <p className="text-xs text-slate-400">Modded Minecraft server manager</p>
-          </div>
-          <span className="text-xs">
-            {health ? (
-              <span className="text-emerald-400">backend v{health.version}</span>
-            ) : error ? (
-              <span className="text-red-400">backend offline</span>
-            ) : (
-              <span className="text-slate-500">connecting…</span>
-            )}
-          </span>
-        </div>
-      </header>
-      <main>
-        {selected ? (
-          <ServerDetail serverId={selected} onBack={() => setSelected(null)} />
-        ) : (
-          <ServerList onOpen={setSelected} />
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex">
+      <Sidebar
+        servers={servers}
+        route={route}
+        onNavigate={go}
+        backend={
+          health ? `v${health.version}` : healthError ? "offline" : "connecting…"
+        }
+        backendOk={health !== null}
+      />
+
+      <main className="flex-1 min-w-0 overflow-y-auto h-screen">
+        {route.view === "dashboard" && (
+          <Dashboard servers={servers} onReload={reload} onNavigate={go} />
+        )}
+        {route.view === "create" && (
+          <CreateServer
+            onCreated={async () => {
+              await reload();
+              go({ view: "dashboard" });
+            }}
+          />
+        )}
+        {route.view === "server" && (
+          <ServerDetail
+            key={route.id}
+            serverId={route.id}
+            onBack={() => go({ view: "dashboard" })}
+            onDeleted={async () => {
+              await reload();
+              go({ view: "dashboard" });
+            }}
+          />
         )}
       </main>
     </div>

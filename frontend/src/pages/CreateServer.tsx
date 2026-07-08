@@ -1,3 +1,13 @@
+// New-server page, Crafty-wizard-inspired: server type as pill tabs, then one
+// card with the identity fields (name, Minecraft version, loader build) and a
+// "Quick settings" section (port, memory), closed by Build/Reset buttons.
+//
+// The old 4-step wizard is folded into a single form: picking a type loads its
+// version list, picking a version loads loader builds (Fabric), everything
+// else is just fields. Submit posts the record and the backend installs in
+// the background — the caller navigates to the dashboard where the row shows
+// live install progress.
+
 import { useEffect, useState } from "react";
 import { ApiError } from "../api/client";
 import {
@@ -8,66 +18,67 @@ import {
 } from "../api/catalog";
 import { createServer, ServerType } from "../api/servers";
 
-// Only Vanilla + Fabric ship in the first version (docs/functional.md §3); the
-// backend registry drives the actual list, but we label the ones we know.
 const TYPE_LABELS: Record<string, string> = {
   vanilla: "Vanilla",
   fabric: "Fabric",
 };
 
-type Step = 0 | 1 | 2 | 3;
-
 export default function CreateServer({ onCreated }: { onCreated: () => void }) {
-  const [step, setStep] = useState<Step>(0);
-
-  // Selections
   const [types, setTypes] = useState<ServerTypeInfo[]>([]);
   const [type, setType] = useState<ServerTypeInfo | null>(null);
+
   const [mcVersions, setMcVersions] = useState<string[]>([]);
   const [mcVersion, setMcVersion] = useState("");
+  const [loadingVersions, setLoadingVersions] = useState(false);
+
   const [loaders, setLoaders] = useState<string[]>([]);
   const [loader, setLoader] = useState("");
+  const [loadingLoaders, setLoadingLoaders] = useState(false);
+
   const [name, setName] = useState("");
   const [port, setPort] = useState(25565);
   const [memory, setMemory] = useState(2048);
 
-  const [loadingList, setLoadingList] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fail = (e: unknown) =>
     setError(e instanceof ApiError ? e.message : String(e));
 
-  // Step 0: server types.
+  // Load types once and preselect the first (vanilla).
   useEffect(() => {
-    getServerTypes().then(setTypes).catch(fail);
+    getServerTypes()
+      .then((ts) => {
+        setTypes(ts);
+        if (ts.length > 0) chooseType(ts[0]);
+      })
+      .catch(fail);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Step 1: Minecraft versions for the chosen type.
   async function chooseType(t: ServerTypeInfo) {
     setType(t);
     setMcVersion("");
+    setLoaders([]);
     setLoader("");
-    setStep(1);
-    setLoadingList(true);
+    setLoadingVersions(true);
     try {
       setMcVersions(await getMinecraftVersions(t.key));
     } catch (e) {
       fail(e);
     } finally {
-      setLoadingList(false);
+      setLoadingVersions(false);
     }
   }
 
-  // Step 2: loader builds (Fabric only), else jump to details.
   async function chooseVersion(v: string) {
     setMcVersion(v);
-    if (!type?.needs_loader) {
-      setStep(3);
+    if (!type?.needs_loader || !v) {
+      setLoaders([]);
+      setLoader("");
       return;
     }
-    setStep(2);
-    setLoadingList(true);
+    setLoadingLoaders(true);
     try {
       const ls = await getFabricLoaders(v);
       setLoaders(ls);
@@ -75,9 +86,24 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     } catch (e) {
       fail(e);
     } finally {
-      setLoadingList(false);
+      setLoadingLoaders(false);
     }
   }
+
+  function reset() {
+    setName("");
+    setPort(25565);
+    setMemory(2048);
+    setMcVersion("");
+    setLoaders([]);
+    setLoader("");
+  }
+
+  const ready =
+    type !== null &&
+    mcVersion !== "" &&
+    name.trim() !== "" &&
+    (!type.needs_loader || loader !== "");
 
   async function submit() {
     if (!type) return;
@@ -85,14 +111,13 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     setError(null);
     try {
       await createServer({
-        name,
+        name: name.trim(),
         type: type.key as ServerType,
         mc_version: mcVersion,
         loader_version: type.needs_loader ? loader : null,
         port,
         memory_mb: memory,
       });
-      reset();
       onCreated();
     } catch (e) {
       fail(e);
@@ -101,91 +126,64 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     }
   }
 
-  function reset() {
-    setStep(0);
-    setType(null);
-    setMcVersion("");
-    setLoader("");
-    setName("");
-    setPort(25565);
-    setMemory(2048);
-  }
-
-  const stepLabels = ["Type", "Version", "Loader", "Details"];
-
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-medium text-slate-200">New server</h2>
-        {step > 0 && (
+    <div className="max-w-3xl mx-auto p-6 space-y-5">
+      <h2 className="text-xl font-semibold">New server</h2>
+
+      {/* Server type pills (Crafty's edition tabs) */}
+      <div className="flex gap-1 border-b border-slate-800">
+        {types.map((t) => (
           <button
-            onClick={reset}
-            className="text-xs text-slate-400 hover:text-slate-200"
+            key={t.key}
+            onClick={() => chooseType(t)}
+            className={
+              "px-4 py-2 text-sm rounded-t border-b-2 -mb-px " +
+              (type?.key === t.key
+                ? "border-emerald-500 text-slate-100"
+                : "border-transparent text-slate-400 hover:text-slate-200")
+            }
           >
-            Start over
+            {TYPE_LABELS[t.key] ?? t.key}
+            {t.needs_loader && (
+              <span className="ml-1.5 text-[10px] text-slate-500">mod loader</span>
+            )}
           </button>
+        ))}
+        {types.length === 0 && (
+          <p className="px-2 py-2 text-sm text-slate-500">Loading types…</p>
         )}
       </div>
 
-      {/* Step indicator */}
-      <ol className="flex gap-2 text-xs">
-        {stepLabels.map((label, i) => {
-          // Loader step is skipped for loaderless types.
-          const hidden = i === 2 && type !== null && !type.needs_loader;
-          if (hidden) return null;
-          return (
-            <li
-              key={label}
-              className={`px-2 py-0.5 rounded-full ${
-                i === step
-                  ? "bg-emerald-600 text-white"
-                  : i < step
-                    ? "bg-slate-700 text-slate-300"
-                    : "bg-slate-800 text-slate-500"
-              }`}
-            >
-              {i + 1}. {label}
-            </li>
-          );
-        })}
-      </ol>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+        className="rounded-lg border border-slate-800 p-5 space-y-5"
+      >
+        <div className="grid sm:grid-cols-2 gap-4">
+          <label className="text-sm space-y-1 sm:col-span-2">
+            <span className="text-slate-400">Server name</span>
+            <input
+              required
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My new server"
+              className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5"
+            />
+          </label>
 
-      <div className="rounded-lg border border-slate-800 p-4 space-y-3">
-        {step === 0 && (
-          <div className="space-y-2">
-            <p className="text-sm text-slate-400">Choose a server type</p>
-            <div className="flex gap-2">
-              {types.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => chooseType(t)}
-                  className="flex-1 rounded border border-slate-700 hover:border-emerald-500 bg-slate-800 px-4 py-3 text-sm font-medium"
-                >
-                  {TYPE_LABELS[t.key] ?? t.key}
-                  {t.needs_loader && (
-                    <span className="block text-xs text-slate-500 font-normal">
-                      mod loader
-                    </span>
-                  )}
-                </button>
-              ))}
-              {types.length === 0 && (
-                <p className="text-sm text-slate-500">Loading types…</p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {step === 1 && (
-          <label className="text-sm space-y-1 block">
+          <label className="text-sm space-y-1">
             <span className="text-slate-400">Minecraft version</span>
-            {loadingList ? (
-              <p className="text-sm text-slate-500">Loading versions…</p>
+            {loadingVersions ? (
+              <p className="text-sm text-slate-500 py-1.5">Loading versions…</p>
             ) : (
               <select
+                required
                 value={mcVersion}
                 onChange={(e) => chooseVersion(e.target.value)}
-                className="w-full bg-slate-800 rounded px-2 py-1"
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5"
               >
                 <option value="" disabled>
                   Select a version…
@@ -198,92 +196,92 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
               </select>
             )}
           </label>
-        )}
 
-        {step === 2 && (
-          <label className="text-sm space-y-1 block">
-            <span className="text-slate-400">Fabric loader build</span>
-            {loadingList ? (
-              <p className="text-sm text-slate-500">Loading loaders…</p>
-            ) : (
-              <select
-                value={loader}
-                onChange={(e) => setLoader(e.target.value)}
-                className="w-full bg-slate-800 rounded px-2 py-1"
-              >
-                {loaders.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-            )}
-            <div className="pt-2">
-              <button
-                onClick={() => setStep(3)}
-                disabled={!loader}
-                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded px-3 py-1.5 text-sm font-medium"
-              >
-                Continue
-              </button>
-            </div>
-          </label>
-        )}
-
-        {step === 3 && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              submit();
-            }}
-            className="grid grid-cols-2 gap-3"
-          >
-            <p className="col-span-2 text-xs text-slate-500">
-              {TYPE_LABELS[type!.key] ?? type!.key} · MC {mcVersion}
-              {type!.needs_loader && ` · loader ${loader}`}
-            </p>
-            <label className="col-span-2 text-sm space-y-1">
-              <span className="text-slate-400">Name</span>
-              <input
-                required
-                autoFocus
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full bg-slate-800 rounded px-2 py-1"
-              />
-            </label>
+          {type?.needs_loader && (
             <label className="text-sm space-y-1">
-              <span className="text-slate-400">Port</span>
+              <span className="text-slate-400">Fabric loader build</span>
+              {loadingLoaders ? (
+                <p className="text-sm text-slate-500 py-1.5">Loading loaders…</p>
+              ) : (
+                <select
+                  value={loader}
+                  onChange={(e) => setLoader(e.target.value)}
+                  disabled={loaders.length === 0}
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 disabled:opacity-50"
+                >
+                  {loaders.length === 0 && (
+                    <option value="">Pick a version first</option>
+                  )}
+                  {loaders.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </label>
+          )}
+        </div>
+
+        {/* Quick settings (Crafty's section of the same name) */}
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-sm font-medium text-slate-300">
+              Quick settings{" "}
+              <span className="text-xs font-normal text-slate-500">
+                — everything can be changed later in Properties
+              </span>
+            </h3>
+            <hr className="mt-2 border-slate-800" />
+          </div>
+          <div className="grid grid-cols-2 gap-4 max-w-md">
+            <label className="text-sm space-y-1">
+              <span className="text-slate-400">Server port</span>
               <input
                 type="number"
+                min={1}
+                max={65535}
                 value={port}
                 onChange={(e) => setPort(Number(e.target.value))}
-                className="w-full bg-slate-800 rounded px-2 py-1"
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5"
               />
             </label>
             <label className="text-sm space-y-1">
               <span className="text-slate-400">Memory (MB)</span>
               <input
                 type="number"
+                min={256}
+                step={256}
                 value={memory}
                 onChange={(e) => setMemory(Number(e.target.value))}
-                className="w-full bg-slate-800 rounded px-2 py-1"
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5"
               />
             </label>
-            <div className="col-span-2">
-              <button
-                type="submit"
-                disabled={submitting || !name}
-                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded px-3 py-1.5 text-sm font-medium"
-              >
-                {submitting ? "Creating…" : "Create server"}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            type="submit"
+            disabled={!ready || submitting}
+            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded px-4 py-1.5 text-sm font-medium text-slate-900"
+          >
+            {submitting ? "Creating…" : "Build server"}
+          </button>
+          <button
+            type="button"
+            onClick={reset}
+            className="bg-slate-800 hover:bg-slate-700 rounded px-4 py-1.5 text-sm"
+          >
+            Reset
+          </button>
+          <span className="text-xs text-slate-500 ml-2">
+            The jar and a matching Java runtime are downloaded automatically.
+          </span>
+        </div>
+      </form>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
-    </section>
+    </div>
   );
 }
