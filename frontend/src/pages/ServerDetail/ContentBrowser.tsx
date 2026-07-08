@@ -465,6 +465,12 @@ function ModrinthPane({
 
 // --- Vanilla Tweaks --------------------------------------------------------------
 
+/** VT pack icon (same assets the vanillatweaks.net site uses). */
+function vtIconUrl(vtType: VtPackType, mcVersion: string, packName: string) {
+  const version = mcVersion.split(".").slice(0, 2).join(".");
+  return `https://vanillatweaks.net/assets/resources/icons/${vtType}/${version}/${encodeURIComponent(packName)}.png`;
+}
+
 function VanillaTweaksPane({
   server,
   vtType,
@@ -581,22 +587,60 @@ function VanillaTweaksPane({
             ))}
           </div>
           {openCategory && (
-            <div className="max-h-64 overflow-y-auto rounded border border-slate-800 p-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="max-h-[48vh] overflow-y-auto rounded border border-slate-800 p-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {flatPacks(categories.find((c) => c.category === openCategory)).map(
-                (pack) => (
-                  <label
-                    key={pack.name}
-                    className="flex items-center gap-2 text-xs text-slate-300"
-                    title={pack.description}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selection[openCategory]?.has(pack.name) ?? false}
-                      onChange={() => togglePack(openCategory, pack.name)}
-                    />
-                    <span className="truncate">{pack.display}</span>
-                  </label>
-                ),
+                (pack) => {
+                  const selected =
+                    selection[openCategory]?.has(pack.name) ?? false;
+                  return (
+                    <button
+                      key={pack.name}
+                      type="button"
+                      onClick={() => togglePack(openCategory, pack.name)}
+                      title={pack.description}
+                      className={
+                        "flex items-center gap-2.5 rounded-lg border p-2 text-left transition-colors " +
+                        (selected
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-slate-800 bg-slate-800/40 hover:border-slate-600")
+                      }
+                    >
+                      <img
+                        src={vtIconUrl(vtType, server.mc_version, pack.name)}
+                        alt=""
+                        loading="lazy"
+                        // VT 403s foreign referers but allows referer-less
+                        // requests — omit it instead of proxying the icons.
+                        referrerPolicy="no-referrer"
+                        className="w-10 h-10 rounded shrink-0 bg-slate-800 object-cover"
+                        onError={(e) => {
+                          // Icon missing upstream — keep the dark placeholder.
+                          (e.target as HTMLImageElement).style.visibility = "hidden";
+                        }}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs text-slate-200 truncate">
+                          {pack.display}
+                        </span>
+                        {pack.description && (
+                          <span className="block text-[11px] text-slate-500 truncate">
+                            {pack.description}
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        className={
+                          "w-4 h-4 shrink-0 rounded-full border flex items-center justify-center text-[10px] " +
+                          (selected
+                            ? "border-emerald-500 bg-emerald-500 text-slate-900"
+                            : "border-slate-600 text-transparent")
+                        }
+                      >
+                        ✓
+                      </span>
+                    </button>
+                  );
+                },
               )}
             </div>
           )}
