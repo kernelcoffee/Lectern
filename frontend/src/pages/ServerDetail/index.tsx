@@ -31,10 +31,14 @@ import {
   ServerStatus,
 } from "../../api/servers";
 import Console from "./Console";
+import ModsTab from "./ModsTab";
 import PropertiesTab from "./PropertiesTab";
 import StatsBar from "./StatsBar";
 
-type Tab = "console" | "properties";
+type Tab = "console" | "mods" | "properties";
+
+// Server types that load mods — the Mods tab only renders for these.
+const MODDED_TYPES: ServerDetailType["type"][] = ["fabric", "quilt", "paper"];
 
 const STATUS_STYLES: Record<ServerStatus, string> = {
   installing: "bg-sky-500 text-slate-900",
@@ -227,6 +231,13 @@ export default function ServerDetail({
               active={tab === "console"}
               onClick={() => setTab("console")}
             />
+            {MODDED_TYPES.includes(server.type) && (
+              <TabButton
+                label="Mods"
+                active={tab === "mods"}
+                onClick={() => setTab("mods")}
+              />
+            )}
             <TabButton
               label="Properties"
               active={tab === "properties"}
@@ -239,6 +250,7 @@ export default function ServerDetail({
               <Console serverId={serverId} />
             </section>
           )}
+          {tab === "mods" && <ModsTab serverId={serverId} server={server} />}
           {tab === "properties" && (
             <PropertiesTab
               serverId={serverId}

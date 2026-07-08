@@ -31,6 +31,10 @@ def parse_server_jar_url(version_meta: dict[str, Any]) -> str | None:
     return version_meta.get("downloads", {}).get("server", {}).get("url")
 
 
+def parse_server_jar_sha1(version_meta: dict[str, Any]) -> str | None:
+    return version_meta.get("downloads", {}).get("server", {}).get("sha1")
+
+
 def parse_java_major(version_meta: dict[str, Any]) -> int | None:
     """The Java major version Mojang declares this build needs, if present.
 
@@ -62,6 +66,12 @@ async def get_server_jar_url(version: str) -> str | None:
     """Resolve the download URL for a vanilla server jar (used in M3)."""
     meta = await _version_meta(version)
     return parse_server_jar_url(meta) if meta is not None else None
+
+
+async def get_server_jar_sha1(version: str) -> str | None:
+    """Mojang-published SHA1 of the vanilla server jar (verified on download)."""
+    meta = await _version_meta(version)
+    return parse_server_jar_sha1(meta) if meta is not None else None
 
 
 async def get_java_major(version: str) -> int | None:

@@ -33,6 +33,14 @@ class ServerType(str, enum.Enum):
     paper = "paper"
 
 
+class ReleaseChannel(str, enum.Enum):
+    """Least-stable release type allowed when installing/updating an item."""
+
+    release = "release"
+    beta = "beta"
+    alpha = "alpha"
+
+
 class ServerStatus(str, enum.Enum):
     installing = "installing"
     install_failed = "install_failed"
@@ -76,10 +84,14 @@ class ContentItem(SQLModel, table=True):
     source: str  # modrinth | vanillatweaks
     project_id: str | None = None
     version_id: str | None = None
+    version_number: str | None = None  # human-readable, e.g. "0.92.0+1.20.1"
     slug: str | None = None
     name: str
     filename: str
     sha512: str | None = None
+    # Least-stable release type this item may update to (M6): a mod pinned to
+    # "beta" also accepts releases; the default only ever takes releases.
+    channel: str = ReleaseChannel.release.value
     enabled: bool = True
     installed_at: datetime = Field(default_factory=_now)
 
@@ -215,6 +227,61 @@ class PropertiesRead(SQLModel):
 
     properties: dict[str, str]
     definitions: dict[str, dict]
+
+
+class ContentItemRead(SQLModel):
+    """One installed content item (mirrors the manifest entry)."""
+
+    id: str
+    server_id: str
+    kind: str
+    source: str
+    project_id: str | None
+    version_id: str | None
+    version_number: str | None
+    slug: str | None
+    name: str
+    filename: str
+    sha512: str | None
+    channel: str
+    enabled: bool
+    installed_at: datetime
+
+
+class ContentInstallRequest(SQLModel):
+    """POST payload to install content on a server (M6).
+
+    - ``project_id`` — Modrinth project id *or* slug.
+    - ``version_id`` — a specific version; omitted → newest qualifying under
+      ``channel`` for the server's loader + MC version.
+    - ``channel`` — stored on the item and governs future updates.
+    - ``include_optional_deps`` — required dependencies always install;
+      optional ones only when this is set.
+    """
+
+    project_id: str
+    version_id: str | None = None
+    channel: ReleaseChannel = ReleaseChannel.release
+    include_optional_deps: bool = False
+    source: str = "modrinth"
+
+
+class ContentItemUpdate(SQLModel):
+    """PATCH payload for an installed item — toggle and/or channel change."""
+
+    enabled: bool | None = None
+    channel: ReleaseChannel | None = None
+
+
+class ContentUpdateRead(SQLModel):
+    """One entry of ``GET /servers/{id}/content/updates`` — an installed item
+    with a newer qualifying version available."""
+
+    item_id: str
+    name: str
+    installed_version: str | None  # version_number (fallback: id)
+    new_version_id: str
+    new_version_number: str
 
 
 class PingRead(SQLModel):

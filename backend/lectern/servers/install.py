@@ -152,7 +152,9 @@ async def _run(session: Session, server: Server) -> None:
     spec = await provider.resolve_jar(server.mc_version, server.loader_version)
 
     _set(server.id, "downloading-jar", f"Downloading {spec.jar_name}…")
-    await download_file(spec.url, server_dir / spec.jar_name)
+    await download_file(
+        spec.url, server_dir / spec.jar_name, expected_hash=spec.sha1, hash_algo="sha1"
+    )
 
     # Prefer Mojang's declared requirement (authoritative, e.g. MC 26.2 → 25);
     # fall back to the version-range heuristic only when it's absent.

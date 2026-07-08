@@ -53,10 +53,26 @@ async def get_json(
     return data
 
 
-async def download_file(url: str, dest: Path) -> Path:
+class ChecksumMismatch(Exception):
+    """Downloaded file's hash does not match the expected one."""
+
+
+async def download_file(
+    url: str,
+    dest: Path,
+    *,
+    expected_hash: str | None = None,
+    hash_algo: str = "sha512",
+) -> Path:
     """Stream ``url`` to ``dest`` (created, parents included). No caching —
-    used for large one-off binaries (server jars, Java archives)."""
+    used for large one-off binaries (server jars, Java archives, mods).
+
+    When ``expected_hash`` is given the file is hashed while streaming
+    (``hash_algo``: Mojang publishes sha1, Modrinth sha512) and a mismatch
+    removes the partial file and raises ``ChecksumMismatch``.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
+    hasher = hashlib.new(hash_algo) if expected_hash else None
     request_headers = {"User-Agent": USER_AGENT}
     async with httpx.AsyncClient(
         headers=request_headers, timeout=300.0, follow_redirects=True
@@ -66,6 +82,13 @@ async def download_file(url: str, dest: Path) -> Path:
             with dest.open("wb") as f:
                 async for chunk in resp.aiter_bytes():
                     f.write(chunk)
+                    if hasher:
+                        hasher.update(chunk)
+    if hasher and expected_hash and hasher.hexdigest() != expected_hash.lower():
+        dest.unlink(missing_ok=True)
+        raise ChecksumMismatch(
+            f"{dest.name}: {hash_algo} mismatch (expected {expected_hash}, got {hasher.hexdigest()})"
+        )
     return dest
 
 

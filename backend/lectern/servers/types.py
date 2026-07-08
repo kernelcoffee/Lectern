@@ -22,6 +22,9 @@ class JarSpec:
     # Effective loader build (Fabric); ``None`` for loaderless types. Resolved
     # here so the record stores exactly what was installed.
     loader_version: str | None = None
+    # Publisher-declared jar hash, verified on download when available.
+    # Mojang publishes SHA1; Fabric's meta endpoint publishes none.
+    sha1: str | None = None
 
 
 class VanillaType:
@@ -40,7 +43,8 @@ class VanillaType:
         url = await mojang.get_server_jar_url(mc_version)
         if url is None:
             raise ValueError(f"No vanilla server jar for Minecraft {mc_version}")
-        return JarSpec(url=url, jar_name="server.jar")
+        sha1 = await mojang.get_server_jar_sha1(mc_version)
+        return JarSpec(url=url, jar_name="server.jar", sha1=sha1)
 
 
 class FabricType:
