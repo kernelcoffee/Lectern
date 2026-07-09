@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
+from .api import backups as backups_api
 from .api import catalog as catalog_api
 from .api import content as content_api
 from .api import servers as servers_api
@@ -53,6 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(servers_api.console_router)
     app.include_router(catalog_api.router)
     app.include_router(content_api.router)
+    app.include_router(backups_api.router)
 
     return app
 

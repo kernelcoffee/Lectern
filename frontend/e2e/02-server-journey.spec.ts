@@ -154,6 +154,19 @@ test("full server journey: create → mods → properties → delete @full", asy
   await dpRow.getByRole("button", { name: "Remove" }).click();
   await expect(page.getByText("No datapacks yet")).toBeVisible();
 
+  // --- Backups tab: create, restore (confirm), delete ----------------------
+  await page.getByRole("button", { name: "Backups", exact: true }).click();
+  await expect(page.getByText("No backups yet")).toBeVisible();
+  await page.getByRole("button", { name: "Create backup" }).click();
+  await expect(page.getByText(/^Backup created/)).toBeVisible({ timeout: 30_000 });
+  const backupRow = page.locator("li").filter({ hasText: ".zip" }).first();
+  await expect(backupRow).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await backupRow.getByRole("button", { name: "Restore" }).click();
+  await expect(page.getByText("Backup restored")).toBeVisible({ timeout: 30_000 });
+  await backupRow.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("No backups yet")).toBeVisible();
+
   // --- Properties tab: edit a property and persist it ---------------------
   await page.getByRole("button", { name: "Properties" }).click();
   // Two Save buttons on this tab (settings vs server.properties), and the

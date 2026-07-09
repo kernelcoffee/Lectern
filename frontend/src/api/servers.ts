@@ -36,6 +36,10 @@ export interface ServerDetail extends Server {
   crash_restart: boolean;
   stop_command: string;
   shutdown_timeout: number;
+  backup_excluded: string;
+  backup_max: number;
+  backup_compress: boolean;
+  backup_stop_server: boolean;
   eula_accepted: boolean;
   running: boolean;
 }
@@ -75,6 +79,10 @@ export interface ServerSettingsUpdate {
   crash_restart?: boolean;
   stop_command?: string;
   shutdown_timeout?: number;
+  backup_excluded?: string;
+  backup_max?: number;
+  backup_compress?: boolean;
+  backup_stop_server?: boolean;
 }
 
 /** Backend metadata for one well-known server.properties key. */

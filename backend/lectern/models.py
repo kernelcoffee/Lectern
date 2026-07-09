@@ -73,6 +73,13 @@ class Server(SQLModel, table=True):
     crash_restart: bool = False
     stop_command: str = "stop"
     shutdown_timeout: int = 60
+    # Per-server backup settings (M9) — one config per server, not Crafty's
+    # named multi-configs. excluded = comma-separated dir/file prefixes
+    # relative to the server dir (e.g. "logs,cache").
+    backup_excluded: str = "logs,crash-reports"
+    backup_max: int = 10
+    backup_compress: bool = True
+    backup_stop_server: bool = False
     status: str = ServerStatus.stopped.value
     created_at: datetime = Field(default_factory=_now)
 
@@ -164,6 +171,10 @@ class ServerDetailRead(ServerRead):
     crash_restart: bool
     stop_command: str
     shutdown_timeout: int
+    backup_excluded: str
+    backup_max: int
+    backup_compress: bool
+    backup_stop_server: bool
     eula_accepted: bool
     running: bool
 
@@ -217,6 +228,11 @@ class ServerSettingsUpdate(SQLModel):
     crash_restart: bool | None = None
     stop_command: str | None = None
     shutdown_timeout: int | None = Field(default=None, ge=5, le=600)
+    # Backup settings (M9).
+    backup_excluded: str | None = None
+    backup_max: int | None = Field(default=None, ge=1, le=100)
+    backup_compress: bool | None = None
+    backup_stop_server: bool | None = None
 
 
 class PropertiesRead(SQLModel):
@@ -235,6 +251,17 @@ class PropertiesRead(SQLModel):
 
     properties: dict[str, str]
     definitions: dict[str, dict]
+
+
+class BackupRead(SQLModel):
+    """One backup archive of a server (M9)."""
+
+    id: str
+    server_id: str
+    filename: str
+    size_bytes: int
+    created_at: datetime
+    trigger: str
 
 
 class ContentItemRead(SQLModel):

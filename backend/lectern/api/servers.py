@@ -63,6 +63,10 @@ def _detail(server: Server) -> ServerDetailRead:
         crash_restart=server.crash_restart,
         stop_command=server.stop_command,
         shutdown_timeout=server.shutdown_timeout,
+        backup_excluded=server.backup_excluded,
+        backup_max=server.backup_max,
+        backup_compress=server.backup_compress,
+        backup_stop_server=server.backup_stop_server,
         eula_accepted=eula_accepted(Path(server.path)) if server.path else False,
         running=manager.is_running(server.id),
     )

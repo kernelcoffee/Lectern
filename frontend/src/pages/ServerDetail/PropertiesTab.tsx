@@ -80,6 +80,10 @@ const SETTINGS_FIELDS: {
   { key: "shutdown_timeout", label: "Stop timeout (s)", type: "number", parse: Number },
   { key: "auto_start", label: "Start with Lectern", type: "boolean" },
   { key: "crash_restart", label: "Restart after crash", type: "boolean", hint: "gives up after 3 crashes in a row" },
+  { key: "backup_max", label: "Backups to keep", type: "number", parse: Number, hint: "oldest pruned past this" },
+  { key: "backup_excluded", label: "Backup exclusions", type: "text", hint: "comma-separated paths, e.g. logs,cache" },
+  { key: "backup_compress", label: "Compress backups", type: "boolean" },
+  { key: "backup_stop_server", label: "Stop server for backup", type: "boolean", hint: "restarted afterwards" },
 ];
 
 function LecternSettingsForm({
