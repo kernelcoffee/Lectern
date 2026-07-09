@@ -84,6 +84,8 @@ export interface PropertyDefinition {
   min: number | null; // integer bounds (only for type "integer")
   max: number | null;
   description: string;
+  /** Vanilla's built-in default, shown next to unset fields (null = none). */
+  default: string | null;
 }
 
 export interface PropertiesResponse {

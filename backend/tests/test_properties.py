@@ -203,3 +203,37 @@ def test_patch_server_port_conflict_409(client, engine, tmp_path):
     from lectern.servers.properties import read_properties
 
     assert read_properties(tmp_path)["server-port"] == "25565"
+
+
+# --- Java-properties escaping (MC writes via Properties.store()) --------------
+
+
+def test_parse_unescapes_java_properties():
+    text = "level-type=minecraft\\:normal\nmotd=caf\\u00E9 \\n2nd\nweird\\=key=v\n"
+    props = parse_properties(text)
+    assert props["level-type"] == "minecraft:normal"
+    assert props["motd"] == "café \n2nd"
+    assert props["weird=key"] == "v"
+
+
+def test_parse_accepts_colon_separator():
+    # Java properties allow ':' as separator; MC writes '=' but be liberal.
+    assert parse_properties("key:value\n") == {"key": "value"}
+
+
+def test_render_escapes_and_round_trips():
+    props = {"level-type": "minecraft:normal", "motd": "café \n2nd", "a=b": "x"}
+    rendered = render_properties(props)
+    assert "level-type=minecraft\\:normal" in rendered
+    assert "motd=caf\\u00E9 \\n2nd" in rendered
+    assert "a\\=b=x" in rendered
+    assert parse_properties(rendered) == props
+
+
+def test_definitions_carry_defaults():
+    from lectern.servers.properties import definitions_payload
+
+    payload = definitions_payload()
+    assert payload["allow-nether"]["default"] == "true"
+    assert payload["allow-flight"]["default"] == "false"
+    assert payload["level-seed"]["default"] is None

@@ -297,10 +297,13 @@ function PropertyField({
   let input;
   if (definition?.type === "boolean") {
     // Not the shared BoolSelect: a key absent from the file must show as
-    // unset ("—"), not silently as false.
+    // unset ("—"), not silently as false. Unset fields name the server's
+    // built-in default so "—" isn't a mystery.
     input = (
       <select value={value} onChange={(e) => onChange(e.target.value)} className={base}>
-        {value === "" && <option value="">—</option>}
+        {value === "" && (
+          <option value="">{unsetLabel(definition)}</option>
+        )}
         <option value="true">true</option>
         <option value="false">false</option>
       </select>
@@ -309,7 +312,9 @@ function PropertyField({
     input = (
       <select value={value} onChange={(e) => onChange(e.target.value)} className={base}>
         {/* Empty option when the file doesn't have this key yet. */}
-        {value === "" && <option value="">—</option>}
+        {value === "" && (
+          <option value="">{unsetLabel(definition)}</option>
+        )}
         {definition.values.map((v) => (
           <option key={v} value={v}>
             {v}
@@ -324,13 +329,21 @@ function PropertyField({
         value={value}
         min={definition.min ?? undefined}
         max={definition.max ?? undefined}
+        placeholder={definition.default ? `default: ${definition.default}` : undefined}
         onChange={(e) => onChange(e.target.value)}
         className={base}
       />
     );
   } else {
     input = (
-      <input value={value} onChange={(e) => onChange(e.target.value)} className={base} />
+      <input
+        value={value}
+        placeholder={
+          definition?.default ? `default: ${definition.default}` : undefined
+        }
+        onChange={(e) => onChange(e.target.value)}
+        className={base}
+      />
     );
   }
 
@@ -340,6 +353,11 @@ function PropertyField({
       {input}
     </label>
   );
+}
+
+/** Label for the unset option of a select: "—" plus the server's default. */
+function unsetLabel(definition: PropertyDefinition | undefined): string {
+  return definition?.default ? `— (default: ${definition.default})` : "—";
 }
 
 /** true/false dropdown used for both settings toggles and boolean properties. */
