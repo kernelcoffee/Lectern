@@ -235,6 +235,46 @@ class ServerSettingsUpdate(SQLModel):
     backup_stop_server: bool | None = None
 
 
+class VersionChangeRequest(SQLModel):
+    """POST payload to change a server's Minecraft version (M9.5, F-SM-9).
+
+    - ``mc_version`` — the target Minecraft version.
+    - ``loader_version`` — optional explicit loader build (Fabric/Quilt);
+      omitted → the newest for the target version is resolved.
+    - ``allow_downgrade`` — required to select a version older than the current
+      one (Minecraft can't downgrade a world in place; the world may be
+      unusable — the supported path back is restoring a pre-upgrade backup).
+    - ``backup_first`` — run a backup before touching anything (default on; the
+      world is upgraded one-way on next start).
+    """
+
+    mc_version: str
+    loader_version: str | None = None
+    allow_downgrade: bool = False
+    backup_first: bool = True
+
+
+class MigrationReportRead(SQLModel):
+    """What happened to each installed item during a version change: content
+    re-resolved to a new build (``updated``), disabled for lack of a compatible
+    build (``incompatible``), Vanilla Tweaks sets rebuilt (``regenerated``), and
+    uploads / modpack files left untouched (``kept`` — reimport the modpack to
+    move those)."""
+
+    updated: list[str]
+    incompatible: list[str]
+    regenerated: list[str]
+    kept: list[str]
+
+
+class VersionChangeRead(SQLModel):
+    """Response of ``POST /servers/{id}/version`` — the updated server plus the
+    content migration report."""
+
+    server: ServerDetailRead
+    report: MigrationReportRead
+
+
 class PropertiesRead(SQLModel):
     """Response of ``GET /servers/{id}/properties``.
 

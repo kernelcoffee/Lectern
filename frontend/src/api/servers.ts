@@ -155,3 +155,35 @@ export const patchProperties = (
 
 export const getServerStats = (id: string) =>
   apiGet<ServerStats>(`/api/servers/${id}/stats`);
+
+// --- M9.5 — server version change -------------------------------------------
+
+export interface VersionChangeRequest {
+  mc_version: string;
+  loader_version?: string | null;
+  allow_downgrade?: boolean;
+  backup_first?: boolean;
+}
+
+/** Names of installed content by outcome after a version change. */
+export interface MigrationReport {
+  updated: string[];
+  incompatible: string[];
+  regenerated: string[];
+  kept: string[];
+}
+
+export interface VersionChangeResponse {
+  server: ServerDetail;
+  report: MigrationReport;
+}
+
+export const changeServerVersion = (id: string, body: VersionChangeRequest) =>
+  apiPost<VersionChangeResponse>(`/api/servers/${id}/version`, body);
+
+/** Dry-run compatibility check: how installed content would fare on
+ *  `mcVersion`. Read-only; safe to call while the server runs. */
+export const previewVersionChange = (id: string, mcVersion: string) =>
+  apiGet<MigrationReport>(
+    `/api/servers/${id}/version/preview?mc_version=${encodeURIComponent(mcVersion)}`,
+  );

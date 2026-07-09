@@ -29,6 +29,7 @@ from ..config import get_settings
 from ..db import get_session
 from ..models import (
     InstallProgressRead,
+    MigrationReportRead,
     PingRead,
     PropertiesRead,
     Server,
@@ -39,9 +40,12 @@ from ..models import (
     ServerSuggestRead,
     ServerStatsRead,
     ServerStatus,
+    VersionChangeRead,
+    VersionChangeRequest,
 )
 from ..servers import properties as props
 from ..servers import stats as stats_mod
+from ..servers import version_change as version_change_mod
 from ..servers.install import eula_accepted, get_progress, install_server, set_eula
 from ..servers.manager import ManagerError, manager
 
@@ -242,6 +246,58 @@ def update_server_settings(
     session.commit()
     session.refresh(server)
     return _detail(server)
+
+
+@router.get("/{server_id}/version/preview", response_model=MigrationReportRead)
+async def preview_version_change(
+    server_id: str,
+    mc_version: str,
+    session: Session = Depends(get_session),
+) -> MigrationReportRead:
+    """Dry-run compatibility check for a version change: classify every
+    installed item against ``mc_version`` (compatible build exists / would be
+    disabled / regenerated / kept) without changing anything. The UI calls
+    this as soon as a target version is selected."""
+    server = session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+    try:
+        report = await version_change_mod.preview_migration(server, mc_version)
+    except version_change_mod.VersionChangeError as exc:
+        raise HTTPException(exc.status_code, str(exc))
+    return MigrationReportRead(**report.__dict__)
+
+
+@router.post("/{server_id}/version", response_model=VersionChangeRead)
+async def change_server_version(
+    server_id: str,
+    payload: VersionChangeRequest,
+    session: Session = Depends(get_session),
+) -> VersionChangeRead:
+    """Re-provision a (stopped) server onto a new Minecraft version and migrate
+    its content. Optionally backs up first; refuses a downgrade without the
+    explicit override. Returns the updated server + a migration report."""
+    server = session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+    try:
+        report = await version_change_mod.change_version(
+            session,
+            server,
+            mc_version=payload.mc_version,
+            loader_version=payload.loader_version,
+            allow_downgrade=payload.allow_downgrade,
+            backup_first=payload.backup_first,
+        )
+    except version_change_mod.VersionChangeError as exc:
+        raise HTTPException(exc.status_code, str(exc))
+    except ValueError as exc:  # jar/loader resolution failed
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
+    session.refresh(server)
+    return VersionChangeRead(
+        server=_detail(server),
+        report=MigrationReportRead(**report.__dict__),
+    )
 
 
 @router.get("/{server_id}/properties", response_model=PropertiesRead)

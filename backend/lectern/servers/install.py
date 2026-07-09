@@ -13,6 +13,7 @@ endpoint; a WebSocket feed is layered on in M4.
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,6 +94,61 @@ def set_eula(server_dir: Path, accepted: bool) -> None:
     (server_dir / "eula.txt").write_text(f"eula={'true' if accepted else 'false'}\n")
 
 
+# --- provisioning (shared by create + version change) ----------------------
+
+
+async def provision(
+    server: Server,
+    *,
+    mc_version: str,
+    loader_version: str | None,
+    emit: Callable[[str, str], None] | None = None,
+) -> Path:
+    """Resolve + download the server jar and matching Java for
+    ``(mc_version, loader_version)`` and update the record's jar/loader/java
+    fields in place. Shared by the M3 create pipeline and the M9.5 version
+    change; the caller owns the session and the commit. Returns the server dir.
+
+    Does **not** touch ``eula.txt`` or ``server.properties`` — those are
+    create-only (a version change must preserve the accepted EULA and the
+    existing world/config). ``emit(step, message)`` surfaces progress; the
+    create path wires it to the progress registry, the version change ignores
+    it (the request is synchronous)."""
+    step = emit or (lambda _s, _m: None)
+    settings = get_settings()
+    # Resolve to absolute paths before persisting: the launch subprocess runs
+    # with cwd=server dir, so a relative java_path (LECTERN_DATA=./data) would
+    # be resolved against the wrong directory and fail with FileNotFoundError.
+    server_dir = (settings.servers_dir / server.id).resolve()
+    server_dir.mkdir(parents=True, exist_ok=True)
+
+    provider = get_server_type(server.type)
+
+    step("resolving", "Resolving server jar…")
+    spec = await provider.resolve_jar(mc_version, loader_version)
+
+    step("downloading-jar", f"Downloading {spec.jar_name}…")
+    await download_file(
+        spec.url, server_dir / spec.jar_name, expected_hash=spec.sha1, hash_algo="sha1"
+    )
+
+    # Prefer Mojang's declared requirement (authoritative, e.g. MC 26.2 → 25);
+    # fall back to the version-range heuristic only when it's absent.
+    java_major = await mojang.get_java_major(mc_version)
+    if java_major is None:
+        java_major = adoptium.java_major_for_mc(mc_version)
+    step("installing-java", f"Provisioning Java {java_major}…")
+    java_exe = await adoptium.ensure_java(java_major, settings.java_dir)
+
+    server.path = str(server_dir)
+    server.mc_version = mc_version
+    server.server_jar = spec.jar_name
+    server.loader_version = spec.loader_version if provider.needs_loader else None
+    server.java_major = java_major
+    server.java_path = str(Path(java_exe).resolve())
+    return server_dir
+
+
 # --- pipeline --------------------------------------------------------------
 
 
@@ -139,30 +195,12 @@ async def install_server(server_id: str) -> None:
 
 
 async def _run(session: Session, server: Server) -> None:
-    settings = get_settings()
-    # Resolve to absolute paths before persisting: the launch subprocess runs
-    # with cwd=server dir, so a relative java_path (LECTERN_DATA=./data) would
-    # be resolved against the wrong directory and fail with FileNotFoundError.
-    server_dir = (settings.servers_dir / server.id).resolve()
-    server_dir.mkdir(parents=True, exist_ok=True)
-
-    provider = get_server_type(server.type)
-
-    _set(server.id, "resolving", "Resolving server jar…")
-    spec = await provider.resolve_jar(server.mc_version, server.loader_version)
-
-    _set(server.id, "downloading-jar", f"Downloading {spec.jar_name}…")
-    await download_file(
-        spec.url, server_dir / spec.jar_name, expected_hash=spec.sha1, hash_algo="sha1"
+    server_dir = await provision(
+        server,
+        mc_version=server.mc_version,
+        loader_version=server.loader_version,
+        emit=lambda step, message: _set(server.id, step, message),
     )
-
-    # Prefer Mojang's declared requirement (authoritative, e.g. MC 26.2 → 25);
-    # fall back to the version-range heuristic only when it's absent.
-    java_major = await mojang.get_java_major(server.mc_version)
-    if java_major is None:
-        java_major = adoptium.java_major_for_mc(server.mc_version)
-    _set(server.id, "installing-java", f"Provisioning Java {java_major}…")
-    java_exe = await adoptium.ensure_java(java_major, settings.java_dir)
 
     _set(server.id, "writing-config", "Writing configuration…")
     (server_dir / "eula.txt").write_text("eula=false\n")
@@ -174,11 +212,6 @@ async def _run(session: Session, server: Server) -> None:
         _discard_install(server.id)
         return
 
-    server.path = str(server_dir)
-    server.server_jar = spec.jar_name
-    server.loader_version = spec.loader_version if provider.needs_loader else None
-    server.java_major = java_major
-    server.java_path = str(Path(java_exe).resolve())
     server.status = ServerStatus.stopped.value
     session.add(server)
     session.commit()
