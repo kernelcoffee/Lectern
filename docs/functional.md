@@ -127,6 +127,14 @@ which is why one content pipeline serves them all.
   keeping backups.
 - **F-SM-8 — Live stats.** For a running server, show CPU and memory usage and current player
   count / max players.
+- **F-SM-9 — Change Minecraft version.** *(gap found post-M8)* The admin can move an existing
+  (stopped) server to another Minecraft version: Lectern re-provisions the server jar / loader
+  build and the matching Java runtime, re-resolves installed content against the new version
+  (updating what has a compatible build, disabling and reporting what doesn't), and surfaces a
+  migration report. The world itself is upgraded **by Minecraft, in place and one-way**, at the
+  next start — so the flow prominently offers a pre-change backup. **Downgrades are not
+  supported by Minecraft**: selecting an older version requires an explicit "I understand my
+  world may be unusable" override; the supported path back is restoring the pre-upgrade backup.
 
 ### 4.2 Mods & Plugins (Content)
 
