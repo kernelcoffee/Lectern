@@ -41,6 +41,16 @@ class ReleaseChannel(str, enum.Enum):
     alpha = "alpha"
 
 
+class ScheduleAction(str, enum.Enum):
+    """What a cron schedule does when it fires (M10)."""
+
+    start = "start"
+    stop = "stop"
+    restart = "restart"
+    backup = "backup"
+    command = "command"  # send a raw console command (needs `command`)
+
+
 class ServerStatus(str, enum.Enum):
     installing = "installing"
     install_failed = "install_failed"
@@ -115,8 +125,12 @@ class Backup(SQLModel, table=True):
 class Schedule(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     server_id: str = Field(foreign_key="server.id", index=True)
-    action: str  # start | stop | restart | backup
+    action: str  # start | stop | restart | backup | command
     cron: str
+    # Raw console command sent when action == "command" (M10).
+    command: str | None = None
+    # One-shot: the schedule deletes itself after its first firing (M10).
+    one_time: bool = False
     enabled: bool = True
 
 
@@ -302,6 +316,45 @@ class BackupRead(SQLModel):
     size_bytes: int
     created_at: datetime
     trigger: str
+
+
+class ScheduleCreate(SQLModel):
+    """POST payload for a new cron schedule (M10).
+
+    - ``cron`` — standard 5-field crontab expression (validated; local time).
+    - ``action`` — what fires; ``command`` additionally requires ``command``.
+    - ``one_time`` — the schedule deletes itself after its first firing.
+    """
+
+    action: ScheduleAction
+    cron: str
+    command: str | None = None
+    one_time: bool = False
+    enabled: bool = True
+
+
+class ScheduleUpdate(SQLModel):
+    """PATCH payload — JSON-merge semantics, only present fields applied."""
+
+    action: ScheduleAction | None = None
+    cron: str | None = None
+    command: str | None = None
+    one_time: bool | None = None
+    enabled: bool | None = None
+
+
+class ScheduleRead(SQLModel):
+    """One schedule row plus its computed next firing time (``None`` when
+    disabled or the expression has no future occurrence)."""
+
+    id: str
+    server_id: str
+    action: str
+    cron: str
+    command: str | None
+    one_time: bool
+    enabled: bool
+    next_run: datetime | None
 
 
 class ContentItemRead(SQLModel):

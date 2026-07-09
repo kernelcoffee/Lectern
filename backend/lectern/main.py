@@ -16,9 +16,11 @@ from . import __version__
 from .api import backups as backups_api
 from .api import catalog as catalog_api
 from .api import content as content_api
+from .api import schedules as schedules_api
 from .api import servers as servers_api
 from .config import get_settings
 from .db import init_db
+from .scheduler import scheduler_service
 from .servers.manager import manager
 
 
@@ -29,8 +31,11 @@ async def lifespan(app: FastAPI):
     get_settings().ensure_dirs()
     init_db()
     manager.reconcile()
+    # Cron schedules tick for the whole app lifetime (M10).
+    scheduler_service.start()
     yield
-    # Shutdown: kill any server processes we still own.
+    # Shutdown: stop firing schedules, then kill any server processes we own.
+    scheduler_service.shutdown()
     await manager.shutdown()
 
 
@@ -55,6 +60,7 @@ def create_app() -> FastAPI:
     app.include_router(catalog_api.router)
     app.include_router(content_api.router)
     app.include_router(backups_api.router)
+    app.include_router(schedules_api.router)
 
     return app
 

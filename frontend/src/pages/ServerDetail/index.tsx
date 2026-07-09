@@ -39,6 +39,7 @@ import DatapacksTab from "./DatapacksTab";
 import ModsTab from "./ModsTab";
 import PropertiesTab from "./PropertiesTab";
 import ResourcePacksTab from "./ResourcePacksTab";
+import ScheduleTab from "./ScheduleTab";
 import StatsBar from "./StatsBar";
 
 type Tab =
@@ -47,6 +48,7 @@ type Tab =
   | "resourcepacks"
   | "datapacks"
   | "backups"
+  | "schedule"
   | "version"
   | "properties";
 
@@ -304,6 +306,11 @@ export default function ServerDetail({
               onClick={() => setTab("backups")}
             />
             <TabButton
+              label="Schedule"
+              active={tab === "schedule"}
+              onClick={() => setTab("schedule")}
+            />
+            <TabButton
               label="Version"
               active={tab === "version"}
               onClick={() => setTab("version")}
@@ -334,6 +341,7 @@ export default function ServerDetail({
               onServerChanged={refresh}
             />
           )}
+          {tab === "schedule" && <ScheduleTab serverId={serverId} />}
           {tab === "version" && (
             <ChangeVersionCard server={server} onServerUpdate={setServer} />
           )}
