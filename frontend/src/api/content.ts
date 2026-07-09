@@ -178,6 +178,40 @@ export const uploadResourcePack = async (
   return (await res.json()) as ContentItem;
 };
 
+// --- M8: modpacks ---------------------------------------------------------------
+
+export interface ModpackImportSummary {
+  pack_name: string;
+  pack_version: string;
+  installed: number;
+  skipped_client_only: string[];
+  overrides_applied: number;
+  loader_version: string | null;
+  loader_changed: boolean;
+}
+
+/** Import a Modrinth .mrpack onto the server (loader pinned, files verified,
+ * re-import reconciles an upgrade). */
+export const importModpack = async (
+  serverId: string,
+  file: File,
+  includeClientOnly = false,
+): Promise<ModpackImportSummary> => {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(
+    `/api/servers/${serverId}/modpack?include_client_only=${includeClientOnly}`,
+    { method: "POST", body: form },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(
+      typeof body?.detail === "string" ? body.detail : `HTTP ${res.status}`,
+    );
+  }
+  return (await res.json()) as ModpackImportSummary;
+};
+
 /** Point (or stop pointing) the server's resource-pack prompt at this item. */
 export const serveResourcePack = (
   serverId: string,

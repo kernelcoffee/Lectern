@@ -16,13 +16,14 @@
 // Mod changes apply at the next server start; the tab shows a static hint
 // rather than tracking dirtiness — the backend is always the source of truth.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import {
   applyContentUpdate,
   checkContentUpdates,
   ContentItem,
   ContentUpdate,
+  importModpack,
   listContent,
   patchContent,
   ReleaseChannel,
@@ -46,6 +47,7 @@ export default function ModsTab({
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // item id or "check"/"install"
   const [browsing, setBrowsing] = useState(false);
+  const mrpackInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -119,6 +121,19 @@ export default function ModsTab({
       await refresh();
     });
 
+  const importPack = (file: File) =>
+    run("mrpack", async () => {
+      const s = await importModpack(serverId, file);
+      const parts = [
+        `Imported ${s.pack_name} ${s.pack_version}: ${s.installed} files`,
+      ];
+      if (s.skipped_client_only.length > 0)
+        parts.push(`${s.skipped_client_only.length} client-only skipped`);
+      if (s.loader_changed) parts.push(`loader pinned to ${s.loader_version}`);
+      setNotice(parts.join(" · ") + ". Applies at next start.");
+      await refresh();
+    });
+
   const updateFor = (id: string) => updates?.find((u) => u.item_id === id);
 
   return (
@@ -143,6 +158,24 @@ export default function ModsTab({
         >
           {busy === "check" ? "Checking…" : "Check updates"}
         </button>
+        <button
+          onClick={() => mrpackInput.current?.click()}
+          disabled={busy !== null}
+          className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded px-3 py-1.5 text-sm"
+        >
+          {busy === "mrpack" ? "Importing…" : "Import .mrpack"}
+        </button>
+        <input
+          ref={mrpackInput}
+          type="file"
+          accept=".mrpack,.zip"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) importPack(f);
+            e.target.value = "";
+          }}
+        />
         <button
           onClick={() => setBrowsing(true)}
           className="bg-emerald-600 hover:bg-emerald-500 rounded px-3 py-1.5 text-sm font-medium text-slate-900"

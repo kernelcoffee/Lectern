@@ -17,8 +17,10 @@ from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
 from ..content import manager as content
+from ..content import mrpack as mrpack_mod
 from ..content import resourcepacks as rp
 from ..content.manager import ContentError
+from ..content.mrpack import MrpackError
 from ..content.resourcepacks import ResourcePackError
 from ..db import get_session
 from ..models import (
@@ -45,6 +47,7 @@ router = APIRouter(prefix="/api", tags=["content"])
 _LOADERS = {"fabric": "fabric", "quilt": "quilt", "paper": "paper"}
 
 _MAX_UPLOAD = 100 * 1024 * 1024  # 100 MB — generous for a resource pack
+_MAX_MRPACK = 500 * 1024 * 1024  # .mrpack archives can bundle big overrides
 
 
 def _get_server(server_id: str, session: Session) -> Server:
@@ -264,6 +267,42 @@ async def delete_content(
         await content.remove(session, server_id, server_dir, item_id)
     except ContentError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+
+# --- modpacks (M8) -----------------------------------------------------------
+
+
+@router.post("/servers/{server_id}/modpack")
+async def import_modpack(
+    server_id: str,
+    file: UploadFile,
+    include_client_only: bool = False,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Import a Modrinth ``.mrpack`` onto this server: pins the pack's
+    loader version, downloads its server-side files (sha512-verified),
+    applies overrides, and reconciles against a previous import (an upgrade
+    removes files the new pack version dropped). Client-only files are
+    skipped unless ``include_client_only`` (for mislabeled mods)."""
+    server = _get_server(server_id, session)
+    _, server_dir = _content_context(server)
+    data = await file.read(_MAX_MRPACK + 1)
+    if len(data) > _MAX_MRPACK:
+        raise HTTPException(
+            status.HTTP_413_CONTENT_TOO_LARGE, "Modpack exceeds 500 MB"
+        )
+    try:
+        return await mrpack_mod.import_mrpack(
+            session,
+            server_id,
+            server_dir,
+            data,
+            include_client_only=include_client_only,
+        )
+    except MrpackError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except ChecksumMismatch as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
 
 # --- resource packs (M7) -----------------------------------------------------
