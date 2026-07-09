@@ -20,7 +20,7 @@
 // component is mounted. Console unmounts while on Properties, dropping its
 // WebSocket; history replays from the server buffer when it remounts.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import {
   acceptEula,
@@ -30,8 +30,10 @@ import {
   ServerAction,
   ServerDetail as ServerDetailType,
   ServerStatus,
+  updateServerSettings,
 } from "../../api/servers";
 import BackupsTab from "./BackupsTab";
+import ChangeVersionCard from "./ChangeVersionCard";
 import Console from "./Console";
 import DatapacksTab from "./DatapacksTab";
 import ModsTab from "./ModsTab";
@@ -39,7 +41,14 @@ import PropertiesTab from "./PropertiesTab";
 import ResourcePacksTab from "./ResourcePacksTab";
 import StatsBar from "./StatsBar";
 
-type Tab = "console" | "mods" | "resourcepacks" | "datapacks" | "backups" | "properties";
+type Tab =
+  | "console"
+  | "mods"
+  | "resourcepacks"
+  | "datapacks"
+  | "backups"
+  | "version"
+  | "properties";
 
 // Server types that load mods — the Mods tab only renders for these.
 const MODDED_TYPES: ServerDetailType["type"][] = ["fabric", "quilt", "paper"];
@@ -69,10 +78,14 @@ export default function ServerDetail({
   serverId,
   onBack,
   onDeleted,
+  onChanged,
 }: {
   serverId: string;
   onBack: () => void;
   onDeleted: () => void;
+  /** Called after a change other pages care about (rename) so the parent can
+   *  refresh the shared server list — sidebar/dashboard names follow. */
+  onChanged?: () => void;
 }) {
   const [server, setServer] = useState<ServerDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +185,14 @@ export default function ServerDetail({
         >
           {server.status}
         </span>
-        <h2 className="text-xl font-semibold flex-1 truncate">{server.name}</h2>
+        <EditableName
+          name={server.name}
+          onRename={async (name) => {
+            setServer(await updateServerSettings(serverId, { name }));
+            onChanged?.();
+          }}
+          onError={(msg) => setError(msg)}
+        />
         <button
           onClick={doDelete}
           disabled={busy !== null}
@@ -284,6 +304,11 @@ export default function ServerDetail({
               onClick={() => setTab("backups")}
             />
             <TabButton
+              label="Version"
+              active={tab === "version"}
+              onClick={() => setTab("version")}
+            />
+            <TabButton
               label="Properties"
               active={tab === "properties"}
               onClick={() => setTab("properties")}
@@ -309,6 +334,9 @@ export default function ServerDetail({
               onServerChanged={refresh}
             />
           )}
+          {tab === "version" && (
+            <ChangeVersionCard server={server} onServerUpdate={setServer} />
+          )}
           {tab === "properties" && (
             <PropertiesTab
               serverId={serverId}
@@ -321,6 +349,86 @@ export default function ServerDetail({
 
       {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
+  );
+}
+
+// Click-to-edit server name: pencil → input; Enter/blur saves, Escape cancels.
+// Save goes through PATCH /api/servers/{id} (name conflicts 409 → onError).
+function EditableName({
+  name,
+  onRename,
+  onError,
+}: {
+  name: string;
+  onRename: (name: string) => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select();
+  }, [editing]);
+
+  async function save() {
+    const trimmed = draft.trim();
+    if (saving) return;
+    if (!trimmed || trimmed === name) {
+      setEditing(false);
+      setDraft(name);
+      return;
+    }
+    setSaving(true);
+    try {
+      await onRename(trimmed);
+      setEditing(false);
+    } catch (e) {
+      onError(e instanceof ApiError ? e.message : String(e));
+      inputRef.current?.select(); // keep editing so the user can fix it
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <h2 className="text-xl font-semibold truncate">{name}</h2>
+        <button
+          onClick={() => {
+            setDraft(name);
+            setEditing(true);
+          }}
+          title="Rename server"
+          aria-label="Rename server"
+          className="text-slate-500 hover:text-slate-200 shrink-0"
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+            <path d="M13.586 2.586a2 2 0 0 1 2.828 2.828l-.793.793-2.828-2.828.793-.793ZM11.379 4.793 3 13.172V16h2.828l8.38-8.379-2.83-2.828Z" />
+          </svg>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      value={draft}
+      disabled={saving}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur(); // blur triggers save
+        if (e.key === "Escape") {
+          setDraft(name); // reset so blur's save() sees no change
+          setEditing(false);
+        }
+      }}
+      className="flex-1 min-w-0 rounded bg-slate-800 px-2 py-1 text-xl font-semibold text-slate-100 outline-none ring-1 ring-slate-600 focus:ring-emerald-500 disabled:opacity-50"
+    />
   );
 }
 

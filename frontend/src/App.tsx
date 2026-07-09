@@ -89,6 +89,7 @@ export default function App() {
               await reload();
               go({ view: "dashboard" });
             }}
+            onChanged={reload}
           />
         )}
       </main>
