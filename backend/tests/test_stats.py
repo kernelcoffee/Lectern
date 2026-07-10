@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import struct
 
 from lectern.servers.stats import (
     PingResult,

@@ -71,11 +71,16 @@ def test_vanilla_resolve_jar(monkeypatch):
         assert version == "1.20.1"
         return "https://example/server.jar"
 
+    async def fake_sha1(version):
+        return "abc123"
+
     monkeypatch.setattr(mojang, "get_server_jar_url", fake_url)
+    monkeypatch.setattr(mojang, "get_server_jar_sha1", fake_sha1)
     spec = asyncio.run(types.VanillaType().resolve_jar("1.20.1"))
     assert spec.url == "https://example/server.jar"
     assert spec.jar_name == "server.jar"
     assert spec.loader_version is None
+    assert spec.sha1 == "abc123"
 
 
 def test_fabric_resolve_jar_picks_newest_loader(monkeypatch):

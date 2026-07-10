@@ -53,7 +53,9 @@ def test_process_lifecycle(tmp_path: Path):
         assert await _wait_for(lambda: "running" in states), "never reached running"
 
         await proc.send("say hi")
-        assert await _wait_for(lambda: any("echo: say hi" in l for l in hub.history("s1")))
+        assert await _wait_for(
+            lambda: any("echo: say hi" in line for line in hub.history("s1"))
+        )
 
         await proc.stop("stop", timeout=5)
         assert await _wait_for(lambda: not proc.running), "process did not exit"
@@ -62,7 +64,7 @@ def test_process_lifecycle(tmp_path: Path):
 
     assert states[-1] == "stopped"  # graceful stop, not crashed
     history = hub.history("s1")
-    assert any("hello from fake server" in l for l in history)
+    assert any("hello from fake server" in line for line in history)
 
 
 def test_process_crash_is_reported(tmp_path: Path):
