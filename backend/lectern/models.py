@@ -125,6 +125,22 @@ class Backup(SQLModel, table=True):
     trigger: str = "manual"  # manual | scheduled
 
 
+class ServerStat(SQLModel, table=True):
+    """One point in a server's resource-usage time series (M11 monitoring).
+
+    Sampled on a timer for *running* servers; pruned to a retention window.
+    Integer autoincrement PK — these are high-volume and short-lived, so a UUID
+    would be wasteful.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    server_id: str = Field(foreign_key="server.id", index=True)
+    created_at: datetime = Field(default_factory=_now, index=True)
+    cpu_percent: float = 0.0
+    memory_mb: float = 0.0
+    players_online: int = 0
+
+
 class Schedule(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     server_id: str = Field(foreign_key="server.id", index=True)
@@ -536,6 +552,24 @@ class PingRead(SQLModel):
     motd: str  # flattened to plain text (formatting codes stripped)
     version: str  # e.g. "1.20.1" or a modded brand string
     favicon: str | None
+
+
+class StatSampleRead(SQLModel):
+    """One historical resource sample (from ``GET /servers/{id}/stats/history``)."""
+
+    created_at: datetime
+    cpu_percent: float
+    memory_mb: float
+    players_online: int
+
+
+class ServerSizeRead(SQLModel):
+    """Cached on-disk size of a server (computed off-request by the sampler).
+    ``null`` fields mean it hasn't been measured yet."""
+
+    world_bytes: int | None = None
+    server_bytes: int | None = None
+    computed_at: datetime | None = None
 
 
 class ServerStatsRead(SQLModel):

@@ -171,6 +171,27 @@ export const patchProperties = (
 export const getServerStats = (id: string) =>
   apiGet<ServerStats>(`/api/servers/${id}/stats`);
 
+// --- M11 — resource history + on-disk size ----------------------------------
+
+export interface StatSample {
+  created_at: string;
+  cpu_percent: number;
+  memory_mb: number;
+  players_online: number;
+}
+
+export interface ServerSize {
+  world_bytes: number | null;
+  server_bytes: number | null;
+  computed_at: string | null;
+}
+
+export const getStatsHistory = (id: string, minutes = 60) =>
+  apiGet<StatSample[]>(`/api/servers/${id}/stats/history?minutes=${minutes}`);
+
+export const getServerSize = (id: string) =>
+  apiGet<ServerSize>(`/api/servers/${id}/size`);
+
 // --- M9.5 — server version change -------------------------------------------
 
 export interface VersionChangeRequest {

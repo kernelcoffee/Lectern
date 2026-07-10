@@ -39,6 +39,7 @@ import Console from "./Console";
 import DatapacksTab from "./DatapacksTab";
 import FilesTab from "./FilesTab";
 import ModsTab from "./ModsTab";
+import MonitorPanel from "./MonitorPanel";
 import PropertiesTab from "./PropertiesTab";
 import ResourcePacksTab from "./ResourcePacksTab";
 import ScheduleTab from "./ScheduleTab";
@@ -302,6 +303,9 @@ export default function ServerDetail({
       {/* Live stats — mounted only while running, which is also what starts
           and stops the underlying 5s polling (see StatsBar). */}
       {server.status === "running" && <StatsBar serverId={serverId} />}
+
+      {/* Resource history + on-disk size — shown even when stopped. */}
+      {!installing && <MonitorPanel serverId={serverId} />}
 
       {/* Tabs — plain conditional rendering, no router. */}
       {!installing && (

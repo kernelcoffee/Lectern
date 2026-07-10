@@ -69,6 +69,15 @@ class ServerManager:
         proc = self._procs.get(server_id)
         return proc if proc is not None and proc.running else None
 
+    def running_processes(self) -> list[tuple[str, ServerProcess]]:
+        """(server_id, process) for every currently-running server — used by the
+        stats sampler to record a resource snapshot per tick."""
+        return [
+            (server_id, proc)
+            for server_id, proc in self._procs.items()
+            if proc.running
+        ]
+
     # --- status plumbing ---------------------------------------------------
 
     def _write_status(self, server_id: str, status: str) -> Server | None:

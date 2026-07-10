@@ -14,6 +14,7 @@ import shutil
 import tempfile
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import (
@@ -44,8 +45,11 @@ from ..models import (
     ServerRead,
     ServerSettingsUpdate,
     ServerSuggestRead,
+    ServerSizeRead,
+    ServerStat,
     ServerStatsRead,
     ServerStatus,
+    StatSampleRead,
     VersionChangeRead,
     VersionChangeRequest,
     WorldImportRead,
@@ -59,6 +63,7 @@ from ..servers import version_change as version_change_mod
 from ..servers import world_import
 from ..servers.install import eula_accepted, get_progress, install_server, set_eula
 from ..servers.manager import ManagerError, manager
+from ..servers.stats_sampler import stats_sampler
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
 
@@ -599,6 +604,47 @@ async def server_stats(
         cpu_percent=usage.cpu_percent if usage else None,
         memory_mb=usage.memory_mb if usage else None,
         ping=PingRead(**ping.__dict__) if ping else None,
+    )
+
+
+@router.get("/{server_id}/stats/history", response_model=list[StatSampleRead])
+def server_stats_history(
+    server_id: str,
+    minutes: int = 60,
+    session: Session = Depends(get_session),
+) -> list[ServerStat]:
+    """Persisted resource samples over the last ``minutes`` (oldest→newest),
+    for CPU/memory/player graphs. Sampled on a timer while the server runs."""
+    server = session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+    window = max(1, min(minutes, 1440))
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=window)
+    return list(
+        session.exec(
+            select(ServerStat)
+            .where(ServerStat.server_id == server_id, ServerStat.created_at >= cutoff)
+            .order_by(ServerStat.created_at)
+        ).all()
+    )
+
+
+@router.get("/{server_id}/size", response_model=ServerSizeRead)
+def server_size(
+    server_id: str, session: Session = Depends(get_session)
+) -> ServerSizeRead:
+    """On-disk world + server size (computed off-request by the sampler and
+    cached). Empty fields until the first measurement lands."""
+    server = session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+    info = stats_sampler.size_of(server_id)
+    if info is None:
+        return ServerSizeRead()
+    return ServerSizeRead(
+        world_bytes=info.world_bytes,
+        server_bytes=info.server_bytes,
+        computed_at=info.computed_at,
     )
 
 

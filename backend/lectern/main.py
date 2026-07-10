@@ -25,6 +25,7 @@ from .config import get_settings
 from .db import init_db
 from .scheduler import scheduler_service
 from .servers.manager import manager
+from .servers.stats_sampler import stats_sampler
 
 
 @asynccontextmanager
@@ -38,8 +39,11 @@ async def lifespan(app: FastAPI):
     manager.autostart()
     # Cron schedules tick for the whole app lifetime (M10).
     scheduler_service.start()
+    # Persist resource samples for CPU/mem/player history graphs (M11).
+    stats_sampler.start()
     yield
     # Shutdown: stop firing schedules, then kill any server processes we own.
+    await stats_sampler.stop()
     scheduler_service.shutdown()
     await manager.shutdown()
 
