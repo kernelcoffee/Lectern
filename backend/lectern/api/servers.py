@@ -84,6 +84,7 @@ def _detail(server: Server) -> ServerDetailRead:
         crash_restart=server.crash_restart,
         stop_command=server.stop_command,
         shutdown_timeout=server.shutdown_timeout,
+        log_retention_days=server.log_retention_days,
         backup_excluded=server.backup_excluded,
         backup_max=server.backup_max,
         backup_compress=server.backup_compress,

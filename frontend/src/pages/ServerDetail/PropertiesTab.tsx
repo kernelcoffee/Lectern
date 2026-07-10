@@ -78,6 +78,7 @@ const SETTINGS_FIELDS: {
   { key: "jvm_args", label: "Extra JVM args", type: "text", hint: "space-separated, e.g. -XX:+UseG1GC" },
   { key: "stop_command", label: "Stop command", type: "text" },
   { key: "shutdown_timeout", label: "Stop timeout (s)", type: "number", parse: Number },
+  { key: "log_retention_days", label: "Log retention (days)", type: "number", parse: Number, hint: "delete rotated logs older than this at start; 0 = keep" },
   { key: "auto_start", label: "Start with Lectern", type: "boolean" },
   { key: "auto_start_delay", label: "Auto-start delay (s)", type: "number", parse: Number, hint: "staggers boot when several auto-start" },
   { key: "crash_restart", label: "Restart after crash", type: "boolean", hint: "gives up after 3 crashes in a row" },

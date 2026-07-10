@@ -86,6 +86,8 @@ class Server(SQLModel, table=True):
     crash_restart: bool = False
     stop_command: str = "stop"
     shutdown_timeout: int = 60
+    # Delete rotated logs older than this many days at start (0 = keep forever).
+    log_retention_days: int = 0
     # Per-server backup settings (M9) — one config per server, not Crafty's
     # named multi-configs. excluded = comma-separated dir/file prefixes
     # relative to the server dir (e.g. "logs,cache").
@@ -217,6 +219,7 @@ class ServerDetailRead(ServerRead):
     crash_restart: bool
     stop_command: str
     shutdown_timeout: int
+    log_retention_days: int
     backup_excluded: str
     backup_max: int
     backup_compress: bool
@@ -275,6 +278,7 @@ class ServerSettingsUpdate(SQLModel):
     crash_restart: bool | None = None
     stop_command: str | None = None
     shutdown_timeout: int | None = Field(default=None, ge=5, le=600)
+    log_retention_days: int | None = Field(default=None, ge=0, le=3650)
     # Backup settings (M9).
     backup_excluded: str | None = None
     backup_max: int | None = Field(default=None, ge=1, le=100)

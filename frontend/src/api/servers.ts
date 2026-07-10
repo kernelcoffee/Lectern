@@ -44,6 +44,7 @@ export interface ServerDetail extends Server {
   crash_restart: boolean;
   stop_command: string;
   shutdown_timeout: number;
+  log_retention_days: number;
   backup_excluded: string;
   backup_max: number;
   backup_compress: boolean;
@@ -88,6 +89,7 @@ export interface ServerSettingsUpdate {
   crash_restart?: boolean;
   stop_command?: string;
   shutdown_timeout?: number;
+  log_retention_days?: number;
   backup_excluded?: string;
   backup_max?: number;
   backup_compress?: boolean;

@@ -27,6 +27,8 @@ _DONE_MARKER = "Done ("
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 # Grace period after terminate() before escalating to a psutil tree kill.
 _TERMINATE_GRACE = 10
+# How often to announce the remaining time during a graceful stop.
+_COUNTDOWN_STEP = 10
 
 StateCallback = Callable[[str, str], Awaitable[None]]
 
@@ -104,7 +106,7 @@ class ServerProcess:
         await self.on_state(self.server_id, "stopping")
 
         await self.send(stop_command)
-        if await self._wait(timeout):
+        if await self._wait_countdown(timeout):
             return
 
         # Graceful stop timed out — ask the JVM to terminate.
@@ -138,3 +140,21 @@ class ServerProcess:
             return True
         except asyncio.TimeoutError:
             return False
+
+    async def _wait_countdown(self, timeout: int) -> bool:
+        """Wait for a graceful exit, announcing the remaining seconds into the
+        console every ``_COUNTDOWN_STEP`` (ref: crafty-4). Each chunk returns
+        immediately when the process actually exits, so this stays responsive.
+        True if it exited within ``timeout``."""
+        remaining = timeout
+        while remaining > 0:
+            chunk = min(_COUNTDOWN_STEP, remaining)
+            if await self._wait(chunk):
+                return True
+            remaining -= chunk
+            if remaining > 0:
+                self.hub.publish(
+                    self.server_id,
+                    f"[lectern] waiting for graceful stop — {remaining}s until force stop",
+                )
+        return False

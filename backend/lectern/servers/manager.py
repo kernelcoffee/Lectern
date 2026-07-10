@@ -148,6 +148,10 @@ class ServerManager:
                 server.java_path, server.memory_mb, server.server_jar, server.jvm_args
             )
             cwd = server.path
+            # Drop rotated logs past the retention window before this run adds more.
+            from . import logs as server_logs
+
+            server_logs.prune_logs(Path(server.path), server.log_retention_days)
             server.status = ServerStatus.starting.value
             session.add(server)
             session.commit()
