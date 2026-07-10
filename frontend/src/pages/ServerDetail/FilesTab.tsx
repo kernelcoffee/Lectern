@@ -18,9 +18,12 @@ import {
   makeDir,
   readFile,
   renamePath,
+  unzipFile,
   uploadFile,
   writeFile,
 } from "../../api/files";
+
+const isZip = (name: string) => name.toLowerCase().endsWith(".zip");
 
 function fmtSize(bytes: number): string {
   if (bytes >= 1 << 30) return `${(bytes / (1 << 30)).toFixed(1)} GB`;
@@ -176,14 +179,37 @@ export default function FilesTab({ serverId }: { serverId: string }) {
       await refresh();
     });
 
-  const onUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  const uploadMany = (files: FileList | File[]) =>
     run(async () => {
-      await uploadFile(serverId, cwd, file);
+      for (const file of Array.from(files)) {
+        await uploadFile(serverId, cwd, file);
+      }
       await refresh();
     });
+
+  const onUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    e.target.value = "";
+    if (files && files.length) uploadMany(files);
+  };
+
+  const unzip = (entry: FileEntry) =>
+    run(async () => {
+      await unzipFile(serverId, join(cwd, entry.name));
+      await refresh();
+    });
+
+  // Drag & drop upload onto the file list.
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    if (busy) return;
+    const files = e.dataTransfer.files;
+    if (files && files.length) uploadMany(files);
   };
 
   function toggle(name: string) {
@@ -242,18 +268,45 @@ export default function FilesTab({ serverId }: { serverId: string }) {
           <ToolbarButton label="New folder" onClick={newFolder} disabled={busy} />
           <label className="cursor-pointer rounded bg-slate-800 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-700">
             Upload
-            <input type="file" onChange={onUpload} className="hidden" disabled={busy} />
+            <input
+              type="file"
+              multiple
+              onChange={onUpload}
+              className="hidden"
+              disabled={busy}
+            />
           </label>
         </div>
       </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      {/* Table */}
+      {/* Table (drop files anywhere on it to upload into this folder) */}
       {entries === null ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-slate-800">
+        <div
+          className={
+            "relative overflow-x-auto rounded-lg border " +
+            (dragging ? "border-emerald-500" : "border-slate-800")
+          }
+          onDragEnter={(e) => {
+            e.preventDefault();
+            dragDepth.current += 1;
+            setDragging(true);
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onDragLeave={() => {
+            dragDepth.current -= 1;
+            if (dragDepth.current <= 0) setDragging(false);
+          }}
+          onDrop={onDrop}
+        >
+          {dragging && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-emerald-500/10 text-sm font-medium text-emerald-300">
+              Drop files to upload to /{cwd || "server"}
+            </div>
+          )}
           <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -329,6 +382,7 @@ export default function FilesTab({ serverId }: { serverId: string }) {
                       onOpen={() => openFile(entry)}
                       onRename={() => rename(entry)}
                       onDelete={() => removeOne(entry)}
+                      onUnzip={() => unzip(entry)}
                     />
                   </td>
                 </tr>
@@ -366,6 +420,7 @@ function RowMenu({
   onOpen,
   onRename,
   onDelete,
+  onUnzip,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -375,6 +430,7 @@ function RowMenu({
   onOpen: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onUnzip: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -400,6 +456,7 @@ function RowMenu({
           {!entry.is_dir && (
             <>
               <MenuItem label="Edit" onClick={onOpen} />
+              {isZip(entry.name) && <MenuItem label="Unzip here" onClick={onUnzip} />}
               <a
                 href={fileDownloadUrl(serverId, join(cwd, entry.name))}
                 download={entry.name}

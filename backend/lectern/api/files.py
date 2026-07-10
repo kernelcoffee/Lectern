@@ -9,6 +9,7 @@ root and ``.lectern/`` restrict what can change.
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
+from .. import app_settings
 from ..db import get_session
 from ..models import (
     DirListingRead,
@@ -24,6 +26,7 @@ from ..models import (
     MkdirRequest,
     RenameRequest,
     Server,
+    UnzipRequest,
     WriteFileRequest,
 )
 from ..servers import files as fm
@@ -108,6 +111,19 @@ def rename(
         raise _handle(exc)
 
 
+@router.post("/unzip", status_code=status.HTTP_201_CREATED)
+async def unzip(
+    server_id: str, payload: UnzipRequest, session: Session = Depends(get_session)
+) -> dict:
+    """Extract a zip file in place (into its own directory)."""
+    server_dir = _server_dir(server_id, session)
+    try:
+        written = await asyncio.to_thread(fm.unzip, server_dir, payload.path)
+    except fm.FileManagerError as exc:
+        raise _handle(exc)
+    return {"extracted": written}
+
+
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 def delete(
     server_id: str, path: str, session: Session = Depends(get_session)
@@ -147,6 +163,7 @@ async def upload(
     except fm.FileManagerError as exc:
         raise _handle(exc)
 
+    max_bytes = app_settings.get_int(session, "max_file_upload_mb") * 1024 * 1024
     received = 0
     with tempfile.NamedTemporaryFile(
         dir=dest.parent, delete=False, suffix=".part"
@@ -154,7 +171,7 @@ async def upload(
         tmp_path = Path(tmp.name)
         while chunk := await file.read(1 << 20):
             received += len(chunk)
-            if received > fm.UPLOAD_MAX:
+            if received > max_bytes:
                 tmp_path.unlink(missing_ok=True)
                 raise HTTPException(
                     status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File is too large"

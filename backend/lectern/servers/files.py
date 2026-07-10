@@ -18,13 +18,16 @@ from __future__ import annotations
 
 import shutil
 import stat as stat_mod
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 # Files larger than this aren't loaded into the editor (download instead).
 TEXT_EDIT_MAX = 1 * 1024 * 1024  # 1 MiB
-# Cap on an uploaded file placed through the browser.
-UPLOAD_MAX = 200 * 1024 * 1024  # 200 MiB
+# (Upload size cap lives in app settings — max_file_upload_mb — since it's
+# runtime-editable from the Settings UI.)
+# Cap on the total uncompressed size an unzip may write (zip-bomb guard).
+UNZIP_MAX = 4 * 1024 * 1024 * 1024  # 4 GiB
 
 # Lectern's own bookkeeping — hidden and read-only through the file manager.
 PROTECTED = ".lectern"
@@ -171,6 +174,43 @@ def delete(server_dir: Path, rel: str) -> None:
         shutil.rmtree(target)
     else:
         target.unlink()
+
+
+def unzip(server_dir: Path, rel: str) -> int:
+    """Extract a ``.zip`` file **in place** — its members land in the archive's
+    own directory. Every member is confined to the server dir (zip-slip
+    guarded), refuses to write under ``.lectern``, and the total uncompressed
+    size is capped (zip-bomb guard). Returns the number of files written."""
+    archive = safe_path(server_dir, rel)
+    if not archive.is_file():
+        raise FileManagerError("Not a file", 400)
+    if not zipfile.is_zipfile(archive):
+        raise FileManagerError("Not a zip archive", 400)
+
+    base = server_dir.resolve()
+    dest_dir = archive.parent
+    written = 0
+    with zipfile.ZipFile(archive) as zf:
+        total = sum(i.file_size for i in zf.infolist())
+        if total > UNZIP_MAX:
+            raise FileManagerError("Archive is too large to extract", 413)
+        for info in zf.infolist():
+            name = info.filename.replace("\\", "/")
+            rel_path = Path(name)
+            if rel_path.is_absolute() or ".." in rel_path.parts:
+                raise FileManagerError(f"Unsafe path in archive: {name!r}", 400)
+            out = (dest_dir / rel_path).resolve()
+            if out != base and base not in out.parents:
+                raise FileManagerError(f"Unsafe path in archive: {name!r}", 400)
+            if PROTECTED in out.relative_to(base).parts:
+                raise FileManagerError(f"{PROTECTED}/ is managed by Lectern", 403)
+            if info.is_dir():
+                out.mkdir(parents=True, exist_ok=True)
+            else:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(zf.read(info))
+                written += 1
+    return written
 
 
 def upload_dest(server_dir: Path, dir_rel: str, filename: str) -> Path:

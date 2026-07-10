@@ -73,6 +73,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
       .then((s) => {
         setName((prev) => (prev === "" ? s.name : prev));
         setPort((prev) => (prev === 25565 ? s.port : prev));
+        setMemory((prev) => (prev === 2048 ? s.memory_mb : prev));
       })
       .catch(() => {
         // Suggestions are a convenience — the form still works without them.

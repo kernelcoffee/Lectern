@@ -7,6 +7,8 @@ tmp path (same trick as the other suites).
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -140,6 +142,55 @@ def test_delete_recursive_dir(tmp_path):
     assert not (base / "world").exists()
 
 
+# --- unzip ------------------------------------------------------------------
+
+
+def _zip_bytes(files: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def test_unzip_in_place(tmp_path):
+    base = tmp_path / "srv"
+    (base / "packs").mkdir(parents=True)
+    (base / "packs" / "map.zip").write_bytes(
+        _zip_bytes({"World/level.dat": b"L", "World/region/r.mca": b"R"})
+    )
+    count = fm.unzip(base, "packs/map.zip")
+    assert count == 2
+    # Members land in the archive's own directory (in place).
+    assert (base / "packs" / "World" / "level.dat").read_bytes() == b"L"
+    assert (base / "packs" / "World" / "region" / "r.mca").read_bytes() == b"R"
+
+
+def test_unzip_rejects_non_zip(tmp_path):
+    base = tmp_path / "srv"
+    base.mkdir()
+    (base / "notes.txt").write_text("hi")
+    with pytest.raises(fm.FileManagerError, match="Not a zip"):
+        fm.unzip(base, "notes.txt")
+
+
+def test_unzip_rejects_zip_slip(tmp_path):
+    base = tmp_path / "srv"
+    base.mkdir()
+    (base / "evil.zip").write_bytes(_zip_bytes({"../escape.txt": b"PWNED"}))
+    with pytest.raises(fm.FileManagerError, match="Unsafe path"):
+        fm.unzip(base, "evil.zip")
+    assert not (tmp_path / "escape.txt").exists()
+
+
+def test_unzip_refuses_writing_into_lectern(tmp_path):
+    base = tmp_path / "srv"
+    base.mkdir()
+    (base / "sneaky.zip").write_bytes(_zip_bytes({".lectern/manifest.json": b"{}"}))
+    with pytest.raises(fm.FileManagerError, match="managed by Lectern"):
+        fm.unzip(base, "sneaky.zip")
+
+
 # --- endpoints --------------------------------------------------------------
 
 
@@ -208,6 +259,18 @@ def test_endpoint_upload_and_download(client, engine, tmp_path):
 
     dl = client.get(f"/api/servers/{sid}/files/download", params={"path": "config/note.txt"})
     assert dl.status_code == 200 and dl.content == b"UPLOADED"
+
+
+def test_endpoint_unzip(client, engine, tmp_path):
+    sid, sdir = _installed(client, engine, tmp_path)
+    (sdir / "bundle.zip").write_bytes(_zip_bytes({"a.txt": b"A", "sub/b.txt": b"B"}))
+    resp = client.post(
+        f"/api/servers/{sid}/files/unzip", json={"path": "bundle.zip"}
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["extracted"] == 2
+    assert (sdir / "a.txt").read_bytes() == b"A"
+    assert (sdir / "sub" / "b.txt").read_bytes() == b"B"
 
 
 def test_endpoint_installed_guard(client):

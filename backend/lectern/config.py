@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     # generous; override with LECTERN_MAX_WORLD_UPLOAD_MB if needed.
     max_world_upload_mb: int = 20480  # 20 GiB
 
+    # Max size of a file uploaded through the file manager (big enough for a
+    # world/modpack zip you then unzip in place). Override with
+    # LECTERN_MAX_FILE_UPLOAD_MB.
+    max_file_upload_mb: int = 2048  # 2 GiB
+
+    # These are the app-level tunables editable at runtime from the Settings UI
+    # (stored in the ``Setting`` table, layered over the env defaults above).
+    # Deployment settings (data dir, host, port) stay env-only.
+
     @property
     def db_path(self) -> Path:
         return self.data / "lectern.sqlite"

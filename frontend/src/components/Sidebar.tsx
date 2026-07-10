@@ -82,6 +82,18 @@ export default function Sidebar({
         </div>
       </nav>
 
+      <div className="border-t border-slate-800/60 py-2">
+        <ul>
+          <NavItem
+            label="Settings"
+            icon={<GearIcon />}
+            active={route.view === "settings"}
+            onClick={() => onNavigate({ view: "settings" })}
+            muted
+          />
+        </ul>
+      </div>
+
       <footer className="px-5 py-3 border-t border-slate-800/60 text-[11px]">
         <span className={backendOk ? "text-emerald-400" : "text-slate-500"}>
           backend {backend}
@@ -136,6 +148,14 @@ function PlusIcon() {
   return (
     <svg viewBox="0 0 16 16" className="w-4 h-4 fill-current shrink-0">
       <path d="M7 2h2v5h5v2H9v5H7V9H2V7h5z" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current shrink-0">
+      <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm7.4 3.5.9 1.6-1.9 3.3-1.8-.5a6.9 6.9 0 0 1-1.4.8l-.4 1.8h-3.6l-.4-1.8a6.9 6.9 0 0 1-1.4-.8l-1.8.5L3.7 15l1.3-1.3a7 7 0 0 1 0-1.6L3.7 10.8l1.9-3.3 1.8.5c.4-.3.9-.6 1.4-.8l.4-1.8h3.6l.4 1.8c.5.2 1 .5 1.4.8l1.8-.5 1.9 3.3-1.3 1.3c.1.5.1 1.1 0 1.6Z" />
     </svg>
   );
 }

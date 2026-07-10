@@ -168,24 +168,20 @@ def test_settings_patch_conflicts_409(client):
 # --- create-form default suggestions -----------------------------------------
 
 
+def _suggest(client) -> dict:
+    s = client.get("/api/servers/suggest").json()
+    return {"name": s["name"], "port": s["port"]}  # memory_mb tested separately
+
+
 def test_suggest_defaults_empty(client):
-    assert client.get("/api/servers/suggest").json() == {
-        "name": "New server",
-        "port": 25565,
-    }
+    assert _suggest(client) == {"name": "New server", "port": 25565}
 
 
 def test_suggest_defaults_iterate(client):
     _create(client, "New server", 25565)
-    assert client.get("/api/servers/suggest").json() == {
-        "name": "New server 2",
-        "port": 25566,
-    }
+    assert _suggest(client) == {"name": "New server 2", "port": 25566}
     _create(client, "new server 2 ", 25566)  # case/whitespace still counts
-    assert client.get("/api/servers/suggest").json() == {
-        "name": "New server 3",
-        "port": 25567,
-    }
+    assert _suggest(client) == {"name": "New server 3", "port": 25567}
 
 
 def test_suggest_defaults_fills_port_gap(client):

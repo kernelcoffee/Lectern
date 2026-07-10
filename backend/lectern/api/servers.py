@@ -50,6 +50,7 @@ from ..models import (
     VersionChangeRequest,
     WorldImportRead,
 )
+from .. import app_settings
 from ..content import manager as content_manager
 from ..providers.base import download_file
 from ..servers import properties as props
@@ -108,7 +109,11 @@ def suggest_defaults(session: Session = Depends(get_session)) -> ServerSuggestRe
     port = 25565
     while port in taken_ports:
         port += 1
-    return ServerSuggestRead(name=name, port=port)
+    return ServerSuggestRead(
+        name=name,
+        port=port,
+        memory_mb=app_settings.get_int(session, "default_memory_mb"),
+    )
 
 
 def _check_conflicts(
@@ -455,7 +460,8 @@ async def import_world(
     # The DH default is applied client-side, so a cleared field means "all".
     patterns = [p.strip() for p in (exclude or "").split(",") if p.strip()]
     level_name = props.read_properties(Path(server.path)).get("level-name") or "world"
-    max_bytes = get_settings().max_world_upload_mb * 1024**2
+    max_mb = app_settings.get_int(session, "max_world_upload_mb")
+    max_bytes = max_mb * 1024**2
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tf:
         tmp = Path(tf.name)
     try:
@@ -467,7 +473,7 @@ async def import_world(
                     if received > max_bytes:
                         raise HTTPException(
                             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                            f"World archive exceeds the {get_settings().max_world_upload_mb} MB limit",
+                            f"World archive exceeds the {max_mb} MB limit",
                         )
                     out.write(chunk)
         else:

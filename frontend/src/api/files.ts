@@ -44,6 +44,11 @@ export const renamePath = (serverId: string, path: string, to: string) =>
 export const deletePath = (serverId: string, path: string) =>
   apiDelete(`/api/servers/${serverId}/files?${q(path)}`);
 
+export const unzipFile = (serverId: string, path: string) =>
+  apiPost<{ extracted: number }>(`/api/servers/${serverId}/files/unzip`, {
+    path,
+  });
+
 export const fileDownloadUrl = (serverId: string, path: string) =>
   `/api/servers/${serverId}/files/download?${q(path)}`;
 

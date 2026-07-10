@@ -19,6 +19,7 @@ from .api import content as content_api
 from .api import files as files_api
 from .api import schedules as schedules_api
 from .api import servers as servers_api
+from .api import settings as settings_api
 from .config import get_settings
 from .db import init_db
 from .scheduler import scheduler_service
@@ -65,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(backups_api.router)
     app.include_router(schedules_api.router)
     app.include_router(files_api.router)
+    app.include_router(settings_api.router)
 
     return app
 

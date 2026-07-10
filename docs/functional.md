@@ -127,12 +127,20 @@ which is why one content pipeline serves them all.
   keeping backups.
 - **F-SM-8 — Live stats.** For a running server, show CPU and memory usage and current player
   count / max players.
+- **F-APP-1 — App settings.** *(post-M12)* A Settings page edits app-level tunables — the file-
+  manager upload limit, the world-import upload limit, and the create-form default memory — that
+  would otherwise be env vars / config file. Overrides persist server-side (the `Setting` table,
+  layered over the env defaults) and take effect immediately. Deployment settings (data dir, host,
+  port) stay env-only by design.
 - **F-SM-11 — File manager.** *(M12)* Browse and edit a server's files from the UI — the escape
-  hatch for config Lectern doesn't model (`config/`, `ops.json`, reading `logs/`). Navigate the
-  tree, edit text files in place, upload/download, and create/rename/delete files and folders.
+  hatch for config Lectern doesn't model (`config/`, `ops.json`, reading `logs/`). A table
+  (Name · Type · Modified · Size · Permissions) with multi-select; navigate the tree, edit text
+  files in a **modal editor**, upload (button or **drag-and-drop**, multiple at once) / download,
+  **unzip an archive in place**, and create/rename/delete (incl. bulk delete of a selection).
   **Every path is confined to the server directory** (absolute paths, `..`, and symlinks pointing
-  out are refused); Lectern's own `.lectern/` is hidden and read-only; binary or oversized files
-  offer a download instead of a garbled editor. Edits apply at the next start (like Properties).
+  out are refused; unzip is zip-slip guarded + size-capped); Lectern's own `.lectern/` is hidden
+  and read-only; binary or oversized files offer a download instead of a garbled editor. Edits
+  apply at the next start (like Properties).
 - **F-SM-10 — Import a world at creation.** *(added post-M10)* When creating a server the admin
   can optionally start it on an **existing world** instead of a freshly-generated one — by
   uploading a world `.zip` or giving a download URL. Lectern locates the world folder inside the

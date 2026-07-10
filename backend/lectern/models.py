@@ -172,10 +172,12 @@ class ServerCloneRequest(SQLModel):
 
 class ServerSuggestRead(SQLModel):
     """Suggested defaults for the create-server form: the first name/port not
-    already taken (name "New server", "New server 2", …; port 25565 upward)."""
+    already taken (name "New server", "New server 2", …; port 25565 upward)
+    plus the configured default memory."""
 
     name: str
     port: int
+    memory_mb: int = 2048
 
 
 class ServerRead(SQLModel):
@@ -314,6 +316,20 @@ class WorldImportRead(SQLModel):
     skipped: int
 
 
+class SettingRead(SQLModel):
+    """One app-level tunable for the Settings UI: its current effective value
+    plus the metadata to render/validate an input."""
+
+    key: str
+    label: str
+    help: str
+    unit: str
+    value: int
+    min: int
+    max: int
+    category: str
+
+
 class FileEntryRead(SQLModel):
     """One entry in a server-directory listing (M12)."""
 
@@ -345,6 +361,10 @@ class WriteFileRequest(SQLModel):
 
 class MkdirRequest(SQLModel):
     path: str
+
+
+class UnzipRequest(SQLModel):
+    path: str  # a .zip file to extract in place (into its own directory)
 
 
 class RenameRequest(SQLModel):
