@@ -5,6 +5,8 @@ Version manifest → per-version JSON → ``downloads.server.url``.
 
 from __future__ import annotations
 
+import base64
+import json
 from typing import Any
 
 from .base import get_json
@@ -52,6 +54,27 @@ async def resolve_profile(query: str) -> dict[str, str] | None:
     if not isinstance(data, dict) or "id" not in data or "name" not in data:
         return None
     return {"uuid": undash_uuid(str(data["id"])), "name": str(data["name"])}
+
+
+async def get_skin_url(uuid: str) -> str | None:
+    """The player's current skin PNG URL (on textures.minecraft.net), or
+    ``None`` if unknown/offline. Used to render self-hosted avatars."""
+    try:
+        data = await get_json(
+            _PROFILE_BY_UUID.format(uuid=undash_uuid(uuid)), ttl=_PROFILE_TTL
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    for prop in data.get("properties", []) if isinstance(data, dict) else []:
+        if prop.get("name") != "textures":
+            continue
+        try:
+            blob = json.loads(base64.b64decode(prop["value"]))
+        except Exception:  # noqa: BLE001
+            return None
+        url = blob.get("textures", {}).get("SKIN", {}).get("url")
+        return url if isinstance(url, str) else None
+    return None
 
 
 # --- pure parsing (unit-tested) -------------------------------------------

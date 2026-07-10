@@ -14,6 +14,8 @@ dependencies = [
     "pydantic-settings>=2.4",
     # FastAPI multipart form parsing (resource-pack upload, M7).
     "python-multipart>=0.0.9",
+    # Crop/scale player faces from Mojang skins (self-hosted avatars).
+    "Pillow>=10",
 ]
 
 [project.optional-dependencies]

@@ -139,3 +139,50 @@ def test_playerlists_installed_guard(client):
         "/api/servers", json={"name": "NI", "type": "vanilla", "mc_version": "1.21"}
     ).json()["id"]
     assert client.get(f"/api/servers/{sid}/playerlists").status_code == 409
+
+
+# --- avatars ----------------------------------------------------------------
+
+
+def _skin_png(face_rgba=(255, 0, 0, 255)) -> bytes:
+    import io
+
+    from PIL import Image
+
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    for x in range(8, 16):
+        for y in range(8, 16):
+            img.putpixel((x, y), face_rgba)  # the face region
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_render_face_crops_and_scales():
+    import io
+
+    from PIL import Image
+
+    from lectern.providers.avatars import _render_face
+
+    png = _render_face(_skin_png((10, 200, 30, 255)), size=32)
+    out = Image.open(io.BytesIO(png))
+    assert out.size == (32, 32)
+    assert out.convert("RGBA").getpixel((0, 0))[:3] == (10, 200, 30)  # face color
+
+
+def test_avatar_endpoint(client, monkeypatch):
+    from lectern.providers import avatars
+
+    async def fake_face(uuid, size):
+        return b"PNGBYTES" if uuid == NOTCH else None
+
+    monkeypatch.setattr(avatars, "face_png", fake_face)
+
+    resp = client.get(f"/api/players/{NOTCH}/avatar?size=64")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content == b"PNGBYTES"
+
+    # A player with no skin → 404 (UI falls back to a tile).
+    assert client.get("/api/players/ffffffffffffffffffffffffffffffff/avatar").status_code == 404

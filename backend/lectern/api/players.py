@@ -11,9 +11,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlmodel import Session, select
 
 from ..db import get_session
+from ..providers import avatars
 from ..models import (
     Player,
     PlayerAddRequest,
@@ -56,6 +58,21 @@ async def add_player(
     session.commit()
     session.refresh(player)
     return player
+
+
+@router.get("/api/players/{uuid}/avatar")
+async def player_avatar(uuid: str, size: int = 32) -> Response:
+    """Self-hosted player face avatar (PNG), rendered from the Mojang skin.
+    404 when the player has no resolvable skin — the UI shows a fallback tile."""
+    size = max(8, min(size, 512))
+    png = await avatars.face_png(mojang.undash_uuid(uuid), size)
+    if png is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No avatar available")
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @router.delete("/api/players/{uuid}", status_code=status.HTTP_204_NO_CONTENT)

@@ -132,7 +132,9 @@ which is why one content pipeline serves them all.
   stored canonical). From a server's **Players** tab those registered players are added to / removed
   from the server's **whitelist**, **operators**, and **banned** lists — editing the server's own
   `whitelist.json` / `ops.json` / `banned-players.json` (correct per-list shape; changes apply at
-  the next start / list reload).
+  the next start / list reload). The registry has a card view (skin-face avatar + username) and a
+  list view; **avatars are rendered by Lectern itself** from the Mojang skin (no dependency on a
+  flaky community service like Crafatar).
 - **F-APP-1 — App settings.** *(post-M12)* A Settings page edits app-level tunables — the file-
   manager upload limit, the world-import upload limit, and the create-form default memory — that
   would otherwise be env vars / config file. Overrides persist server-side (the `Setting` table,

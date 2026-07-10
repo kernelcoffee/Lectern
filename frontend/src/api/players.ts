@@ -42,6 +42,7 @@ export const removeFromList = (serverId: string, kind: ListKind, uuid: string) =
     `/api/servers/${serverId}/playerlists/${kind}/${uuid}`,
   );
 
-/** Player head avatar (Crafatar). Decorative — falls back gracefully offline. */
+/** Self-hosted player face avatar (rendered from the Mojang skin). Falls back
+ *  to an initial tile in the Avatar component if the player has no skin. */
 export const avatarUrl = (uuid: string, size = 32) =>
-  `https://crafatar.com/avatars/${uuid}?size=${size}&overlay`;
+  `/api/players/${uuid}/avatar?size=${size}`;
