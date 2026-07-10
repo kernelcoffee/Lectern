@@ -7,7 +7,7 @@
 # or via docker-compose.yml.
 
 # --- stage 1: build the SPA -------------------------------------------------
-FROM node:22-alpine AS frontend
+FROM node:24-alpine AS frontend
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
