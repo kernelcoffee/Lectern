@@ -46,6 +46,14 @@ export function apiPatch<T>(path: string, body: unknown): Promise<T> {
   }).then((r) => handle<T>(r));
 }
 
+export function apiPut<T>(path: string, body: unknown): Promise<T> {
+  return fetch(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then((r) => handle<T>(r));
+}
+
 export function apiDelete(path: string): Promise<void> {
   return fetch(path, { method: "DELETE" }).then((r) => handle<void>(r));
 }

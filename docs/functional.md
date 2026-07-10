@@ -127,6 +127,12 @@ which is why one content pipeline serves them all.
   keeping backups.
 - **F-SM-8 — Live stats.** For a running server, show CPU and memory usage and current player
   count / max players.
+- **F-SM-11 — File manager.** *(M12)* Browse and edit a server's files from the UI — the escape
+  hatch for config Lectern doesn't model (`config/`, `ops.json`, reading `logs/`). Navigate the
+  tree, edit text files in place, upload/download, and create/rename/delete files and folders.
+  **Every path is confined to the server directory** (absolute paths, `..`, and symlinks pointing
+  out are refused); Lectern's own `.lectern/` is hidden and read-only; binary or oversized files
+  offer a download instead of a garbled editor. Edits apply at the next start (like Properties).
 - **F-SM-10 — Import a world at creation.** *(added post-M10)* When creating a server the admin
   can optionally start it on an **existing world** instead of a freshly-generated one — by
   uploading a world `.zip` or giving a download URL. Lectern locates the world folder inside the

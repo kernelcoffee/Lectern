@@ -314,6 +314,44 @@ class WorldImportRead(SQLModel):
     skipped: int
 
 
+class FileEntryRead(SQLModel):
+    """One entry in a server-directory listing (M12)."""
+
+    name: str
+    is_dir: bool
+    size: int
+    mtime: float  # epoch seconds
+    mode: str  # unix permission string (e.g. "-rw-r--r--")
+
+
+class DirListingRead(SQLModel):
+    path: str  # the listed directory, relative to the server root ("" = root)
+    entries: list[FileEntryRead]
+
+
+class FileContentRead(SQLModel):
+    """Text contents of a file, or a flag saying why it wasn't loaded."""
+
+    path: str
+    content: str | None  # None when binary or too large
+    binary: bool
+    too_large: bool
+    size: int
+
+
+class WriteFileRequest(SQLModel):
+    content: str
+
+
+class MkdirRequest(SQLModel):
+    path: str
+
+
+class RenameRequest(SQLModel):
+    path: str
+    to: str
+
+
 class PropertiesRead(SQLModel):
     """Response of ``GET /servers/{id}/properties``.
 
