@@ -1,23 +1,26 @@
-# Production stack (the default): a single container serving the API + built SPA
-# on one port. One command on a LAN host:
+# Production stack (the default): runs the pre-built image from the GitHub
+# Container Registry — a single container serving the API + built SPA on one
+# port. One command on a LAN host:
 #
-#   docker compose up -d --build
+#   docker compose up -d
 #
 # Then open http://<host>:8000. Minecraft clients connect on 25565.
-# For the hot-reload development stack instead, use docker-compose.dev.yml.
+# Pin a version with LECTERN_TAG (defaults to :latest), e.g.
+#   LECTERN_TAG=1.2.3 docker compose up -d
+# To upgrade: `docker compose pull && docker compose up -d`.
+#
+# To build from source instead of pulling (e.g. local changes), run:
+#   docker compose -f docker-compose.dev.yml up
+# or `docker build -t lectern .` against the Dockerfile directly.
 services:
   lectern:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/kernelcoffee/lectern:${LECTERN_TAG:-latest}
     restart: unless-stopped
     ports:
       - "8000:8000"        # web UI + API
       - "25565:25565"      # Minecraft (single fixed port; see note below)
     volumes:
       - lectern_data:/data # db, downloaded JREs, caches, backups, server files
-    environment:
-      LECTERN_DATA: /data
     # NB: 25565 is a single published port. Running several servers at once, or
     # a custom per-server port, needs a published range instead, e.g.
     #   - "25565-25575:25565-25575"

@@ -32,18 +32,30 @@ CurseForge, Quilt/Paper/Forge, and Bedrock are designed for as pluggable provide
 Requires Docker (or Podman) with the Compose plugin.
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 Then open **http://localhost:8000** (or `http://<host-ip>:8000` on your LAN). Minecraft clients
 connect on **25565**.
 
-This builds a single image that serves the API and the built web UI on one port. All state
-(database, downloaded JREs, caches, backups, server files) lives in the `lectern_data` volume.
+This pulls the pre-built image `ghcr.io/kernelcoffee/lectern` — a single container that serves the
+API and the built web UI on one port. All state (database, downloaded JREs, caches, backups,
+server files) lives in the `lectern_data` volume.
+
+Compose uses `:latest` by default. Pin a specific release with `LECTERN_TAG`, and upgrade by
+pulling a newer image:
+
+```bash
+LECTERN_TAG=1.2.3 docker compose up -d          # pin a version
+docker compose pull && docker compose up -d     # upgrade in place
+```
 
 > **Multiple servers / custom ports:** the compose file publishes a single `25565`. To run
 > several servers at once, or use custom per-server ports, publish a range instead — e.g.
 > `"25565-25575:25565-25575"` in `docker-compose.yml`.
+>
+> **Build from source instead of pulling:** run `docker build -t lectern .` against the
+> `Dockerfile`, or use the hot-reload stack in `docker-compose.dev.yml` (see Development below).
 
 ## Configuration
 
