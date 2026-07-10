@@ -29,6 +29,11 @@ frontend/vite.config.d.ts
 # Reference projects are read-only inspiration, not part of the build
 /references/
 
+# Internal working notes — kept local, not published
+docs/PROGRESS.md
+docs/implementation.md
+saves/
+
 # E2E (Playwright)
 .e2e-data/
 test-results/

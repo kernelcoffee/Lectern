@@ -95,8 +95,6 @@ npm run build                  # type-check + production build
 
 - [`docs/functional.md`](docs/functional.md) — what Lectern does (functional spec).
 - [`docs/technical.md`](docs/technical.md) — architecture + external service integration.
-- [`docs/implementation.md`](docs/implementation.md) — milestone build plan.
-- [`docs/PROGRESS.md`](docs/PROGRESS.md) — current build state / resume notes.
 
 ## Tech stack
 
