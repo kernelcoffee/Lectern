@@ -31,6 +31,8 @@ async def lifespan(app: FastAPI):
     get_settings().ensure_dirs()
     init_db()
     manager.reconcile()
+    # Auto-start flagged servers (each after its own stagger delay).
+    manager.autostart()
     # Cron schedules tick for the whole app lifetime (M10).
     scheduler_service.start()
     yield

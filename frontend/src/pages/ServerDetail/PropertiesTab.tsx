@@ -79,6 +79,7 @@ const SETTINGS_FIELDS: {
   { key: "stop_command", label: "Stop command", type: "text" },
   { key: "shutdown_timeout", label: "Stop timeout (s)", type: "number", parse: Number },
   { key: "auto_start", label: "Start with Lectern", type: "boolean" },
+  { key: "auto_start_delay", label: "Auto-start delay (s)", type: "number", parse: Number, hint: "staggers boot when several auto-start" },
   { key: "crash_restart", label: "Restart after crash", type: "boolean", hint: "gives up after 3 crashes in a row" },
   { key: "backup_max", label: "Backups to keep", type: "number", parse: Number, hint: "oldest pruned past this" },
   { key: "backup_excluded", label: "Backup exclusions", type: "text", hint: "comma-separated paths, e.g. logs,cache" },

@@ -122,6 +122,20 @@ def test_delete_backup(client, engine, tmp_path):
     )
 
 
+def test_download_backup(client, engine, tmp_path):
+    sid = _installed_server(client, engine, tmp_path)
+    backup = client.post(f"/api/servers/{sid}/backups").json()
+
+    resp = client.get(f"/api/servers/{sid}/backups/{backup['id']}/download")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/zip"
+    assert backup["filename"] in resp.headers.get("content-disposition", "")
+    assert resp.content[:2] == b"PK"  # a real zip archive
+
+    # Unknown id → 404.
+    assert client.get(f"/api/servers/{sid}/backups/nope/download").status_code == 404
+
+
 def test_unsafe_archive_rejected(tmp_path):
     evil = tmp_path / "evil.zip"
     with zipfile.ZipFile(evil, "w") as zf:

@@ -80,6 +80,9 @@ class Server(SQLModel, table=True):
     memory_mb: int = 2048
     jvm_args: str = ""
     auto_start: bool = False
+    # Seconds to wait before auto-starting on boot — staggers JVM startups when
+    # several servers auto-start together (ref: crafty-4's auto_start_delay).
+    auto_start_delay: int = 10
     crash_restart: bool = False
     stop_command: str = "stop"
     shutdown_timeout: int = 60
@@ -157,6 +160,16 @@ class ServerCreate(SQLModel):
     memory_mb: int = 2048
 
 
+class ServerCloneRequest(SQLModel):
+    """Payload for cloning a server. ``name``/``port`` default to a suggested
+    free name/port when omitted; ``include_world`` copies the world folder
+    (off → a fresh world on first start, same jars/mods/config)."""
+
+    name: str | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
+    include_world: bool = True
+
+
 class ServerSuggestRead(SQLModel):
     """Suggested defaults for the create-server form: the first name/port not
     already taken (name "New server", "New server 2", …; port 25565 upward)."""
@@ -182,6 +195,7 @@ class ServerDetailRead(ServerRead):
 
     jvm_args: str
     auto_start: bool
+    auto_start_delay: int
     crash_restart: bool
     stop_command: str
     shutdown_timeout: int
@@ -239,6 +253,7 @@ class ServerSettingsUpdate(SQLModel):
     memory_mb: int | None = Field(default=None, ge=256, le=65536)
     jvm_args: str | None = None
     auto_start: bool | None = None
+    auto_start_delay: int | None = Field(default=None, ge=0, le=600)
     crash_restart: bool | None = None
     stop_command: str | None = None
     shutdown_timeout: int | None = Field(default=None, ge=5, le=600)

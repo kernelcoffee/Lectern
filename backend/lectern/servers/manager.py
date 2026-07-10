@@ -126,6 +126,15 @@ class ServerManager:
                 raise NotInstalled("Server is not installed yet")
             if not eula_accepted(Path(server.path)):
                 raise EulaNotAccepted("The Minecraft EULA must be accepted first")
+            # Never launch a java binary located *inside* the server directory —
+            # a mod could drop one there and get it executed (ref: crafty-4).
+            java = Path(server.java_path).resolve()
+            server_dir = Path(server.path).resolve()
+            if java == server_dir or server_dir in java.parents:
+                raise NotInstalled(
+                    "Refusing to launch: the Java binary is inside the server "
+                    "directory (possible tampering)"
+                )
             argv = build_launch_command(
                 server.java_path, server.memory_mb, server.server_jar, server.jvm_args
             )
@@ -204,6 +213,32 @@ class ServerManager:
                 server.status = ServerStatus.install_failed.value
                 session.add(server)
             session.commit()
+
+    def autostart(self) -> None:
+        """Schedule a delayed start for every ``auto_start`` server (called from
+        the app lifespan after ``reconcile``). Each waits its own
+        ``auto_start_delay`` so a host with several auto-start servers doesn't
+        launch every JVM at once. Runs only for installed, EULA-accepted
+        servers; others are skipped with a console note rather than erroring."""
+        with Session(engine) as session:
+            rows = session.exec(
+                select(Server).where(Server.auto_start == True)  # noqa: E712
+            ).all()
+            candidates = [(s.id, s.auto_start_delay) for s in rows]
+        for server_id, delay in candidates:
+            asyncio.create_task(self._delayed_autostart(server_id, delay))
+
+    async def _delayed_autostart(self, server_id: str, delay: int) -> None:
+        await asyncio.sleep(max(0, delay))
+        self.reset_crash_count(server_id)
+        try:
+            await self.start(server_id)
+        except EulaNotAccepted:
+            self.hub.publish(
+                server_id, "[lectern] auto-start skipped — EULA not accepted"
+            )
+        except ManagerError as exc:
+            self.hub.publish(server_id, f"[lectern] auto-start skipped — {exc}")
 
     async def shutdown(self) -> None:
         for server_id in list(self._procs):

@@ -162,6 +162,11 @@ def list_backups(session: Session, server_id: str) -> list[Backup]:
     )
 
 
+def backup_path(backup: Backup) -> Path:
+    """On-disk path of a backup archive (for downloads)."""
+    return _backups_dir(backup.server_id) / backup.filename
+
+
 def delete_backup(session: Session, backup: Backup) -> None:
     (_backups_dir(backup.server_id) / backup.filename).unlink(missing_ok=True)
     session.delete(backup)

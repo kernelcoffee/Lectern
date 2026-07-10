@@ -40,6 +40,7 @@ export interface Server {
 export interface ServerDetail extends Server {
   jvm_args: string;
   auto_start: boolean;
+  auto_start_delay: number;
   crash_restart: boolean;
   stop_command: string;
   shutdown_timeout: number;
@@ -83,6 +84,7 @@ export interface ServerSettingsUpdate {
   memory_mb?: number;
   jvm_args?: string;
   auto_start?: boolean;
+  auto_start_delay?: number;
   crash_restart?: boolean;
   stop_command?: string;
   shutdown_timeout?: number;
@@ -136,6 +138,10 @@ export const getServer = (id: string) =>
 export const createServer = (body: ServerCreate) =>
   apiPost<Server>("/api/servers", body);
 export const deleteServer = (id: string) => apiDelete(`/api/servers/${id}`);
+export const cloneServer = (
+  id: string,
+  body: { name?: string; port?: number; include_world?: boolean },
+) => apiPost<Server>(`/api/servers/${id}/clone`, body);
 export const getServerProgress = (id: string) =>
   apiGet<InstallProgress>(`/api/servers/${id}/progress`);
 export const serverAction = (id: string, action: ServerAction) =>

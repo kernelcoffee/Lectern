@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
 import {
   Backup,
+  backupDownloadUrl,
   createBackup,
   deleteBackup,
   listBackups,
@@ -132,6 +133,13 @@ export default function BackupsTab({
                 </p>
                 <p className="text-xs text-slate-500 truncate">{b.filename}</p>
               </div>
+              <a
+                href={backupDownloadUrl(serverId, b.id)}
+                download={b.filename}
+                className="bg-slate-700 hover:bg-slate-600 rounded px-2.5 py-1 text-xs"
+              >
+                Download
+              </a>
               <button
                 onClick={() => restore(b)}
                 disabled={busy !== null || server.running}

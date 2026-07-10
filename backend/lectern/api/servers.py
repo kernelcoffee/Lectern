@@ -13,6 +13,7 @@ import contextlib
 import shutil
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 from fastapi import (
@@ -37,6 +38,7 @@ from ..models import (
     PingRead,
     PropertiesRead,
     Server,
+    ServerCloneRequest,
     ServerCreate,
     ServerDetailRead,
     ServerRead,
@@ -48,6 +50,7 @@ from ..models import (
     VersionChangeRequest,
     WorldImportRead,
 )
+from ..content import manager as content_manager
 from ..providers.base import download_file
 from ..servers import properties as props
 from ..servers import stats as stats_mod
@@ -71,6 +74,7 @@ def _detail(server: Server) -> ServerDetailRead:
         **data,
         jvm_args=server.jvm_args,
         auto_start=server.auto_start,
+        auto_start_delay=server.auto_start_delay,
         crash_restart=server.crash_restart,
         stop_command=server.stop_command,
         shutdown_timeout=server.shutdown_timeout,
@@ -151,6 +155,115 @@ def create_server(
     # the progress endpoint / re-reads the record for status.
     background_tasks.add_task(install_server, server.id)
     return server
+
+
+def _free_name(session: Session, base: str) -> str:
+    taken = {s.name.strip().lower() for s in session.exec(select(Server)).all()}
+    if base.strip().lower() not in taken:
+        return base
+    n = 2
+    while f"{base} {n}".lower() in taken:
+        n += 1
+    return f"{base} {n}"
+
+
+def _free_port(session: Session) -> int:
+    taken = {s.port for s in session.exec(select(Server)).all()}
+    port = 25565
+    while port in taken:
+        port += 1
+    return port
+
+
+def _copy_server_tree(
+    src: Path, dst: Path, *, include_world: bool, level_name: str
+) -> None:
+    """Copy a server directory to a new one. Backups live outside the server
+    dir, so nothing to exclude there; the world is skipped when
+    ``include_world`` is false (a fresh world generates on first start)."""
+
+    def ignore(dirpath: str, names: list[str]) -> set[str]:
+        skip: set[str] = set()
+        if not include_world and Path(dirpath) == src and level_name in names:
+            skip.add(level_name)
+        return skip
+
+    shutil.copytree(src, dst, ignore=ignore)
+
+
+@router.post("/{server_id}/clone", response_model=ServerRead, status_code=status.HTTP_201_CREATED)
+async def clone_server(
+    server_id: str,
+    payload: ServerCloneRequest,
+    session: Session = Depends(get_session),
+) -> Server:
+    """Duplicate a (stopped, installed) server — its jar, mods, config and
+    optionally its world — into a new server with a fresh name/port. The Java
+    runtime is shared, so only the server directory is copied."""
+    source = session.get(Server, server_id)
+    if source is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+    if not source.path:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Server is not installed yet")
+    if manager.is_running(server_id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Stop the server before cloning it"
+        )
+
+    name = (payload.name or "").strip() or _free_name(session, f"{source.name} copy")
+    port = payload.port or _free_port(session)
+    _check_conflicts(session, name=name, port=port)
+
+    level_name = props.read_properties(Path(source.path)).get("level-name") or "world"
+    clone = Server(
+        name=name,
+        type=source.type,
+        mc_version=source.mc_version,
+        loader_version=source.loader_version,
+        java_major=source.java_major,
+        java_path=source.java_path,
+        server_jar=source.server_jar,
+        port=port,
+        memory_mb=source.memory_mb,
+        jvm_args=source.jvm_args,
+        crash_restart=source.crash_restart,
+        stop_command=source.stop_command,
+        shutdown_timeout=source.shutdown_timeout,
+        backup_excluded=source.backup_excluded,
+        backup_max=source.backup_max,
+        backup_compress=source.backup_compress,
+        backup_stop_server=source.backup_stop_server,
+        # A clone never inherits auto-start — avoids a surprise double-launch.
+        auto_start=False,
+        status=ServerStatus.stopped.value,
+    )
+    dst = (get_settings().servers_dir / clone.id).resolve()
+    await asyncio.to_thread(
+        _copy_server_tree,
+        Path(source.path), dst, include_world=payload.include_world, level_name=level_name,
+    )
+    clone.path = str(dst)
+
+    # New port must be what the process actually binds.
+    file_props = props.read_properties(dst)
+    file_props["server-port"] = str(port)
+    props.write_properties(dst, file_props)
+
+    session.add(clone)
+    session.commit()
+    session.refresh(clone)
+
+    # Give the clone independent content rows: regenerate manifest item ids
+    # (they're the ContentItem primary keys — reusing the source's would collide)
+    # then mirror them for the new server.
+    items = content_manager.read_manifest(dst)
+    if items:
+        for item in items:
+            item["id"] = uuid.uuid4().hex
+        content_manager.write_manifest(dst, items)
+        content_manager._sync_rows(session, clone.id, items)
+
+    return clone
 
 
 @router.get("/{server_id}", response_model=ServerDetailRead)

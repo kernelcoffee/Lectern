@@ -10,11 +10,16 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from sqlmodel import Session
 
 from lectern.db import engine, init_db
 from lectern.models import Server, ServerStatus
-from lectern.servers.manager import _MAX_CRASH_RESTARTS, ServerManager
+from lectern.servers.manager import (
+    _MAX_CRASH_RESTARTS,
+    NotInstalled,
+    ServerManager,
+)
 
 
 def _make_server(**overrides) -> str:
@@ -126,3 +131,54 @@ def test_reset_crash_count_is_manual_override():
     manager._crash_counts["x"] = 99
     manager.reset_crash_count("x")
     assert "x" not in manager._crash_counts
+
+
+# --- launch guard --------------------------------------------------------------
+
+
+def test_start_refuses_java_inside_server_dir(tmp_path):
+    """A java binary located inside the server directory (a mod could drop one)
+    is refused at launch (ref: crafty-4)."""
+    server_dir = tmp_path / "srv"
+    (server_dir / "java" / "bin").mkdir(parents=True)
+    java = server_dir / "java" / "bin" / "java"
+    java.write_bytes(b"#!/bin/sh\n")
+    (server_dir / "eula.txt").write_text("eula=true\n")
+    (server_dir / "server.jar").write_bytes(b"JAR")
+    server_id = _make_server(
+        status=ServerStatus.stopped.value, path=str(server_dir),
+        server_jar="server.jar", java_path=str(java),
+    )
+    try:
+        with pytest.raises(NotInstalled, match="inside the server"):
+            asyncio.run(ServerManager().start(server_id))
+    finally:
+        _cleanup(server_id)
+
+
+# --- auto-start ----------------------------------------------------------------
+
+
+def test_autostart_schedules_only_flagged_servers(monkeypatch):
+    on = _make_server(
+        status=ServerStatus.stopped.value, auto_start=True, auto_start_delay=0
+    )
+    off = _make_server(status=ServerStatus.stopped.value, auto_start=False)
+    started: list[str] = []
+    manager = ServerManager()
+
+    async def fake_start(server_id: str) -> None:
+        started.append(server_id)
+
+    monkeypatch.setattr(manager, "start", fake_start)
+
+    async def run():
+        manager.autostart()
+        await asyncio.sleep(0.05)  # let the delay=0 tasks fire
+
+    try:
+        asyncio.run(run())
+        assert started == [on]  # only the flagged server
+    finally:
+        _cleanup(on)
+        _cleanup(off)

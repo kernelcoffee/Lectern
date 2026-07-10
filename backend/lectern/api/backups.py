@@ -8,10 +8,12 @@ the old directory comes back if extraction fails (see backups.py).
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlmodel import Session
 
 from ..backups import (
     BackupError,
+    backup_path,
     create_backup,
     delete_backup,
     list_backups,
@@ -50,6 +52,21 @@ async def create(server_id: str, session: Session = Depends(get_session)) -> Bac
         return await create_backup(session, server)
     except BackupError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+@router.get("/{backup_id}/download")
+def download(
+    server_id: str, backup_id: str, session: Session = Depends(get_session)
+) -> FileResponse:
+    """Stream a backup archive to the client as a download."""
+    _get_server(server_id, session)
+    backup = _get_backup(server_id, backup_id, session)
+    path = backup_path(backup)
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Backup archive is missing on disk")
+    return FileResponse(
+        path, media_type="application/zip", filename=backup.filename
+    )
 
 
 @router.post("/{backup_id}/restore", status_code=status.HTTP_204_NO_CONTENT)

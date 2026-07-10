@@ -90,6 +90,10 @@ export default function App() {
               go({ view: "dashboard" });
             }}
             onChanged={reload}
+            onOpen={async (id) => {
+              await reload();
+              go({ view: "server", id });
+            }}
           />
         )}
       </main>

@@ -23,3 +23,7 @@ export const restoreBackup = (serverId: string, backupId: string) =>
 
 export const deleteBackup = (serverId: string, backupId: string) =>
   apiDelete(`/api/servers/${serverId}/backups/${backupId}`);
+
+/** Direct URL to download a backup archive (used as an <a href>). */
+export const backupDownloadUrl = (serverId: string, backupId: string) =>
+  `/api/servers/${serverId}/backups/${backupId}/download`;

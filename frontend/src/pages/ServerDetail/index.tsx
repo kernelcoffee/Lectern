@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import {
   acceptEula,
+  cloneServer,
   deleteServer,
   getServer,
   serverAction,
@@ -81,6 +82,7 @@ export default function ServerDetail({
   onBack,
   onDeleted,
   onChanged,
+  onOpen,
 }: {
   serverId: string;
   onBack: () => void;
@@ -88,10 +90,12 @@ export default function ServerDetail({
   /** Called after a change other pages care about (rename) so the parent can
    *  refresh the shared server list — sidebar/dashboard names follow. */
   onChanged?: () => void;
+  /** Navigate to another server (used after cloning). */
+  onOpen?: (id: string) => void;
 }) {
   const [server, setServer] = useState<ServerDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<ServerAction | "eula" | "delete" | null>(null);
+  const [busy, setBusy] = useState<ServerAction | "eula" | "delete" | "clone" | null>(null);
   const [tab, setTab] = useState<Tab>("console");
 
   const refresh = useCallback(async () => {
@@ -132,6 +136,21 @@ export default function ServerDetail({
     setBusy("eula");
     try {
       setServer(await acceptEula(serverId));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function doClone() {
+    if (!server) return;
+    setBusy("clone");
+    setError(null);
+    try {
+      const clone = await cloneServer(serverId, {});
+      onChanged?.();
+      onOpen?.(clone.id);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -195,6 +214,14 @@ export default function ServerDetail({
           }}
           onError={(msg) => setError(msg)}
         />
+        <button
+          onClick={doClone}
+          disabled={busy !== null || server.running}
+          title={server.running ? "Stop the server before cloning" : undefined}
+          className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+        >
+          {busy === "clone" ? "Cloning…" : "Clone"}
+        </button>
         <button
           onClick={doDelete}
           disabled={busy !== null}
