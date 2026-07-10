@@ -54,40 +54,46 @@ export default function StatsBar({ serverId }: { serverId: string }) {
   // First poll not answered yet, or the process died between renders.
   if (!stats || !stats.running) return null;
 
+  const ping = stats.ping;
+
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-lg border border-slate-700 bg-slate-900/60 px-4 py-2 text-xs text-slate-300">
-      <Stat label="CPU" value={stats.cpu_percent !== null ? `${stats.cpu_percent}%` : "…"} />
-      <Stat
-        label="Memory"
-        value={stats.memory_mb !== null ? `${Math.round(stats.memory_mb)} MB` : "…"}
-      />
-      <Stat
-        label="Uptime"
-        value={stats.uptime_seconds !== null ? formatUptime(stats.uptime_seconds) : "…"}
-      />
-      {stats.ping ? (
-        <>
-          <Stat label="Players" value={`${stats.ping.online}/${stats.ping.max}`} />
-          {stats.ping.players.length > 0 && (
-            <span className="text-slate-400 truncate" title={stats.ping.players.join(", ")}>
-              {stats.ping.players.join(", ")}
-            </span>
-          )}
-          {stats.ping.version && <Stat label="Version" value={stats.ping.version} />}
-        </>
+    <div className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 lg:min-w-[17rem]">
+      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        Live
+      </div>
+      <div className="grid grid-cols-2 gap-x-8 gap-y-2.5">
+        <StatTile label="CPU" value={stats.cpu_percent !== null ? `${stats.cpu_percent}%` : "…"} />
+        <StatTile
+          label="Memory"
+          value={stats.memory_mb !== null ? `${Math.round(stats.memory_mb)} MB` : "…"}
+        />
+        <StatTile
+          label="Uptime"
+          value={stats.uptime_seconds !== null ? formatUptime(stats.uptime_seconds) : "…"}
+        />
+        <StatTile label="Players" value={ping ? `${ping.online}/${ping.max}` : "…"} />
+      </div>
+      {ping ? (
+        (ping.players.length > 0 || ping.version) && (
+          <p className="mt-2 truncate text-[11px] text-slate-500" title={ping.players.join(", ")}>
+            {ping.version && <span>v{ping.version}</span>}
+            {ping.players.length > 0 && <span> · {ping.players.join(", ")}</span>}
+          </p>
+        )
       ) : (
         // Process is up but the game port doesn't answer yet (world loading).
-        <span className="text-slate-500">booting…</span>
+        <p className="mt-2 text-[11px] text-slate-500">booting… (world loading)</p>
       )}
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function StatTile({ label, value }: { label: string; value: string }) {
   return (
-    <span>
-      <span className="text-slate-500">{label} </span>
-      <span className="font-medium text-slate-200">{value}</span>
-    </span>
+    <div>
+      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className="text-sm font-semibold tabular-nums text-slate-100">{value}</div>
+    </div>
   );
 }

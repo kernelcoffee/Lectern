@@ -96,7 +96,7 @@ export default function Console({ serverId }: { serverId: string }) {
       </div>
       <div
         ref={logRef}
-        className="h-96 overflow-y-auto rounded-lg border border-slate-800 bg-black/40 p-3 font-mono text-xs leading-relaxed text-slate-200"
+        className="h-[clamp(20rem,100dvh_-_24rem,64rem)] overflow-y-auto rounded-lg border border-slate-800 bg-black/40 p-3 font-mono text-xs leading-relaxed text-slate-200"
       >
         {lines.length === 0 ? (
           <p className="text-slate-600">No output yet.</p>

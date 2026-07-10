@@ -47,6 +47,7 @@ import StatsBar from "./StatsBar";
 
 type Tab =
   | "console"
+  | "metrics"
   | "mods"
   | "resourcepacks"
   | "datapacks"
@@ -203,41 +204,79 @@ export default function ServerDetail({
         ← Dashboard
       </button>
 
-      <div className="flex items-center gap-3">
-        <span
-          className={`text-xs px-2 py-0.5 rounded-full ${STATUS_STYLES[server.status]}`}
-        >
-          {server.status}
-        </span>
-        <EditableName
-          name={server.name}
-          onRename={async (name) => {
-            setServer(await updateServerSettings(serverId, { name }));
-            onChanged?.();
-          }}
-          onError={(msg) => setError(msg)}
-        />
-        <button
-          onClick={doClone}
-          disabled={busy !== null || server.running}
-          title={server.running ? "Stop the server before cloning" : undefined}
-          className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
-        >
-          {busy === "clone" ? "Cloning…" : "Clone"}
-        </button>
-        <button
-          onClick={doDelete}
-          disabled={busy !== null}
-          className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
-        >
-          {busy === "delete" ? "Deleting…" : "Delete server"}
-        </button>
+      {/* Header — identity + controls on the left, live-stats card top-right. */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-3">
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full ${STATUS_STYLES[server.status]}`}
+            >
+              {server.status}
+            </span>
+            <EditableName
+              name={server.name}
+              onRename={async (name) => {
+                setServer(await updateServerSettings(serverId, { name }));
+                onChanged?.();
+              }}
+              onError={(msg) => setError(msg)}
+            />
+            <button
+              onClick={doClone}
+              disabled={busy !== null || server.running}
+              title={server.running ? "Stop the server before cloning" : undefined}
+              className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+            >
+              {busy === "clone" ? "Cloning…" : "Clone"}
+            </button>
+            <button
+              onClick={doDelete}
+              disabled={busy !== null}
+              className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+            >
+              {busy === "delete" ? "Deleting…" : "Delete server"}
+            </button>
+          </div>
+          <p className="text-xs text-slate-400">
+            {server.type} · MC {server.mc_version}
+            {server.loader_version && ` · ${server.loader_version}`} · :{server.port} ·{" "}
+            {server.memory_mb} MB
+          </p>
+
+          {/* Controls */}
+          {!installing && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              <ControlButton
+                label="Start"
+                color="emerald"
+                disabled={!c.canStart || !server.eula_accepted || busy !== null}
+                onClick={() => doAction("start")}
+              />
+              <ControlButton
+                label="Stop"
+                color="slate"
+                disabled={!c.canStop || busy !== null}
+                onClick={() => doAction("stop")}
+              />
+              <ControlButton
+                label="Restart"
+                color="slate"
+                disabled={!c.canRestart || busy !== null}
+                onClick={() => doAction("restart")}
+              />
+              <ControlButton
+                label="Kill"
+                color="red"
+                disabled={!c.canKill || busy !== null}
+                onClick={() => doAction("kill")}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Live stats card — mounted only while running (starts/stops polling). */}
+        {server.status === "running" && <StatsBar serverId={serverId} />}
       </div>
-      <p className="text-xs text-slate-400 -mt-3">
-        {server.type} · MC {server.mc_version}
-        {server.loader_version && ` · ${server.loader_version}`} · :{server.port} ·{" "}
-        {server.memory_mb} MB
-      </p>
 
       {/* EULA gate */}
       {!installing && !server.eula_accepted && (
@@ -270,43 +309,6 @@ export default function ServerDetail({
         </p>
       )}
 
-      {/* Controls */}
-      {!installing && (
-        <div className="flex flex-wrap gap-2">
-          <ControlButton
-            label="Start"
-            color="emerald"
-            disabled={!c.canStart || !server.eula_accepted || busy !== null}
-            onClick={() => doAction("start")}
-          />
-          <ControlButton
-            label="Stop"
-            color="slate"
-            disabled={!c.canStop || busy !== null}
-            onClick={() => doAction("stop")}
-          />
-          <ControlButton
-            label="Restart"
-            color="slate"
-            disabled={!c.canRestart || busy !== null}
-            onClick={() => doAction("restart")}
-          />
-          <ControlButton
-            label="Kill"
-            color="red"
-            disabled={!c.canKill || busy !== null}
-            onClick={() => doAction("kill")}
-          />
-        </div>
-      )}
-
-      {/* Live stats — mounted only while running, which is also what starts
-          and stops the underlying 5s polling (see StatsBar). */}
-      {server.status === "running" && <StatsBar serverId={serverId} />}
-
-      {/* Resource history + on-disk size — shown even when stopped. */}
-      {!installing && <MonitorPanel serverId={serverId} />}
-
       {/* Tabs — plain conditional rendering, no router. */}
       {!installing && (
         <>
@@ -315,6 +317,11 @@ export default function ServerDetail({
               label="Console"
               active={tab === "console"}
               onClick={() => setTab("console")}
+            />
+            <TabButton
+              label="Metrics"
+              active={tab === "metrics"}
+              onClick={() => setTab("metrics")}
             />
             {MODDED_TYPES.includes(server.type) && (
               <TabButton
@@ -379,6 +386,7 @@ export default function ServerDetail({
               onServerChanged={refresh}
             />
           )}
+          {tab === "metrics" && <MonitorPanel serverId={serverId} />}
           {tab === "schedule" && <ScheduleTab serverId={serverId} />}
           {tab === "files" && <FilesTab serverId={serverId} />}
           {tab === "version" && (

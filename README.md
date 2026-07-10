@@ -55,9 +55,6 @@ below them are also editable at runtime from the in-app **Settings** page (store
 | `LECTERN_DATA` | `/data` (image) | Directory for the DB, JREs, caches, backups, and server files. |
 | `LECTERN_HOST` | `0.0.0.0` | API/web bind address. |
 | `LECTERN_PORT` | `8000` | API/web port. |
-| `LECTERN_MAX_FILE_UPLOAD_MB` | `2048` | File-manager upload limit (also in Settings). |
-| `LECTERN_MAX_WORLD_UPLOAD_MB` | `20480` | World-import upload limit (also in Settings). |
-| `LECTERN_DEFAULT_MEMORY_MB` | `2048` | Memory pre-filled in the create form (also in Settings). |
 
 Lectern is built for a **trusted LAN** — there is no user auth. Don't expose it directly to the
 internet; put it behind a VPN or a reverse proxy with access control if you need remote access.
