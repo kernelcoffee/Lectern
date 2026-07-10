@@ -1,0 +1,40 @@
+# Development stack (hot-reload): FastAPI backend (--reload) + Vite dev server.
+#
+#   docker compose -f docker-compose.dev.yml up
+#
+# For production (a single image serving the built SPA), use docker-compose.yml.
+services:
+  backend:
+    build:
+      # Repo root so pyproject's shared ../README.md is in the build context.
+      context: .
+      dockerfile: backend/Dockerfile.dev
+    command: uvicorn lectern.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      LECTERN_DATA: /data
+    volumes:
+      # :z relabels the bind mount for SELinux (Fedora) so the container can read it.
+      - ./backend:/app:z
+      - lectern_data:/data
+    ports:
+      - "8000:8000"
+      - "25565:25565"
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    environment:
+      # Vite proxies /api and /ws to the backend service inside the compose network.
+      VITE_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend:/app:z
+      # Keep the container's node_modules off the host mount (musl vs glibc binaries).
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  lectern_data:

@@ -4,7 +4,7 @@
 #   docker build -t lectern .
 #   docker run -p 8000:8000 -p 25565:25565 -v lectern_data:/data lectern
 #
-# or via docker-compose.prod.yml.
+# or via docker-compose.yml.
 
 # --- stage 1: build the SPA -------------------------------------------------
 FROM node:22-alpine AS frontend

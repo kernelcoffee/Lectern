@@ -1,6 +1,6 @@
 # Development image for the backend (hot-reload via mounted source).
 #
-# Built from the *repo root* context (see docker-compose.yml) so the shared
+# Built from the *repo root* context (see docker-compose.dev.yml) so the shared
 # ../README.md referenced by pyproject.toml is reachable at build time.
 FROM python:3.12-slim
 

@@ -32,7 +32,7 @@ CurseForge, Quilt/Paper/Forge, and Bedrock are designed for as pluggable provide
 Requires Docker (or Podman) with the Compose plugin.
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose up -d --build
 ```
 
 Then open **http://localhost:8000** (or `http://<host-ip>:8000` on your LAN). Minecraft clients
@@ -43,7 +43,7 @@ This builds a single image that serves the API and the built web UI on one port.
 
 > **Multiple servers / custom ports:** the compose file publishes a single `25565`. To run
 > several servers at once, or use custom per-server ports, publish a range instead — e.g.
-> `"25565-25575:25565-25575"` in `docker-compose.prod.yml`.
+> `"25565-25575:25565-25575"` in `docker-compose.yml`.
 
 ## Configuration
 
@@ -64,7 +64,7 @@ internet; put it behind a VPN or a reverse proxy with access control if you need
 ### With Docker/Podman (hot-reload)
 
 ```bash
-docker compose up
+docker compose -f docker-compose.dev.yml up
 ```
 
 - Backend: http://localhost:8000 (health at `/api/health`)
