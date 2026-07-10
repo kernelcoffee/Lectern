@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from "./client";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm } from "./client";
 
 export type ServerType = "vanilla" | "fabric" | "quilt" | "paper";
 export type ServerStatus =
@@ -180,6 +180,18 @@ export interface VersionChangeResponse {
 
 export const changeServerVersion = (id: string, body: VersionChangeRequest) =>
   apiPost<VersionChangeResponse>(`/api/servers/${id}/version`, body);
+
+/** Import an existing world into a stopped, installed server from an uploaded
+ *  .zip or a download URL (used by the create wizard). Replaces its world. */
+export const importWorld = (
+  id: string,
+  source: { file?: File; url?: string },
+) => {
+  const form = new FormData();
+  if (source.file) form.append("file", source.file);
+  if (source.url) form.append("url", source.url);
+  return apiPostForm<ServerDetail>(`/api/servers/${id}/world`, form);
+};
 
 /** Dry-run compatibility check: how installed content would fare on
  *  `mcVersion`. Read-only; safe to call while the server runs. */

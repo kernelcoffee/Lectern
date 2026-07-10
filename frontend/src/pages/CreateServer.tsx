@@ -20,9 +20,13 @@ import {
 } from "../api/catalog";
 import {
   createServer,
+  getServerProgress,
+  importWorld,
   ServerType,
   suggestServerDefaults,
 } from "../api/servers";
+
+type WorldMode = "none" | "upload" | "url";
 
 const TYPE_LABELS: Record<string, string> = {
   vanilla: "Vanilla",
@@ -45,7 +49,13 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
   const [port, setPort] = useState(25565);
   const [memory, setMemory] = useState(2048);
 
+  const [worldMode, setWorldMode] = useState<WorldMode>("none");
+  const [worldFile, setWorldFile] = useState<File | null>(null);
+  const [worldUrl, setWorldUrl] = useState("");
+
   const [submitting, setSubmitting] = useState(false);
+  // Progress line while a world import runs (install can take minutes).
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fail = (e: unknown) =>
@@ -122,6 +132,9 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     setName("");
     setPort(25565);
     setMemory(2048);
+    setWorldMode("none");
+    setWorldFile(null);
+    setWorldUrl("");
     applySuggestion();
     if (type) {
       chooseType(type); // re-preselects the latest version (+ newest loader)
@@ -132,18 +145,36 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     }
   }
 
+  const worldReady =
+    worldMode === "none" ||
+    (worldMode === "upload" ? worldFile !== null : worldUrl.trim() !== "");
+
   const ready =
     type !== null &&
     mcVersion !== "" &&
     name.trim() !== "" &&
-    (!type.needs_loader || loader !== "");
+    (!type.needs_loader || loader !== "") &&
+    worldReady;
+
+  // Poll install progress to completion — the world can only be imported once
+  // the pipeline has provisioned the server dir (path set, status stopped).
+  async function waitForInstalled(id: string) {
+    for (let i = 0; i < 900; i++) {
+      const p = await getServerProgress(id);
+      if (p.error) throw new ApiError(0, `Install failed: ${p.error}`);
+      setStatusMsg(p.message || "Provisioning server…");
+      if (p.done) return;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new ApiError(0, "Timed out waiting for the server to install");
+  }
 
   async function submit() {
     if (!type) return;
     setSubmitting(true);
     setError(null);
     try {
-      await createServer({
+      const server = await createServer({
         name: name.trim(),
         type: type.key as ServerType,
         mc_version: mcVersion,
@@ -151,11 +182,22 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
         port,
         memory_mb: memory,
       });
+      if (worldMode !== "none") {
+        await waitForInstalled(server.id);
+        setStatusMsg("Importing world…");
+        await importWorld(
+          server.id,
+          worldMode === "upload"
+            ? { file: worldFile! }
+            : { url: worldUrl.trim() },
+        );
+      }
       onCreated();
     } catch (e) {
       fail(e);
     } finally {
       setSubmitting(false);
+      setStatusMsg(null);
     }
   }
 
@@ -290,13 +332,80 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
           </div>
         </div>
 
+        {/* Import a world (optional) */}
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-sm font-medium text-slate-300">
+              Import a world{" "}
+              <span className="text-xs font-normal text-slate-500">
+                — optional; start on an existing map instead of a fresh one
+              </span>
+            </h3>
+            <hr className="mt-2 border-slate-800" />
+          </div>
+          <div className="max-w-md space-y-3">
+            <label className="text-sm space-y-1 block">
+              <span className="text-slate-400">World source</span>
+              <select
+                value={worldMode}
+                onChange={(e) => {
+                  setWorldMode(e.target.value as WorldMode);
+                  setError(null);
+                }}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5"
+              >
+                <option value="none">Don't import — generate a new world</option>
+                <option value="upload">Upload a .zip</option>
+                <option value="url">Download from a URL</option>
+              </select>
+            </label>
+
+            {worldMode === "upload" && (
+              <label className="text-sm space-y-1 block">
+                <span className="text-slate-400">World .zip</span>
+                <input
+                  type="file"
+                  accept=".zip,application/zip"
+                  onChange={(e) => setWorldFile(e.target.files?.[0] ?? null)}
+                  className="w-full text-sm text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:text-slate-100 hover:file:bg-slate-600"
+                />
+              </label>
+            )}
+
+            {worldMode === "url" && (
+              <label className="text-sm space-y-1 block">
+                <span className="text-slate-400">World .zip URL</span>
+                <input
+                  type="url"
+                  value={worldUrl}
+                  onChange={(e) => setWorldUrl(e.target.value)}
+                  placeholder="https://example.com/my-world.zip"
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5"
+                />
+              </label>
+            )}
+
+            {worldMode !== "none" && (
+              <p className="text-xs text-slate-500">
+                The archive's world folder (with <code>level.dat</code>) is
+                extracted into the new server. Best results when the world was
+                made with the same Minecraft version.
+              </p>
+            )}
+          </div>
+        </div>
+
         <div className="flex items-center gap-2 pt-1">
           <button
             type="submit"
             disabled={!ready || submitting}
             className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded px-4 py-1.5 text-sm font-medium text-slate-900"
           >
-            {submitting ? "Creating…" : "Build server"}
+            {submitting
+              ? statusMsg ?? "Creating…"
+              : worldMode === "none"
+                ? "Build server"
+                : "Build server + import world"}
           </button>
           <button
             type="button"

@@ -127,6 +127,13 @@ which is why one content pipeline serves them all.
   keeping backups.
 - **F-SM-8 — Live stats.** For a running server, show CPU and memory usage and current player
   count / max players.
+- **F-SM-10 — Import a world at creation.** *(added post-M10)* When creating a server the admin
+  can optionally start it on an **existing world** instead of a freshly-generated one — by
+  uploading a world `.zip` or giving a download URL. Lectern locates the world folder inside the
+  archive (`level.dat` at the root or one wrapper folder deep), extracts it into the new server's
+  world directory (every path zip-slip guarded, swapped in atomically), so the server boots on the
+  imported map. Best when the world matches the server's Minecraft version. Creation-only for now
+  (replacing a live server's world later is a backup-restore, not this flow).
 - **F-SM-9 — Change Minecraft version.** *(gap found post-M8)* The admin can move an existing
   (stopped) server to another Minecraft version: Lectern re-provisions the server jar / loader
   build and the matching Java runtime, re-resolves installed content against the new version

@@ -49,3 +49,9 @@ export function apiPatch<T>(path: string, body: unknown): Promise<T> {
 export function apiDelete(path: string): Promise<void> {
   return fetch(path, { method: "DELETE" }).then((r) => handle<void>(r));
 }
+
+/** POST multipart form data (file uploads). Content-Type is set by the browser
+ *  so the multipart boundary is correct — don't set it manually. */
+export function apiPostForm<T>(path: string, form: FormData): Promise<T> {
+  return fetch(path, { method: "POST", body: form }).then((r) => handle<T>(r));
+}

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import shutil
+import tempfile
 import time
 from pathlib import Path
 
@@ -18,7 +19,10 @@ from fastapi import (
     APIRouter,
     BackgroundTasks,
     Depends,
+    File,
+    Form,
     HTTPException,
+    UploadFile,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -43,11 +47,16 @@ from ..models import (
     VersionChangeRead,
     VersionChangeRequest,
 )
+from ..providers.base import download_file
 from ..servers import properties as props
 from ..servers import stats as stats_mod
 from ..servers import version_change as version_change_mod
+from ..servers import world_import
 from ..servers.install import eula_accepted, get_progress, install_server, set_eula
 from ..servers.manager import ManagerError, manager
+
+# Safety cap on an uploaded world archive (worlds are large, but not unbounded).
+_WORLD_MAX_BYTES = 4 * 1024**3
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
 
@@ -298,6 +307,57 @@ async def change_server_version(
         server=_detail(server),
         report=MigrationReportRead(**report.__dict__),
     )
+
+
+@router.post("/{server_id}/world", response_model=ServerDetailRead)
+async def import_world(
+    server_id: str,
+    file: UploadFile | None = File(default=None),
+    url: str | None = Form(default=None),
+    session: Session = Depends(get_session),
+) -> ServerDetailRead:
+    """Import an existing world into a (stopped, installed) server from an
+    uploaded ``.zip`` or a download URL — used by the create wizard so a new
+    server can start on an existing map. Replaces the server's current world."""
+    server = session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+    if not server.path:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Server is still installing")
+    if manager.is_running(server_id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Stop the server before importing a world"
+        )
+    if file is None and not (url or "").strip():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Provide a world .zip file or a URL"
+        )
+
+    level_name = props.read_properties(Path(server.path)).get("level-name") or "world"
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tf:
+        tmp = Path(tf.name)
+    try:
+        if file is not None:
+            written = 0
+            with tmp.open("wb") as out:
+                while chunk := await file.read(1 << 20):
+                    written += len(chunk)
+                    if written > _WORLD_MAX_BYTES:
+                        raise HTTPException(
+                            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            "World archive is too large",
+                        )
+                    out.write(chunk)
+        else:
+            await download_file(url, tmp)  # type: ignore[arg-type]
+        await asyncio.to_thread(
+            world_import.extract_world, tmp, Path(server.path), level_name=level_name
+        )
+    except world_import.WorldImportError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    finally:
+        tmp.unlink(missing_ok=True)
+    return _detail(server)
 
 
 @router.get("/{server_id}/properties", response_model=PropertiesRead)
