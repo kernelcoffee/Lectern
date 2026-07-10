@@ -127,6 +127,12 @@ which is why one content pipeline serves them all.
   keeping backups.
 - **F-SM-8 — Live stats.** For a running server, show CPU and memory usage and current player
   count / max players.
+- **F-PL-1 — Players.** *(post-M12)* A global **player registry** (the "friends" list) where the
+  admin adds players by **username or UUID**, validated against Mojang (name↔UUID resolved and
+  stored canonical). From a server's **Players** tab those registered players are added to / removed
+  from the server's **whitelist**, **operators**, and **banned** lists — editing the server's own
+  `whitelist.json` / `ops.json` / `banned-players.json` (correct per-list shape; changes apply at
+  the next start / list reload).
 - **F-APP-1 — App settings.** *(post-M12)* A Settings page edits app-level tunables — the file-
   manager upload limit, the world-import upload limit, and the create-form default memory — that
   would otherwise be env vars / config file. Overrides persist server-side (the `Setting` table,

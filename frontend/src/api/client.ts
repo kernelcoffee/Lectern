@@ -58,6 +58,11 @@ export function apiDelete(path: string): Promise<void> {
   return fetch(path, { method: "DELETE" }).then((r) => handle<void>(r));
 }
 
+/** DELETE that returns a JSON body (some endpoints reply with the new state). */
+export function apiDeleteJson<T>(path: string): Promise<T> {
+  return fetch(path, { method: "DELETE" }).then((r) => handle<T>(r));
+}
+
 /** POST multipart form data (file uploads). Content-Type is set by the browser
  *  so the multipart boundary is correct — don't set it manually. */
 export function apiPostForm<T>(path: string, form: FormData): Promise<T> {

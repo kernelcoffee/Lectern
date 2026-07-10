@@ -40,6 +40,7 @@ import DatapacksTab from "./DatapacksTab";
 import FilesTab from "./FilesTab";
 import ModsTab from "./ModsTab";
 import MonitorPanel from "./MonitorPanel";
+import PlayersTab from "./PlayersTab";
 import PropertiesTab from "./PropertiesTab";
 import ResourcePacksTab from "./ResourcePacksTab";
 import ScheduleTab from "./ScheduleTab";
@@ -48,6 +49,7 @@ import StatsBar from "./StatsBar";
 type Tab =
   | "console"
   | "metrics"
+  | "players"
   | "mods"
   | "resourcepacks"
   | "datapacks"
@@ -323,6 +325,11 @@ export default function ServerDetail({
               active={tab === "metrics"}
               onClick={() => setTab("metrics")}
             />
+            <TabButton
+              label="Players"
+              active={tab === "players"}
+              onClick={() => setTab("players")}
+            />
             {MODDED_TYPES.includes(server.type) && (
               <TabButton
                 label="Mods"
@@ -387,6 +394,7 @@ export default function ServerDetail({
             />
           )}
           {tab === "metrics" && <MonitorPanel serverId={serverId} />}
+          {tab === "players" && <PlayersTab serverId={serverId} />}
           {tab === "schedule" && <ScheduleTab serverId={serverId} />}
           {tab === "files" && <FilesTab serverId={serverId} />}
           {tab === "version" && (

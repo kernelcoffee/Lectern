@@ -13,6 +13,7 @@ import { listServers, Server } from "./api/servers";
 import Sidebar from "./components/Sidebar";
 import CreateServer from "./pages/CreateServer";
 import Dashboard from "./pages/Dashboard";
+import Players from "./pages/Players";
 import ServerDetail from "./pages/ServerDetail";
 import Settings from "./pages/Settings";
 
@@ -21,6 +22,7 @@ type Health = { status: string; version: string };
 export type Route =
   | { view: "dashboard" }
   | { view: "create" }
+  | { view: "players" }
   | { view: "settings" }
   | { view: "server"; id: string };
 
@@ -74,6 +76,7 @@ export default function App() {
         {route.view === "dashboard" && (
           <Dashboard servers={servers} onReload={reload} onNavigate={go} />
         )}
+        {route.view === "players" && <Players />}
         {route.view === "settings" && <Settings />}
         {route.view === "create" && (
           <CreateServer

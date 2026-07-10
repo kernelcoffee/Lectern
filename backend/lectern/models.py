@@ -155,6 +155,16 @@ class Schedule(SQLModel, table=True):
     enabled: bool = True
 
 
+class Player(SQLModel, table=True):
+    """A known player in the global registry (the "friends" list). Added by
+    username or UUID and validated against Mojang; the ``uuid`` is stored
+    canonical (undashed, lowercase)."""
+
+    uuid: str = Field(primary_key=True)  # undashed
+    name: str
+    added_at: datetime = Field(default_factory=_now)
+
+
 class Setting(SQLModel, table=True):
     key: str = Field(primary_key=True)
     value: str
@@ -334,6 +344,41 @@ class WorldImportRead(SQLModel):
     server: ServerDetailRead
     written: int
     skipped: int
+
+
+class PlayerRead(SQLModel):
+    """A registered player (global registry)."""
+
+    uuid: str
+    name: str
+    added_at: datetime
+
+
+class PlayerAddRequest(SQLModel):
+    """Add a player to the registry by username *or* UUID (Mojang-validated)."""
+
+    query: str
+
+
+class PlayerEntry(SQLModel):
+    """One member of a server list (uuid is undashed)."""
+
+    uuid: str
+    name: str
+
+
+class PlayerListsRead(SQLModel):
+    """A server's three player lists (current file contents)."""
+
+    whitelist: list[PlayerEntry]
+    ops: list[PlayerEntry]
+    banned: list[PlayerEntry]
+
+
+class PlayerListAddRequest(SQLModel):
+    """Add a registered player (by UUID) to one of a server's lists."""
+
+    uuid: str
 
 
 class SettingRead(SQLModel):

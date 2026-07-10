@@ -50,6 +50,12 @@ export default function Sidebar({
             active={route.view === "dashboard"}
             onClick={() => onNavigate({ view: "dashboard" })}
           />
+          <NavItem
+            label="Players"
+            icon={<UsersIcon />}
+            active={route.view === "players"}
+            onClick={() => onNavigate({ view: "players" })}
+          />
         </ul>
 
         <div>
@@ -148,6 +154,14 @@ function PlusIcon() {
   return (
     <svg viewBox="0 0 16 16" className="w-4 h-4 fill-current shrink-0">
       <path d="M7 2h2v5h5v2H9v5H7V9H2V7h5z" />
+    </svg>
+  );
+}
+
+function UsersIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="w-4 h-4 fill-current shrink-0">
+      <path d="M6 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm0 1c-2.2 0-4 1.2-4 2.8V13h8v-1.2C10 10.2 8.2 9 6 9Zm5.5-1a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm.5 1c-.5 0-1 .1-1.4.3.9.7 1.4 1.6 1.4 2.5V13h3v-1.2C15 10.1 13.7 9 12 9Z" />
     </svg>
   );
 }

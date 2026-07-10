@@ -11,6 +11,48 @@ from .base import get_json
 
 MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
 
+# Player profile lookups (name ↔ UUID), for the whitelist/ops/ban lists.
+_PROFILE_BY_NAME = "https://api.mojang.com/users/profiles/minecraft/{name}"
+_PROFILE_BY_UUID = "https://sessionserver.mojang.com/session/minecraft/profile/{uuid}"
+_PROFILE_TTL = 86400  # profiles rarely change; a day is fine
+
+
+def undash_uuid(value: str) -> str:
+    """Canonical (undashed, lowercase) form of a UUID."""
+    return value.replace("-", "").lower()
+
+
+def dash_uuid(value: str) -> str:
+    """Dashed UUID form used by Minecraft's ``*.json`` player lists."""
+    u = undash_uuid(value)
+    return f"{u[:8]}-{u[8:12]}-{u[12:16]}-{u[16:20]}-{u[20:]}"
+
+
+def _is_uuid(value: str) -> bool:
+    u = undash_uuid(value)
+    return len(u) == 32 and all(c in "0123456789abcdef" for c in u)
+
+
+async def resolve_profile(query: str) -> dict[str, str] | None:
+    """Resolve a player by **username or UUID** to ``{"uuid": <undashed>,
+    "name": <current name>}`` via Mojang, or ``None`` if no such player.
+    Never raises — an unknown player / offline Mojang is a normal outcome."""
+    q = query.strip()
+    if not q:
+        return None
+    url = (
+        _PROFILE_BY_UUID.format(uuid=undash_uuid(q))
+        if _is_uuid(q)
+        else _PROFILE_BY_NAME.format(name=q)
+    )
+    try:
+        data = await get_json(url, ttl=_PROFILE_TTL)
+    except Exception:  # noqa: BLE001 — 400/404/network all mean "not found"
+        return None
+    if not isinstance(data, dict) or "id" not in data or "name" not in data:
+        return None
+    return {"uuid": undash_uuid(str(data["id"])), "name": str(data["name"])}
+
 
 # --- pure parsing (unit-tested) -------------------------------------------
 
