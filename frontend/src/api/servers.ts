@@ -1,4 +1,11 @@
-import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm } from "./client";
+import {
+  apiDelete,
+  apiGet,
+  apiPatch,
+  apiPost,
+  apiPostForm,
+  apiUpload,
+} from "./client";
 
 export type ServerType = "vanilla" | "fabric" | "quilt" | "paper";
 export type ServerStatus =
@@ -181,16 +188,31 @@ export interface VersionChangeResponse {
 export const changeServerVersion = (id: string, body: VersionChangeRequest) =>
   apiPost<VersionChangeResponse>(`/api/servers/${id}/version`, body);
 
-/** Import an existing world into a stopped, installed server from an uploaded
- *  .zip or a download URL (used by the create wizard). Replaces its world. */
+export interface WorldImportResult {
+  server: ServerDetail;
+  written: number;
+  skipped: number;
+}
+
+/**
+ * Import an existing world into a stopped, installed server from an uploaded
+ * .zip or a download URL (used by the create wizard). Replaces its world.
+ * `exclude` is comma-separated glob patterns for files to skip (defaults on the
+ * server to Distant Horizons caches); pass "" to import everything.
+ * `onProgress` reports upload fraction (0–1) for the file path.
+ */
 export const importWorld = (
   id: string,
-  source: { file?: File; url?: string },
+  source: { file?: File; url?: string; exclude?: string },
+  onProgress?: (fraction: number) => void,
 ) => {
   const form = new FormData();
   if (source.file) form.append("file", source.file);
   if (source.url) form.append("url", source.url);
-  return apiPostForm<ServerDetail>(`/api/servers/${id}/world`, form);
+  if (source.exclude !== undefined) form.append("exclude", source.exclude);
+  return source.file
+    ? apiUpload<WorldImportResult>(`/api/servers/${id}/world`, form, onProgress)
+    : apiPostForm<WorldImportResult>(`/api/servers/${id}/world`, form);
 };
 
 /** Dry-run compatibility check: how installed content would fare on

@@ -52,6 +52,9 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
   const [worldMode, setWorldMode] = useState<WorldMode>("none");
   const [worldFile, setWorldFile] = useState<File | null>(null);
   const [worldUrl, setWorldUrl] = useState("");
+  // Skip bloat like Distant Horizons' multi-GB LOD cache by default.
+  const [worldExclude, setWorldExclude] = useState("*DistantHorizons*");
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   // Progress line while a world import runs (install can take minutes).
@@ -135,6 +138,8 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     setWorldMode("none");
     setWorldFile(null);
     setWorldUrl("");
+    setWorldExclude("*DistantHorizons*");
+    setUploadPct(null);
     applySuggestion();
     if (type) {
       chooseType(type); // re-preselects the latest version (+ newest loader)
@@ -184,13 +189,24 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
       });
       if (worldMode !== "none") {
         await waitForInstalled(server.id);
-        setStatusMsg("Importing world…");
-        await importWorld(
-          server.id,
-          worldMode === "upload"
-            ? { file: worldFile! }
-            : { url: worldUrl.trim() },
-        );
+        if (worldMode === "upload") {
+          setStatusMsg("Uploading world…");
+          setUploadPct(0);
+          await importWorld(
+            server.id,
+            { file: worldFile!, exclude: worldExclude },
+            (f) => {
+              setUploadPct(f);
+              if (f >= 1) setStatusMsg("Extracting world…");
+            },
+          );
+        } else {
+          setStatusMsg("Importing world…");
+          await importWorld(server.id, {
+            url: worldUrl.trim(),
+            exclude: worldExclude,
+          });
+        }
       }
       onCreated();
     } catch (e) {
@@ -198,6 +214,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     } finally {
       setSubmitting(false);
       setStatusMsg(null);
+      setUploadPct(null);
     }
   }
 
@@ -386,11 +403,30 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
             )}
 
             {worldMode !== "none" && (
-              <p className="text-xs text-slate-500">
-                The archive's world folder (with <code>level.dat</code>) is
-                extracted into the new server. Best results when the world was
-                made with the same Minecraft version.
-              </p>
+              <>
+                <label className="text-sm space-y-1 block">
+                  <span className="text-slate-400">
+                    Skip files{" "}
+                    <span className="text-xs text-slate-500">
+                      — comma-separated patterns, e.g. mod caches
+                    </span>
+                  </span>
+                  <input
+                    value={worldExclude}
+                    onChange={(e) => setWorldExclude(e.target.value)}
+                    placeholder="*DistantHorizons*, *.tmp"
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 font-mono text-xs"
+                  />
+                </label>
+                <p className="text-xs text-slate-500">
+                  The archive's world folder (with <code>level.dat</code>) is
+                  extracted into the new server; matching files are skipped.
+                  Distant Horizons stores gigabytes of LOD cache in the world —
+                  left in by default it's excluded here. Clear the field to
+                  import everything. Best results when the world matches the
+                  server's Minecraft version.
+                </p>
+              </>
             )}
           </div>
         </div>
@@ -418,6 +454,22 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
             The jar and a matching Java runtime are downloaded automatically.
           </span>
         </div>
+
+        {/* Upload progress — a large world can take a while over the network. */}
+        {uploadPct !== null && (
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-slate-400">
+              <span>{statusMsg ?? "Uploading world…"}</span>
+              <span className="tabular-nums">{Math.round(uploadPct * 100)}%</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded bg-slate-800">
+              <div
+                className="h-full rounded bg-emerald-500 transition-[width] duration-150"
+                style={{ width: `${Math.max(2, uploadPct * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
       </form>
 
       {error && <p className="text-sm text-red-400">{error}</p>}

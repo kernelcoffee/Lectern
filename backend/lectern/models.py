@@ -289,6 +289,16 @@ class VersionChangeRead(SQLModel):
     report: MigrationReportRead
 
 
+class WorldImportRead(SQLModel):
+    """Result of importing a world (F-SM-10): the updated server plus how many
+    files were written and how many were skipped by an exclude pattern (e.g.
+    Distant Horizons LOD caches)."""
+
+    server: ServerDetailRead
+    written: int
+    skipped: int
+
+
 class PropertiesRead(SQLModel):
     """Response of ``GET /servers/{id}/properties``.
 

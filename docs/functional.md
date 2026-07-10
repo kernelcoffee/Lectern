@@ -132,8 +132,11 @@ which is why one content pipeline serves them all.
   uploading a world `.zip` or giving a download URL. Lectern locates the world folder inside the
   archive (`level.dat` at the root or one wrapper folder deep), extracts it into the new server's
   world directory (every path zip-slip guarded, swapped in atomically), so the server boots on the
-  imported map. Best when the world matches the server's Minecraft version. Creation-only for now
-  (replacing a live server's world later is a backup-restore, not this flow).
+  imported map. A **skip-files** field (glob patterns, default `*DistantHorizons*`) drops mod
+  caches that bloat a world — Distant Horizons alone embeds gigabytes of LOD cache; clearing the
+  field imports everything. Uploads show a **progress bar** (worlds run to several GB). Best when
+  the world matches the server's Minecraft version. Creation-only for now (replacing a live
+  server's world later is a backup-restore, not this flow).
 - **F-SM-9 — Change Minecraft version.** *(gap found post-M8)* The admin can move an existing
   (stopped) server to another Minecraft version: Lectern re-provisions the server jar / loader
   build and the matching Java runtime, re-resolves installed content against the new version

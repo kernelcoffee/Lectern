@@ -46,6 +46,7 @@ from ..models import (
     ServerStatus,
     VersionChangeRead,
     VersionChangeRequest,
+    WorldImportRead,
 )
 from ..providers.base import download_file
 from ..servers import properties as props
@@ -54,9 +55,6 @@ from ..servers import version_change as version_change_mod
 from ..servers import world_import
 from ..servers.install import eula_accepted, get_progress, install_server, set_eula
 from ..servers.manager import ManagerError, manager
-
-# Safety cap on an uploaded world archive (worlds are large, but not unbounded).
-_WORLD_MAX_BYTES = 4 * 1024**3
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
 
@@ -309,16 +307,23 @@ async def change_server_version(
     )
 
 
-@router.post("/{server_id}/world", response_model=ServerDetailRead)
+@router.post("/{server_id}/world", response_model=WorldImportRead)
 async def import_world(
     server_id: str,
     file: UploadFile | None = File(default=None),
     url: str | None = Form(default=None),
+    exclude: str | None = Form(default=None),
     session: Session = Depends(get_session),
-) -> ServerDetailRead:
+) -> WorldImportRead:
     """Import an existing world into a (stopped, installed) server from an
     uploaded ``.zip`` or a download URL — used by the create wizard so a new
-    server can start on an existing map. Replaces the server's current world."""
+    server can start on an existing map. Replaces the server's current world.
+
+    ``exclude`` is a comma-separated list of glob patterns matched against each
+    world-relative path; matching files are skipped. Absent/empty means import
+    everything — the create wizard supplies the Distant-Horizons default itself,
+    so clearing its field genuinely imports the whole archive (an empty
+    multipart field is indistinguishable from an absent one at this layer)."""
     server = session.get(Server, server_id)
     if server is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
@@ -333,31 +338,36 @@ async def import_world(
             status.HTTP_400_BAD_REQUEST, "Provide a world .zip file or a URL"
         )
 
+    # Always an explicit list (never None): absent/empty → import everything.
+    # The DH default is applied client-side, so a cleared field means "all".
+    patterns = [p.strip() for p in (exclude or "").split(",") if p.strip()]
     level_name = props.read_properties(Path(server.path)).get("level-name") or "world"
+    max_bytes = get_settings().max_world_upload_mb * 1024**2
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tf:
         tmp = Path(tf.name)
     try:
         if file is not None:
-            written = 0
+            received = 0
             with tmp.open("wb") as out:
                 while chunk := await file.read(1 << 20):
-                    written += len(chunk)
-                    if written > _WORLD_MAX_BYTES:
+                    received += len(chunk)
+                    if received > max_bytes:
                         raise HTTPException(
                             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                            "World archive is too large",
+                            f"World archive exceeds the {get_settings().max_world_upload_mb} MB limit",
                         )
                     out.write(chunk)
         else:
             await download_file(url, tmp)  # type: ignore[arg-type]
-        await asyncio.to_thread(
-            world_import.extract_world, tmp, Path(server.path), level_name=level_name
+        written, skipped = await asyncio.to_thread(
+            world_import.extract_world,
+            tmp, Path(server.path), level_name=level_name, exclude=patterns,
         )
     except world_import.WorldImportError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     finally:
         tmp.unlink(missing_ok=True)
-    return _detail(server)
+    return WorldImportRead(server=_detail(server), written=written, skipped=skipped)
 
 
 @router.get("/{server_id}/properties", response_model=PropertiesRead)

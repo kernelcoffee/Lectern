@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # Sensible defaults surfaced in the create-server wizard.
     default_memory_mb: int = 2048
 
+    # Max size of a world archive imported at creation. Modded worlds get large
+    # (Distant Horizons alone can add gigabytes of LOD cache), so the ceiling is
+    # generous; override with LECTERN_MAX_WORLD_UPLOAD_MB if needed.
+    max_world_upload_mb: int = 20480  # 20 GiB
+
     @property
     def db_path(self) -> Path:
         return self.data / "lectern.sqlite"
