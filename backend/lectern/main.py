@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from .api import backups as backups_api
@@ -67,6 +68,15 @@ def create_app() -> FastAPI:
     app.include_router(schedules_api.router)
     app.include_router(files_api.router)
     app.include_router(settings_api.router)
+
+    # Production: serve the built SPA from the same origin (no CORS, one port).
+    # Mounted last so the /api and /ws routes above take precedence; the SPA
+    # uses state-based routing, so serving index.html at "/" is enough.
+    static_dir = get_settings().static_dir
+    if static_dir is not None and static_dir.is_dir():
+        app.mount(
+            "/", StaticFiles(directory=static_dir, html=True), name="spa"
+        )
 
     return app
 

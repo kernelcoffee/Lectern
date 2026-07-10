@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # In production a single container serves the built SPA from this directory
+    # (set by the image to /app/static). Unset in dev — the Vite server hosts
+    # the frontend and proxies /api here.
+    static_dir: Path | None = None
+
     # Sensible defaults surfaced in the create-server wizard.
     default_memory_mb: int = 2048
 

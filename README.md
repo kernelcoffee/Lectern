@@ -1,35 +1,77 @@
 # Lectern
 
-A self-hosted **web app for creating and managing modded Minecraft servers**, built with
-simplicity in mind. Think *Crafty's "server runs in the background, managed over the web" model* +
-*Prism's mod management*, minus the heavy auth, plus Vanilla Tweaks.
+A self-hosted **web app for creating and managing modded Minecraft servers**. Think *Crafty's
+"servers run in the background, managed over the web" model* + *Prism's mod management*, minus the
+heavy auth, plus Vanilla Tweaks — designed for a trusted LAN.
 
-**First version targets:** Vanilla + **Fabric** servers, **Modrinth** content (mods, resource
-packs, `.mrpack` modpacks), **Vanilla Tweaks** resource packs, with per-server Java
-auto-provisioning, backups, and scheduling. CurseForge, Quilt/Paper/Forge, and Bedrock are
-designed for as pluggable providers and come later.
+Create a server from a wizard, and Lectern downloads the jar and the **exact Java runtime that
+version needs**, then manages the process, console, config, content, backups and schedules from
+the browser.
 
-## Documentation
+## Features
 
-- [`docs/functional.md`](docs/functional.md) — what Lectern does (functional spec).
-- [`docs/technical.md`](docs/technical.md) — architecture + external service integration.
-- [`docs/implementation.md`](docs/implementation.md) — step-by-step build plan.
+- **Servers** — Vanilla + **Fabric**, created from a wizard (auto jar + per-version JRE download),
+  with start/stop/restart/kill, a live console (WebSocket), CPU/memory/player stats, and a typed
+  `server.properties` editor. Clone a server, rename it, auto-start on boot (staggered).
+- **Content** — browse & install **Modrinth** mods (dependency resolution, update checks),
+  **Vanilla Tweaks** resource packs / datapacks / crafting tweaks, resource-pack serving,
+  datapacks, and **`.mrpack` modpack import**.
+- **Version change** — upgrade a server's Minecraft version: re-provisions jar + Java, migrates
+  compatible mods and disables the rest, with a pre-flight compatibility check and a backup.
+- **Import a world** at creation (upload a `.zip` or a URL), with mod-cache filtering.
+- **Backups** — create / restore / prune / download, with per-server retention & exclusions.
+- **Scheduling** — cron actions (start/stop/restart/backup/console command) via a friendly builder.
+- **File manager** — browse & edit files in a modal, upload (incl. drag-and-drop) / download,
+  unzip in place, with path-confinement guards.
+- **Settings** — a UI for app-level tunables (upload limits, default memory).
 
-## Tech stack
+CurseForge, Quilt/Paper/Forge, and Bedrock are designed for as pluggable providers and come later.
 
-- **Backend:** Python + FastAPI (async, WebSockets), SQLModel/SQLite, APScheduler, httpx.
-- **Frontend:** React + TypeScript (Vite), Tailwind.
+## Quick start (production, one command)
+
+Requires Docker (or Podman) with the Compose plugin.
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Then open **http://localhost:8000** (or `http://<host-ip>:8000` on your LAN). Minecraft clients
+connect on **25565**.
+
+This builds a single image that serves the API and the built web UI on one port. All state
+(database, downloaded JREs, caches, backups, server files) lives in the `lectern_data` volume.
+
+> **Multiple servers / custom ports:** the compose file publishes a single `25565`. To run
+> several servers at once, or use custom per-server ports, publish a range instead — e.g.
+> `"25565-25575:25565-25575"` in `docker-compose.prod.yml`.
+
+## Configuration
+
+Everything is optional. Deployment settings are environment variables; the operational tunables
+below them are also editable at runtime from the in-app **Settings** page (stored in the database).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `LECTERN_DATA` | `/data` (image) | Directory for the DB, JREs, caches, backups, and server files. |
+| `LECTERN_HOST` | `0.0.0.0` | API/web bind address. |
+| `LECTERN_PORT` | `8000` | API/web port. |
+| `LECTERN_MAX_FILE_UPLOAD_MB` | `2048` | File-manager upload limit (also in Settings). |
+| `LECTERN_MAX_WORLD_UPLOAD_MB` | `20480` | World-import upload limit (also in Settings). |
+| `LECTERN_DEFAULT_MEMORY_MB` | `2048` | Memory pre-filled in the create form (also in Settings). |
+
+Lectern is built for a **trusted LAN** — there is no user auth. Don't expose it directly to the
+internet; put it behind a VPN or a reverse proxy with access control if you need remote access.
 
 ## Development
 
-### With Docker (podman/docker) — one command
+### With Docker/Podman (hot-reload)
 
 ```bash
 docker compose up
 ```
 
 - Backend: http://localhost:8000 (health at `/api/health`)
-- Frontend: http://localhost:5173
+- Frontend (Vite, proxies `/api`): http://localhost:5173
 
 ### Locally, without containers
 
@@ -39,7 +81,8 @@ Backend:
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-uvicorn lectern.main:app --reload
+LECTERN_DATA=./data uvicorn lectern.main:app --reload
+python -m pytest -q            # tests
 ```
 
 Frontend:
@@ -47,12 +90,18 @@ Frontend:
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev                    # http://localhost:5173
+npm run build                  # type-check + production build
 ```
 
-Then open http://localhost:5173 — the page should show **backend ok** once both are running.
+## Documentation
 
-## Status
+- [`docs/functional.md`](docs/functional.md) — what Lectern does (functional spec).
+- [`docs/technical.md`](docs/technical.md) — architecture + external service integration.
+- [`docs/implementation.md`](docs/implementation.md) — milestone build plan.
+- [`docs/PROGRESS.md`](docs/PROGRESS.md) — current build state / resume notes.
 
-Early development. See [`docs/implementation.md`](docs/implementation.md) for the milestone
-checklist (currently: **M0 — scaffolding**).
+## Tech stack
+
+- **Backend:** Python + FastAPI (async, WebSockets), SQLModel/SQLite, APScheduler, httpx.
+- **Frontend:** React + TypeScript (Vite), Tailwind.
