@@ -79,6 +79,10 @@ class Server(SQLModel, table=True):
     port: int = 25565
     memory_mb: int = 2048
     jvm_args: str = ""
+    # Seeds `white-list=true` into server.properties at creation (secure by
+    # default — nobody can join until added to the whitelist). Create-time only;
+    # after first start the whitelist lives in server.properties / whitelist.json.
+    whitelist: bool = True
     auto_start: bool = False
     # Seconds to wait before auto-starting on boot — staggers JVM startups when
     # several servers auto-start together (ref: crafty-4's auto_start_delay).
@@ -186,6 +190,9 @@ class ServerCreate(SQLModel):
     loader_version: str | None = None
     port: int = 25565
     memory_mb: int = 2048
+    # Enable the whitelist (secure by default). The admin must then add players
+    # to the whitelist (Players tab) before anyone can join.
+    whitelist: bool = True
 
 
 class ServerCloneRequest(SQLModel):

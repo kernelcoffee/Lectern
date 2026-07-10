@@ -103,6 +103,10 @@ which is why one content pipeline serves them all.
   3. **Loader/build version** (only when the type needs one) — e.g. the Fabric loader version, or
      a Paper build. Lectern defaults to the recommended/latest but the admin can override.
   4. **Name, port, and allocated memory.**
+  5. **Security** — an **Enable whitelist** option, **on by default** (secure by default): it seeds
+     `white-list=true` into `server.properties`, so only whitelisted players can join. The wizard
+     warns that the admin must then add players from the **Players** tab or nobody (including them)
+     can connect.
 
   The **type + Minecraft version together drive everything downstream**: which loader builds are
   offered, which server jar is downloaded, and which Java runtime is auto-resolved (see 4.5). On

@@ -48,6 +48,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState("");
   const [port, setPort] = useState(25565);
   const [memory, setMemory] = useState(2048);
+  const [whitelist, setWhitelist] = useState(true); // secure by default
 
   const [worldMode, setWorldMode] = useState<WorldMode>("none");
   const [worldFile, setWorldFile] = useState<File | null>(null);
@@ -136,6 +137,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     setName("");
     setPort(25565);
     setMemory(2048);
+    setWhitelist(true);
     setWorldMode("none");
     setWorldFile(null);
     setWorldUrl("");
@@ -187,6 +189,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
         loader_version: type.needs_loader ? loader : null,
         port,
         memory_mb: memory,
+        whitelist,
       });
       if (worldMode !== "none") {
         await waitForInstalled(server.id);
@@ -348,6 +351,33 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
               />
             </label>
           </div>
+        </div>
+
+        {/* Security */}
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-sm font-medium text-slate-300">Security</h3>
+            <hr className="mt-2 border-slate-800" />
+          </div>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={whitelist}
+              onChange={(e) => setWhitelist(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="text-slate-200">Enable whitelist</span>{" "}
+              <span className="text-xs text-slate-500">(recommended)</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Only whitelisted players can join. After the server is created,
+                add players to its whitelist from the{" "}
+                <span className="text-slate-400">Players</span> tab — until then{" "}
+                <span className="text-amber-400/90">nobody can connect</span>,
+                including you.
+              </span>
+            </span>
+          </label>
         </div>
 
         {/* Import a world (optional) */}

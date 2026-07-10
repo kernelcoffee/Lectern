@@ -208,7 +208,11 @@ async def _run(session: Session, server: Server) -> None:
 
     _set(server.id, "writing-config", "Writing configuration…")
     (server_dir / "eula.txt").write_text("eula=false\n")
-    (server_dir / "server.properties").write_text(render_server_properties(server.port))
+    # Secure by default: seed white-list when the server was created with it on.
+    extra = {"white-list": "true"} if server.whitelist else None
+    (server_dir / "server.properties").write_text(
+        render_server_properties(server.port, extra)
+    )
 
     # The downloads above can take minutes — bail out (and clean up) if the
     # record was deleted meanwhile, instead of re-inserting it below.

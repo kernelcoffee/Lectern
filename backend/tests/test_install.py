@@ -145,6 +145,55 @@ def test_install_persists_path_after_delete_check(monkeypatch, tmp_path):
                 session.commit()
 
 
+def _install_with_whitelist(monkeypatch, tmp_path, whitelist: bool) -> str:
+    init_db()
+    with Session(engine) as session:
+        server = Server(name="wl", type="vanilla", mc_version="1.20.1", whitelist=whitelist)
+        session.add(server)
+        session.commit()
+        server_id = server.id
+
+    async def fake_provision(server, *, mc_version, loader_version, emit=None):
+        d = tmp_path / server.id
+        d.mkdir(parents=True, exist_ok=True)
+        server.path = str(d)
+        server.server_jar = "server.jar"
+        server.java_path = "/j"
+        return d
+
+    monkeypatch.setattr(install, "provision", fake_provision)
+    asyncio.run(install.install_server(server_id))
+    return server_id
+
+
+def test_install_seeds_whitelist_by_default(monkeypatch, tmp_path):
+    """A server created with the whitelist on gets white-list=true seeded into
+    server.properties (secure by default — nobody can join until whitelisted)."""
+    server_id = _install_with_whitelist(monkeypatch, tmp_path, whitelist=True)
+    try:
+        props = (tmp_path / server_id / "server.properties").read_text()
+        assert "white-list=true" in props
+    finally:
+        _delete_server_row(server_id)
+
+
+def test_install_no_whitelist_when_disabled(monkeypatch, tmp_path):
+    server_id = _install_with_whitelist(monkeypatch, tmp_path, whitelist=False)
+    try:
+        props = (tmp_path / server_id / "server.properties").read_text()
+        assert "white-list=true" not in props
+    finally:
+        _delete_server_row(server_id)
+
+
+def _delete_server_row(server_id: str) -> None:
+    with Session(engine) as session:
+        row = session.get(Server, server_id)
+        if row is not None:
+            session.delete(row)
+            session.commit()
+
+
 def test_install_does_not_resurrect_a_deleted_row(monkeypatch, tmp_path):
     """A server deleted while installing must not come back via the final
     commit. (The invariant is no-resurrection; the mid-install delete-check is a

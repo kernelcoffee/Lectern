@@ -157,6 +157,7 @@ def create_server(
         loader_version=payload.loader_version,
         port=payload.port,
         memory_mb=payload.memory_mb,
+        whitelist=payload.whitelist,
         status=ServerStatus.installing.value,
     )
     session.add(server)
