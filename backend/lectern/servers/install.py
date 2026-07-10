@@ -17,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from ..config import get_settings
 from ..db import engine
@@ -152,12 +152,16 @@ async def provision(
 # --- pipeline --------------------------------------------------------------
 
 
-def _record_deleted(session: Session, server_id: str) -> bool:
-    """True if the server row vanished (deleted mid-install). Uses a fresh
-    query — the session's identity map would happily hand back the cached
-    object and a later commit would resurrect the deleted row."""
-    session.expire_all()
-    return session.exec(select(Server.id).where(Server.id == server_id)).first() is None
+def _record_deleted(server_id: str) -> bool:
+    """True if the server row vanished (deleted mid-install).
+
+    Probed on a **separate** session on purpose: expiring the working session
+    (the old approach) would also discard the uncommitted field changes that
+    ``provision`` just made to the in-memory record (path, jar, java_path), so
+    the final commit would persist ``status=stopped`` with an empty ``path``
+    and leave the server un-startable. A fresh read touches nothing pending."""
+    with Session(engine) as probe:
+        return probe.get(Server, server_id) is None
 
 
 def _discard_install(server_id: str) -> None:
@@ -183,7 +187,7 @@ async def install_server(server_id: str) -> None:
                 await _run(session, server)
                 _set(server_id, "done", "Ready", done=True)
             except Exception as exc:  # noqa: BLE001 — surfaced to the user, not swallowed
-                if _record_deleted(session, server_id):
+                if _record_deleted(server_id):
                     _discard_install(server_id)
                     return
                 server.status = ServerStatus.install_failed.value
@@ -208,7 +212,7 @@ async def _run(session: Session, server: Server) -> None:
 
     # The downloads above can take minutes — bail out (and clean up) if the
     # record was deleted meanwhile, instead of re-inserting it below.
-    if _record_deleted(session, server.id):
+    if _record_deleted(server.id):
         _discard_install(server.id)
         return
 

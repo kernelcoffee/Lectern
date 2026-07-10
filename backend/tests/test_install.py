@@ -7,6 +7,10 @@ import asyncio
 import tarfile
 from pathlib import Path
 
+from sqlmodel import Session
+
+from lectern.db import engine, init_db
+from lectern.models import Server, ServerStatus
 from lectern.providers import adoptium, fabric, mojang
 from lectern.servers import install, types
 
@@ -97,3 +101,74 @@ def test_fabric_resolve_jar_respects_explicit_loader(monkeypatch):
     monkeypatch.setattr(fabric, "latest_installer_version", fake_installer)
     spec = asyncio.run(types.FabricType().resolve_jar("1.20.1", loader_version="0.15.7"))
     assert spec.loader_version == "0.15.7"
+
+
+# --- pipeline persists provisioned fields ----------------------------------
+
+
+def test_install_persists_path_after_delete_check(monkeypatch, tmp_path):
+    """Regression: the mid-install delete-check must not wipe the fields
+    ``provision`` sets on the record. It once used ``session.expire_all()``,
+    which reverted the uncommitted path/jar/java so a freshly-installed server
+    committed ``status=stopped`` with an empty ``path`` — un-startable, and
+    ``/world``/``/eula`` 409'd. The check now probes a separate session."""
+    init_db()
+    with Session(engine) as session:
+        server = Server(name="pipe", type="vanilla", mc_version="1.20.1")
+        session.add(server)
+        session.commit()
+        server_id = server.id
+
+    async def fake_provision(server, *, mc_version, loader_version, emit=None):
+        server_dir = tmp_path / server.id
+        server_dir.mkdir(parents=True, exist_ok=True)
+        server.path = str(server_dir)
+        server.server_jar = "server.jar"
+        server.java_path = "/opt/java/bin/java"
+        server.java_major = 17
+        return server_dir
+
+    monkeypatch.setattr(install, "provision", fake_provision)
+    try:
+        asyncio.run(install.install_server(server_id))
+        with Session(engine) as session:
+            row = session.get(Server, server_id)
+            assert row.status == ServerStatus.stopped.value
+            assert row.path == str(tmp_path / server_id)  # not wiped
+            assert row.server_jar == "server.jar"
+            assert row.java_path == "/opt/java/bin/java"
+    finally:
+        with Session(engine) as session:
+            row = session.get(Server, server_id)
+            if row is not None:
+                session.delete(row)
+                session.commit()
+
+
+def test_install_does_not_resurrect_a_deleted_row(monkeypatch, tmp_path):
+    """A server deleted while installing must not come back via the final
+    commit. (The invariant is no-resurrection; the mid-install delete-check is a
+    best-effort early exit — the UPDATE of an absent row is a no-op regardless.)"""
+    init_db()
+    with Session(engine) as session:
+        server = Server(name="racy", type="vanilla", mc_version="1.20.1")
+        session.add(server)
+        session.commit()
+        server_id = server.id
+
+    async def deleting_provision(server, *, mc_version, loader_version, emit=None):
+        server_dir = tmp_path / server.id
+        server_dir.mkdir(parents=True, exist_ok=True)
+        server.path = str(server_dir)
+        server.server_jar = "server.jar"
+        # Simulate a concurrent delete during the (usually slow) download.
+        with Session(engine) as other:
+            other.delete(other.get(Server, server.id))
+            other.commit()
+        return server_dir
+
+    monkeypatch.setattr(install, "provision", deleting_provision)
+    asyncio.run(install.install_server(server_id))
+
+    with Session(engine) as session:
+        assert session.get(Server, server_id) is None  # not resurrected
