@@ -15,7 +15,7 @@ COPY frontend/ ./
 RUN npm run build            # → /app/dist
 
 # --- stage 2: backend + built SPA -------------------------------------------
-FROM python:3.12-slim
+FROM python:3.14-slim
 WORKDIR /app
 
 # curl/ca-certificates for outbound HTTPS (Mojang/Fabric/Modrinth/Adoptium).
