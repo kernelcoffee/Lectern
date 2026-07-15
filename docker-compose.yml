@@ -14,11 +14,13 @@
 # or `docker build -t lectern .` against the Dockerfile directly.
 services:
   lectern:
+    container_name: lectern
     image: ghcr.io/kernelcoffee/lectern:${LECTERN_TAG:-latest}
     restart: unless-stopped
     ports:
       - "8000:8000"        # web UI + API
       - "25565:25565"      # Minecraft (single fixed port; see note below)
+      - "24454:24454/udp"  # Simple Voice Chat (SVC) voice server
     volumes:
       - lectern_data:/data # db, downloaded JREs, caches, backups, server files
     # NB: 25565 is a single published port. Running several servers at once, or
