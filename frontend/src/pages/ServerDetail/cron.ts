@@ -136,3 +136,55 @@ export function describeCron(cron: string): string {
 
   return cron; // unrecognised — show the expression itself
 }
+
+/** Inverse of `buildCron` — recover builder state from an expression so an
+ *  existing schedule can be edited with the friendly controls. Anything we
+ *  didn't emit (ranges, day-of-month, step minutes…) falls back to "advanced"
+ *  with the expression intact, so a hand-written crontab survives a round-trip
+ *  through the editor unchanged. `raw` is always the incoming expression, so
+ *  switching the frequency to Advanced shows what's currently set. */
+export function parseCron(cron: string): CronBuilderState {
+  const raw = cron.trim();
+  const base: CronBuilderState = { ...DEFAULT_BUILDER, raw };
+  const advanced: CronBuilderState = { ...base, frequency: "advanced" };
+
+  const f = raw.split(/\s+/);
+  if (f.length !== 5) return advanced;
+  const [min, hour, dom, mon, dow] = f;
+  if (dom !== "*" || mon !== "*") return advanced;
+
+  const numeric = (v: string) => (/^\d+$/.test(v) ? parseInt(v, 10) : null);
+
+  // Every N hours: "0 */N * * *"
+  const step = hour.match(/^\*\/(\d+)$/);
+  if (min === "0" && step && dow === "*") {
+    const n = parseInt(step[1], 10);
+    return n >= 1 && n <= 23
+      ? { ...base, frequency: "everyNHours", everyN: n }
+      : advanced;
+  }
+
+  const m = numeric(min);
+  if (m === null || m > 59) return advanced;
+
+  // Hourly: "M * * * *"
+  if (hour === "*" && dow === "*") return { ...base, frequency: "hourly", minute: m };
+
+  const h = numeric(hour);
+  if (h === null || h > 23) return advanced;
+
+  // Daily: "M H * * *"
+  if (dow === "*") return { ...base, frequency: "daily", time: hhmm(h, m) };
+
+  // Weekly: "M H * * mon,tue,…" — names only, which is all buildCron emits.
+  const days = dow.split(",");
+  if (days.every((d) => DAY_LABEL.has(d))) {
+    return {
+      ...base,
+      frequency: "weekly",
+      time: hhmm(h, m),
+      weekdays: orderDays(days),
+    };
+  }
+  return advanced;
+}
