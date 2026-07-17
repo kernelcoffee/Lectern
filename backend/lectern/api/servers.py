@@ -123,23 +123,23 @@ def suggest_defaults(session: Session = Depends(get_session)) -> ServerSuggestRe
 
 
 def _check_conflicts(
-    session: Session, *, name: str | None, port: int | None, exclude_id: str | None = None
+    session: Session, *, name: str | None, exclude_id: str | None = None
 ) -> None:
-    """409 when another server already uses this name (case-insensitive) or
-    port. Ports must be unique across all servers — several records could
-    share one if never run together, but that's a foot-gun, not a feature."""
+    """409 when another server already uses this name (case-insensitive).
+
+    Ports are deliberately *not* checked: several servers may be configured on
+    the same port as long as they don't run at once. The collision that matters
+    — two *running* servers on one port — is caught by the start guard in
+    ``servers/manager.py``. ``_free_port`` still suggests an unused one."""
+    if name is None:
+        return
     for other in session.exec(select(Server)).all():
         if other.id == exclude_id:
             continue
-        if name is not None and other.name.strip().lower() == name.strip().lower():
+        if other.name.strip().lower() == name.strip().lower():
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 f'A server named "{other.name}" already exists',
-            )
-        if port is not None and other.port == port:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                f'Port {port} is already used by "{other.name}"',
             )
 
 
@@ -149,7 +149,7 @@ def create_server(
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
 ) -> Server:
-    _check_conflicts(session, name=payload.name, port=payload.port)
+    _check_conflicts(session, name=payload.name)
     server = Server(
         name=payload.name,
         type=payload.type.value,
@@ -157,6 +157,7 @@ def create_server(
         loader_version=payload.loader_version,
         port=payload.port,
         memory_mb=payload.memory_mb,
+        seed=payload.seed,
         whitelist=payload.whitelist,
         status=ServerStatus.installing.value,
     )
@@ -224,7 +225,7 @@ async def clone_server(
 
     name = (payload.name or "").strip() or _free_name(session, f"{source.name} copy")
     port = payload.port or _free_port(session)
-    _check_conflicts(session, name=name, port=port)
+    _check_conflicts(session, name=name)
 
     level_name = props.read_properties(Path(source.path)).get("level-name") or "world"
     clone = Server(
@@ -359,12 +360,7 @@ def update_server_settings(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
 
     updates = payload.model_dump(exclude_unset=True)
-    _check_conflicts(
-        session,
-        name=updates.get("name"),
-        port=updates.get("port"),
-        exclude_id=server_id,
-    )
+    _check_conflicts(session, name=updates.get("name"), exclude_id=server_id)
     for key, value in updates.items():
         setattr(server, key, value)
 
@@ -547,12 +543,6 @@ def patch_properties(
             errors.append(str(exc))
     if errors:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "; ".join(errors))
-
-    # A server-port change flows into the record below — reject conflicts
-    # before anything is written.
-    requested_port = file_props.get("server-port")
-    if "server-port" in updates and requested_port is not None and requested_port.isdigit():
-        _check_conflicts(session, name=None, port=int(requested_port), exclude_id=server_id)
 
     props.write_properties(server_dir, file_props)
 

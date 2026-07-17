@@ -83,6 +83,10 @@ class Server(SQLModel, table=True):
     # default — nobody can join until added to the whitelist). Create-time only;
     # after first start the whitelist lives in server.properties / whitelist.json.
     whitelist: bool = True
+    # Seeds ``level-seed`` into server.properties at creation so the first
+    # world generates from a chosen seed (empty = random). Create-time only:
+    # once the world exists the seed is baked in and this is informational.
+    seed: str = ""
     auto_start: bool = False
     # Seconds to wait before auto-starting on boot — staggers JVM startups when
     # several servers auto-start together (ref: crafty-4's auto_start_delay).
@@ -188,8 +192,12 @@ class ServerCreate(SQLModel):
     type: ServerType = ServerType.vanilla
     mc_version: str
     loader_version: str | None = None
-    port: int = 25565
+    # Any unprivileged port; not required to be unique across servers — a start
+    # guard rejects launching onto a port a running server already holds.
+    port: int = Field(default=25565, ge=1024, le=65535)
     memory_mb: int = 2048
+    # Optional world seed for the first world generation (empty = random).
+    seed: str = ""
     # Enable the whitelist (secure by default). The admin must then add players
     # to the whitelist (Players tab) before anyone can join.
     whitelist: bool = True
@@ -287,7 +295,7 @@ class ServerSettingsUpdate(SQLModel):
     """
 
     name: str | None = None
-    port: int | None = Field(default=None, ge=1, le=65535)
+    port: int | None = Field(default=None, ge=1024, le=65535)
     memory_mb: int | None = Field(default=None, ge=256, le=65536)
     jvm_args: str | None = None
     auto_start: bool | None = None

@@ -208,10 +208,15 @@ async def _run(session: Session, server: Server) -> None:
 
     _set(server.id, "writing-config", "Writing configuration…")
     (server_dir / "eula.txt").write_text("eula=false\n")
-    # Secure by default: seed white-list when the server was created with it on.
-    extra = {"white-list": "true"} if server.whitelist else None
+    # Create-time server.properties overrides: white-list secure-by-default, and
+    # a chosen world seed. Both only matter for the first launch/world-gen.
+    extra: dict[str, str] = {}
+    if server.whitelist:
+        extra["white-list"] = "true"
+    if server.seed.strip():
+        extra["level-seed"] = server.seed.strip()
     (server_dir / "server.properties").write_text(
-        render_server_properties(server.port, extra)
+        render_server_properties(server.port, extra or None)
     )
 
     # The downloads above can take minutes — bail out (and clean up) if the

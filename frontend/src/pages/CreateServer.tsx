@@ -48,6 +48,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState("");
   const [port, setPort] = useState(25565);
   const [memory, setMemory] = useState(2048);
+  const [seed, setSeed] = useState("");
   const [whitelist, setWhitelist] = useState(true); // secure by default
 
   const [worldMode, setWorldMode] = useState<WorldMode>("none");
@@ -137,6 +138,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     setName("");
     setPort(25565);
     setMemory(2048);
+    setSeed("");
     setWhitelist(true);
     setWorldMode("none");
     setWorldFile(null);
@@ -189,6 +191,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
         loader_version: type.needs_loader ? loader : null,
         port,
         memory_mb: memory,
+        seed: worldMode === "none" ? seed.trim() : "",
         whitelist,
       });
       if (worldMode !== "none") {
@@ -332,12 +335,16 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
               <span className="text-slate-400">Server port</span>
               <input
                 type="number"
-                min={1}
+                min={1024}
                 max={65535}
                 value={port}
                 onChange={(e) => setPort(Number(e.target.value))}
                 className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5"
               />
+              <span className="block text-xs text-slate-500">
+                Any port 1024–65535. Servers can share a port as long as only
+                one runs at a time.
+              </span>
             </label>
             <label className="text-sm space-y-1">
               <span className="text-slate-400">Memory (MB)</span>
@@ -351,6 +358,24 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
               />
             </label>
           </div>
+
+          {/* World seed — first-generation only; a matching world ignores it. */}
+          <label className="block text-sm space-y-1 max-w-md">
+            <span className="text-slate-400">World seed (optional)</span>
+            <input
+              type="text"
+              value={seed}
+              disabled={worldMode !== "none"}
+              onChange={(e) => setSeed(e.target.value)}
+              placeholder="Leave empty for a random world"
+              className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 disabled:opacity-50"
+            />
+            <span className="block text-xs text-slate-500">
+              {worldMode === "none"
+                ? "Numbers or text — text seeds are hashed, just like in-game."
+                : "Ignored when importing a world — that world's seed is kept."}
+            </span>
+          </label>
         </div>
 
         {/* Security */}

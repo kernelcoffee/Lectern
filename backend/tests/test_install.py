@@ -191,6 +191,33 @@ def test_install_no_whitelist_when_disabled(monkeypatch, tmp_path):
         _delete_server_row(server_id)
 
 
+def test_install_seeds_level_seed(monkeypatch, tmp_path):
+    """A chosen world seed is written as ``level-seed`` in server.properties so
+    the first world generates from it."""
+    init_db()
+    with Session(engine) as session:
+        server = Server(name="sd", type="vanilla", mc_version="1.20.1", seed="my cool seed")
+        session.add(server)
+        session.commit()
+        server_id = server.id
+
+    async def fake_provision(server, *, mc_version, loader_version, emit=None):
+        d = tmp_path / server.id
+        d.mkdir(parents=True, exist_ok=True)
+        server.path = str(d)
+        server.server_jar = "server.jar"
+        server.java_path = "/j"
+        return d
+
+    monkeypatch.setattr(install, "provision", fake_provision)
+    asyncio.run(install.install_server(server_id))
+    try:
+        props = (tmp_path / server_id / "server.properties").read_text()
+        assert "level-seed=my cool seed" in props
+    finally:
+        _delete_server_row(server_id)
+
+
 def _delete_server_row(server_id: str) -> None:
     with Session(engine) as session:
         row = session.get(Server, server_id)

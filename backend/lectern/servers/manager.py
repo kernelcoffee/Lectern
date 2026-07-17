@@ -52,6 +52,10 @@ class NotRunning(ManagerError):
     status_code = 409
 
 
+class PortInUse(ManagerError):
+    status_code = 409
+
+
 class ServerManager:
     def __init__(self) -> None:
         self.hub = ConsoleHub()
@@ -144,6 +148,20 @@ class ServerManager:
                     "Refusing to launch: the Java binary is inside the server "
                     "directory (possible tampering)"
                 )
+            # Port guard: records aren't unique on port (see api/servers.py), so
+            # reject launching onto a port a *running* server already binds —
+            # otherwise the JVM just fails to bind with a cryptic log line.
+            from .stats_sampler import effective_port
+
+            my_port = effective_port(server)
+            for other_id, _proc in self.running_processes():
+                if other_id == server_id:
+                    continue
+                other = session.get(Server, other_id)
+                if other is not None and effective_port(other) == my_port:
+                    raise PortInUse(
+                        f'Port {my_port} is already in use by "{other.name}"'
+                    )
             argv = build_launch_command(
                 server.java_path, server.memory_mb, server.server_jar, server.jvm_args
             )

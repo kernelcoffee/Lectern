@@ -136,11 +136,11 @@ def test_create_duplicate_name_409(client):
     assert "already exists" in resp.json()["detail"]
 
 
-def test_create_duplicate_port_409(client):
+def test_create_duplicate_port_allowed(client):
+    # Ports need not be unique — two servers may share one as long as only one
+    # runs at a time (the runtime collision is caught by the start guard).
     assert _create(client, "Alpha", 25565).status_code == 201
-    resp = _create(client, "Beta", 25565)
-    assert resp.status_code == 409
-    assert "25565" in resp.json()["detail"]
+    assert _create(client, "Beta", 25565).status_code == 201
 
 
 def test_create_distinct_name_and_port_ok(client):
@@ -152,13 +152,15 @@ def test_settings_patch_conflicts_409(client):
     alpha = _create(client, "Alpha", 25565).json()["id"]
     _create(client, "Beta", 25566)
 
+    # Name still conflicts…
     assert (
         client.patch(f"/api/servers/{alpha}", json={"name": "Beta"}).status_code
         == 409
     )
+    # …but sharing a port no longer does (guarded at start instead).
     assert (
         client.patch(f"/api/servers/{alpha}", json={"port": 25566}).status_code
-        == 409
+        == 200
     )
     # Re-saving its own values is not a conflict.
     resp = client.patch(f"/api/servers/{alpha}", json={"name": "Alpha", "port": 25565})

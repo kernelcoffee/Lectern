@@ -62,6 +62,7 @@ export interface ServerCreate {
   loader_version?: string | null;
   port: number;
   memory_mb: number;
+  seed?: string;
   whitelist?: boolean;
 }
 

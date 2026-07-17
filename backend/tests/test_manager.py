@@ -18,6 +18,7 @@ from lectern.models import Server, ServerStatus
 from lectern.servers.manager import (
     _MAX_CRASH_RESTARTS,
     NotInstalled,
+    PortInUse,
     ServerManager,
 )
 
@@ -154,6 +155,38 @@ def test_start_refuses_java_inside_server_dir(tmp_path):
             asyncio.run(ServerManager().start(server_id))
     finally:
         _cleanup(server_id)
+
+
+def test_start_refuses_port_held_by_running_server(tmp_path, monkeypatch):
+    """Records aren't unique on port, so starting a server onto a port a
+    *running* server already binds is refused (before any status change)."""
+    server_dir = tmp_path / "srv"
+    server_dir.mkdir()
+    java = tmp_path / "jre" / "bin" / "java"  # OUTSIDE the server dir
+    java.parent.mkdir(parents=True)
+    java.write_bytes(b"#!/bin/sh\n")
+    (server_dir / "eula.txt").write_text("eula=true\n")
+    (server_dir / "server.jar").write_bytes(b"JAR")
+    (server_dir / "server.properties").write_text("server-port=25565\n")
+
+    starting = _make_server(
+        status=ServerStatus.stopped.value, path=str(server_dir),
+        server_jar="server.jar", java_path=str(java), port=25565,
+    )
+    # A second server already running on the same port (no path → its DB port
+    # is the effective one).
+    holder = _make_server(status=ServerStatus.running.value, port=25565)
+
+    manager = ServerManager()
+    monkeypatch.setattr(manager, "running_processes", lambda: [(holder, object())])
+    try:
+        with pytest.raises(PortInUse, match="25565"):
+            asyncio.run(manager.start(starting))
+        # Refused before the status was flipped to "starting".
+        assert _status_of(starting) == ServerStatus.stopped.value
+    finally:
+        _cleanup(starting)
+        _cleanup(holder)
 
 
 # --- auto-start ----------------------------------------------------------------
