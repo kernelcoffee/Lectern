@@ -42,6 +42,23 @@ export const removeFromList = (serverId: string, kind: ListKind, uuid: string) =
     `/api/servers/${serverId}/playerlists/${kind}/${uuid}`,
   );
 
+// --- online roster -----------------------------------------------------------
+
+export interface OnlinePlayer {
+  name: string;
+  uuid: string | null; // null for bots / offline-mode joins
+  bot: boolean; // artificial player (Carpet /player bot etc.)
+  joined_at: number; // unix seconds
+}
+
+export const getOnlinePlayers = (serverId: string) =>
+  apiGet<OnlinePlayer[]>(`/api/servers/${serverId}/players/online`);
+
+export const kickPlayer = (serverId: string, name: string, reason?: string) =>
+  apiPost<OnlinePlayer[]>(`/api/servers/${serverId}/players/online/${name}/kick`, {
+    reason: reason ?? null,
+  });
+
 /** Self-hosted player face avatar (rendered from the Mojang skin). Falls back
  *  to an initial tile in the Avatar component if the player has no skin. */
 export const avatarUrl = (uuid: string, size = 32) =>

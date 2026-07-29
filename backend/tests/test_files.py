@@ -17,7 +17,6 @@ from sqlmodel import Session
 from lectern.models import Server
 from lectern.servers import files as fm
 
-
 # --- safe_path confinement (the guard everything relies on) ----------------
 
 

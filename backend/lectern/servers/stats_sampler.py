@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlmodel import Session, select
@@ -39,7 +39,7 @@ RETENTION = timedelta(hours=24)  # keep this much history per server
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass
@@ -101,7 +101,7 @@ class StatsSampler:
         while True:
             try:
                 await self.sample_once(compute_sizes=(tick % SIZE_EVERY == 0))
-            except Exception:  # noqa: BLE001 — the loop must survive any tick
+            except Exception:
                 log.exception("stats sampler tick failed")
             tick += 1
             await asyncio.sleep(SAMPLE_INTERVAL)

@@ -76,14 +76,13 @@ async def download_file(
     request_headers = {"User-Agent": USER_AGENT}
     async with httpx.AsyncClient(
         headers=request_headers, timeout=300.0, follow_redirects=True
-    ) as client:
-        async with client.stream("GET", url) as resp:
-            resp.raise_for_status()
-            with dest.open("wb") as f:
-                async for chunk in resp.aiter_bytes():
-                    f.write(chunk)
-                    if hasher:
-                        hasher.update(chunk)
+    ) as client, client.stream("GET", url) as resp:
+        resp.raise_for_status()
+        with dest.open("wb") as f:
+            async for chunk in resp.aiter_bytes():
+                f.write(chunk)
+                if hasher:
+                    hasher.update(chunk)
     if hasher and expected_hash and hasher.hexdigest() != expected_hash.lower():
         dest.unlink(missing_ok=True)
         raise ChecksumMismatch(

@@ -21,6 +21,7 @@ import {
   ServerStatus,
 } from "../api/servers";
 import { Route } from "../App";
+import EventsPanel from "../components/EventsPanel";
 
 const CHIP: Record<ServerStatus, string> = {
   installing: "bg-sky-500 text-slate-900",
@@ -250,6 +251,8 @@ export default function Dashboard({
           </table>
         )}
       </section>
+
+      <EventsPanel />
 
       {error && <p className="text-sm text-red-400">{error}</p>}
     </div>

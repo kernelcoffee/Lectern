@@ -11,8 +11,9 @@ the browser.
 ## Features
 
 - **Servers** — Vanilla + **Fabric**, created from a wizard (auto jar + per-version JRE download),
-  with start/stop/restart/kill, a live console (WebSocket), CPU/memory/player stats, and a typed
-  `server.properties` editor. Clone a server, rename it, auto-start on boot (staggered).
+  with start/stop/restart/kill, a live console (WebSocket), CPU/memory/player stats, an online
+  player roster (Carpet-bot aware) with kick, and a typed `server.properties` editor. Clone a
+  server, rename it, auto-start on boot (staggered).
 - **Content** — browse & install **Modrinth** mods (dependency resolution, update checks),
   **Vanilla Tweaks** resource packs / datapacks / crafting tweaks, resource-pack serving,
   datapacks, and **`.mrpack` modpack import**.
@@ -21,6 +22,9 @@ the browser.
 - **Import a world** at creation (upload a `.zip` or a URL), with mod-cache filtering.
 - **Backups** — create / restore / prune / download, with per-server retention & exclusions.
 - **Scheduling** — cron actions (start/stop/restart/backup/console command) via a friendly builder.
+- **Event timeline** — a persisted "Recent events" feed (starts/stops, crashes & auto-restarts,
+  backup and schedule outcomes) on the dashboard and per server, so overnight incidents are
+  still visible in the morning.
 - **File manager** — browse & edit files in a modal, upload (incl. drag-and-drop) / download,
   unzip in place, with path-confinement guards.
 - **Settings** — a UI for app-level tunables (upload limits, default memory).

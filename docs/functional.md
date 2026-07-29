@@ -134,11 +134,26 @@ which is why one content pipeline serves them all.
 - **F-PL-1 — Players.** *(post-M12)* A global **player registry** (the "friends" list) where the
   admin adds players by **username or UUID**, validated against Mojang (name↔UUID resolved and
   stored canonical). From a server's **Players** tab those registered players are added to / removed
-  from the server's **whitelist**, **operators**, and **banned** lists — editing the server's own
-  `whitelist.json` / `ops.json` / `banned-players.json` (correct per-list shape; changes apply at
-  the next start / list reload). The registry has a card view (skin-face avatar + username) and a
+  from the server's **whitelist**, **operators**, and **banned** lists — backed by the server's own
+  `whitelist.json` / `ops.json` / `banned-players.json` (correct per-list shape). On a **running**
+  server the change is applied **immediately** via the matching console command (`whitelist
+  add/remove`, `op`/`deop`, `ban`/`pardon` — the server rewrites its own files); on a stopped
+  server the files are edited directly and apply at the next start. The registry has a card view
+  (skin-face avatar + username) and a
   list view; **avatars are rendered by Lectern itself** from the Mojang skin (no dependency on a
   flaky community service like Crafatar).
+- **F-PL-2 — Online roster.** For a running server, an "Online now" list parsed from the console's
+  own join/leave messages, with a per-player **kick**. **Artificial players** (Carpet's `/player`
+  bots and similar) are first-class: they're detected by their `[local]` (non-network) login,
+  badged as bots, may lack a Mojang UUID/avatar, and are never required to be in the registry.
+  Removing a bot sends Carpet's `player <name> kill` instead of `kick` — a bot has no real
+  connection to sever, so `kick` wouldn't remove it.
+- **F-EV-1 — Event timeline.** A persisted per-server event log — start/stop, crashes,
+  auto-restart attempts and give-ups, backup created/restored/failed, and failed schedule runs —
+  so incidents that only flashed by in the live console (a 3am crash, a failed nightly backup)
+  are still reviewable later. Shown as a "Recent events" panel on the Dashboard (all servers,
+  with names) and in a server's Metrics tab (that server only). Kept to the newest ~300 events
+  per server; recording failures never break the action being recorded.
 - **F-APP-1 — App settings.** *(post-M12)* A Settings page edits app-level tunables — the file-
   manager upload limit, the world-import upload limit, and the create-form default memory — that
   would otherwise be env vars / config file. Overrides persist server-side (the `Setting` table,

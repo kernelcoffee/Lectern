@@ -214,7 +214,7 @@ def test_fire_backup_uses_scheduled_trigger(monkeypatch):
         assert server.id == server_id
         triggers.append(trigger)
 
-    import lectern.backups as backups
+    from lectern import backups
 
     monkeypatch.setattr(backups, "create_backup", fake_backup)
     try:

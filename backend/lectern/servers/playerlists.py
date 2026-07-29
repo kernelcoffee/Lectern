@@ -6,15 +6,16 @@ the source of truth for membership; a global ``Player`` registry (models.py)
 just supplies the names/UUIDs you add from.
 
 UUIDs are stored **dashed** in the files (Minecraft's format) but compared
-**undashed** everywhere else, so add/remove normalise both ways. Changes take
-effect the next time the server (re)starts / reloads its lists — Minecraft
-caches these in memory.
+**undashed** everywhere else, so add/remove normalise both ways. Minecraft
+caches these files in memory, so direct edits apply at the next start / list
+reload — for a *running* server the API layer (``api/players.py``) sends the
+equivalent console command instead and only falls back to these file edits.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..providers.mojang import dash_uuid, undash_uuid
@@ -70,7 +71,7 @@ def _new_entry(kind: str, uuid: str, name: str) -> dict:
         return {
             "uuid": dashed,
             "name": name,
-            "created": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S +0000"),
+            "created": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S +0000"),
             "source": "Lectern",
             "expires": "forever",
             "reason": "Banned by an operator.",

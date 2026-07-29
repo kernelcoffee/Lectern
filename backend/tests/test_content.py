@@ -90,7 +90,7 @@ def catalog(monkeypatch):
         by_slug = {p["slug"]: p for p in projects.values()}
         project = projects.get(ref) or by_slug.get(ref)
         if project is None:
-            raise Exception(f"404 project {ref}")
+            raise RuntimeError(f"404 project {ref}")
         return project
 
     async def get_projects(ids):

@@ -1,5 +1,6 @@
 // Player face avatar, served by Lectern (rendered from the Mojang skin). Falls
-// back to an initial tile if the player has no skin / it can't load.
+// back to an initial tile if the player has no skin / it can't load — or has
+// no UUID at all (Carpet-style bots aren't Mojang accounts).
 
 import { useState } from "react";
 import { avatarUrl } from "../api/players";
@@ -9,13 +10,13 @@ export default function Avatar({
   name,
   size = 32,
 }: {
-  uuid: string;
+  uuid: string | null;
   name: string;
   size?: number;
 }) {
   const [ok, setOk] = useState(true);
 
-  if (!ok) {
+  if (!ok || uuid === null) {
     return (
       <div
         style={{ width: size, height: size, fontSize: Math.round(size / 2.4) }}

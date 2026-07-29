@@ -15,6 +15,7 @@ import {
   ServerSize,
   StatSample,
 } from "../../api/servers";
+import EventsPanel from "../../components/EventsPanel";
 
 const SURFACE = "#0f172a"; // page background — the ring color on marks
 const GRID = "#1e293b";
@@ -145,6 +146,8 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
           />
         </div>
       )}
+
+      <EventsPanel serverId={serverId} />
     </section>
   );
 }

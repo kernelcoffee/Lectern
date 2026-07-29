@@ -18,7 +18,6 @@ from lectern.servers.stats import (
     server_list_ping,
 )
 
-
 # --- MOTD description variants (see docs/references/crafty-4.md) -------------
 
 

@@ -6,7 +6,6 @@ import pytest
 
 from lectern.providers import adoptium, fabric, mojang
 
-
 # --- Adoptium MC -> Java major --------------------------------------------
 
 

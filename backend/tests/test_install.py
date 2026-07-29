@@ -14,7 +14,6 @@ from lectern.models import Server, ServerStatus
 from lectern.providers import adoptium, fabric, mojang
 from lectern.servers import install, types
 
-
 # --- pure helpers ----------------------------------------------------------
 
 

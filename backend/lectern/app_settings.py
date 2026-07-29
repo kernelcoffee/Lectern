@@ -86,7 +86,9 @@ def set_values(session: Session, updates: dict[str, int]) -> None:
         if tunable is None:
             raise ValueError(f"Unknown setting: {key}")
         if not isinstance(value, int) or isinstance(value, bool):
-            raise ValueError(f"{tunable.label} must be a whole number")
+            # ValueError on purpose (not TypeError): the API layer maps
+            # ValueError from here to a 400, and this is input validation.
+            raise ValueError(f"{tunable.label} must be a whole number")  # noqa: TRY004
         if not (tunable.minimum <= value <= tunable.maximum):
             raise ValueError(
                 f"{tunable.label} must be between {tunable.minimum} and {tunable.maximum}"
