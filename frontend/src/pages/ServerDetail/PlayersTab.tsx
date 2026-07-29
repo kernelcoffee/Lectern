@@ -1,7 +1,8 @@
-// Players tab (per server): manage the whitelist / ops / banned lists, which
-// edit the server's own whitelist.json / ops.json / banned-players.json. You
-// add from the global registry (the sidebar Players page). Changes apply at the
-// next start / list reload — Minecraft caches these in memory.
+// Players tab (per server): manage the whitelist / ops / banned lists, backed
+// by the server's own whitelist.json / ops.json / banned-players.json. You add
+// from the global registry (the sidebar Players page). On a running server the
+// backend applies changes immediately via console commands; otherwise it edits
+// the files, which Minecraft reads at the next start.
 
 import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
@@ -62,7 +63,8 @@ export default function PlayersTab({ serverId }: { serverId: string }) {
   return (
     <section className="space-y-5">
       <p className="text-xs text-slate-500">
-        Changes apply the next time the server starts. Add players in the{" "}
+        Changes apply immediately while the server is running, otherwise at the
+        next start. Add players in the{" "}
         <span className="text-slate-400">Players</span> page first.
       </p>
 

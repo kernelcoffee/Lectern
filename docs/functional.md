@@ -134,9 +134,12 @@ which is why one content pipeline serves them all.
 - **F-PL-1 — Players.** *(post-M12)* A global **player registry** (the "friends" list) where the
   admin adds players by **username or UUID**, validated against Mojang (name↔UUID resolved and
   stored canonical). From a server's **Players** tab those registered players are added to / removed
-  from the server's **whitelist**, **operators**, and **banned** lists — editing the server's own
-  `whitelist.json` / `ops.json` / `banned-players.json` (correct per-list shape; changes apply at
-  the next start / list reload). The registry has a card view (skin-face avatar + username) and a
+  from the server's **whitelist**, **operators**, and **banned** lists — backed by the server's own
+  `whitelist.json` / `ops.json` / `banned-players.json` (correct per-list shape). On a **running**
+  server the change is applied **immediately** via the matching console command (`whitelist
+  add/remove`, `op`/`deop`, `ban`/`pardon` — the server rewrites its own files); on a stopped
+  server the files are edited directly and apply at the next start. The registry has a card view
+  (skin-face avatar + username) and a
   list view; **avatars are rendered by Lectern itself** from the Mojang skin (no dependency on a
   flaky community service like Crafatar).
 - **F-APP-1 — App settings.** *(post-M12)* A Settings page edits app-level tunables — the file-

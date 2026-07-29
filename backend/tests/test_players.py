@@ -133,6 +133,122 @@ def test_server_list_add_remove(client, engine, tmp_path):
     assert resp.json()["ops"] == []
 
 
+# --- live path (running server) ---------------------------------------------
+
+
+def _running(client, engine, tmp_path) -> str:
+    sid = _installed(client, engine, tmp_path)
+    with Session(engine) as s:
+        srv = s.get(Server, sid)
+        srv.status = "running"
+        s.add(srv)
+        s.commit()
+    return sid
+
+
+def _register_notch(engine):
+    with Session(engine) as s:
+        s.add(Player(uuid=NOTCH, name="Notch"))
+        s.commit()
+
+
+def _patch_live(monkeypatch, sent: list, on_send=None):
+    """Pretend the server is up: record console commands, and let ``on_send``
+    mimic Minecraft applying the command by rewriting the list file."""
+    from lectern.servers.manager import manager
+
+    monkeypatch.setattr(manager, "is_running", lambda sid: True)
+
+    async def send(sid, command):
+        sent.append(command)
+        if on_send is not None:
+            on_send(command)
+
+    monkeypatch.setattr(manager, "send", send)
+
+
+def test_live_add_sends_command(client, engine, tmp_path, monkeypatch):
+    sid = _running(client, engine, tmp_path)
+    _register_notch(engine)
+    sent: list = []
+    _patch_live(
+        monkeypatch, sent, lambda cmd: pl.add(tmp_path, "whitelist", NOTCH, "Notch")
+    )
+
+    resp = client.post(
+        f"/api/servers/{sid}/playerlists/whitelist", json={"uuid": NOTCH}
+    )
+    assert resp.status_code == 200, resp.text
+    assert sent == ["whitelist add Notch"]
+    assert [p["name"] for p in resp.json()["whitelist"]] == ["Notch"]
+
+
+def test_live_commands_per_kind(client, engine, tmp_path, monkeypatch):
+    sid = _running(client, engine, tmp_path)
+    _register_notch(engine)
+    sent: list = []
+
+    def apply(cmd):
+        kind = {"whitelist": "whitelist", "op": "ops", "ban": "banned"}[cmd.split()[0]]
+        pl.add(tmp_path, kind, NOTCH, "Notch")
+
+    _patch_live(monkeypatch, sent, apply)
+    for kind in ("whitelist", "ops", "banned"):
+        assert (
+            client.post(
+                f"/api/servers/{sid}/playerlists/{kind}", json={"uuid": NOTCH}
+            ).status_code
+            == 200
+        )
+    assert sent == ["whitelist add Notch", "op Notch", "ban Notch"]
+
+
+def test_live_remove_uses_file_name(client, engine, tmp_path, monkeypatch):
+    sid = _running(client, engine, tmp_path)
+    pl.add(tmp_path, "ops", NOTCH, "Notch")  # in the file, not the registry
+    sent: list = []
+    _patch_live(monkeypatch, sent, lambda cmd: pl.remove(tmp_path, "ops", NOTCH))
+
+    resp = client.delete(f"/api/servers/{sid}/playerlists/ops/{NOTCH}")
+    assert sent == ["deop Notch"]
+    assert resp.json()["ops"] == []
+
+
+def test_live_add_offline_uuid_confirms_by_name(client, engine, tmp_path, monkeypatch):
+    # An offline-mode server records its own (offline) UUID — confirmation
+    # matches by name, and the file is left as the server wrote it (no
+    # duplicate entry from a fallback file edit).
+    sid = _running(client, engine, tmp_path)
+    _register_notch(engine)
+    offline = "f" * 32
+    sent: list = []
+    _patch_live(
+        monkeypatch, sent, lambda cmd: pl.add(tmp_path, "whitelist", offline, "Notch")
+    )
+
+    resp = client.post(
+        f"/api/servers/{sid}/playerlists/whitelist", json={"uuid": NOTCH}
+    )
+    assert [p["uuid"] for p in resp.json()["whitelist"]] == [offline]
+
+
+def test_live_add_falls_back_to_file_edit(client, engine, tmp_path, monkeypatch):
+    # The command never lands (e.g. the server can't resolve the name) → after
+    # the confirmation timeout the file is edited directly, same as when the
+    # server is stopped.
+    sid = _running(client, engine, tmp_path)
+    _register_notch(engine)
+    monkeypatch.setattr("lectern.api.players._LIVE_APPLY_TIMEOUT", 0.2)
+    sent: list = []
+    _patch_live(monkeypatch, sent)  # commands recorded, nothing applied
+
+    resp = client.post(
+        f"/api/servers/{sid}/playerlists/whitelist", json={"uuid": NOTCH}
+    )
+    assert sent == ["whitelist add Notch"]
+    assert [p["name"] for p in resp.json()["whitelist"]] == ["Notch"]
+
+
 def test_playerlists_installed_guard(client):
     sid = client.post(
         "/api/servers", json={"name": "NI", "type": "vanilla", "mc_version": "1.21"}
