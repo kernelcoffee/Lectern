@@ -22,6 +22,8 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..providers import avatars
 from ..models import (
+    KickRequest,
+    OnlinePlayerRead,
     Player,
     PlayerAddRequest,
     PlayerEntry,
@@ -223,3 +225,67 @@ async def remove_from_list(
     if not applied:
         playerlists.remove(server_dir, kind, uuid)
     return _lists(server_dir)
+
+
+# --- online roster ----------------------------------------------------------
+
+
+def _roster_read(proc) -> list[OnlinePlayerRead]:
+    return [OnlinePlayerRead(**vars(p)) for p in proc.roster.online()]
+
+
+@router.get(
+    "/api/servers/{server_id}/players/online",
+    response_model=list[OnlinePlayerRead],
+)
+def online_players(
+    server_id: str, session: Session = Depends(get_session)
+) -> list[OnlinePlayerRead]:
+    """Who's on right now — parsed from the console, so it includes artificial
+    players (Carpet bots etc., flagged ``bot``). Empty when not running."""
+    if session.get(Server, server_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+    proc = manager.get_process(server_id)
+    return [] if proc is None else _roster_read(proc)
+
+
+@router.post(
+    "/api/servers/{server_id}/players/online/{name}/kick",
+    response_model=list[OnlinePlayerRead],
+)
+async def kick_player(
+    server_id: str,
+    name: str,
+    payload: KickRequest | None = None,
+    session: Session = Depends(get_session),
+) -> list[OnlinePlayerRead]:
+    """Remove an online player. Real players get ``kick``; Carpet-style bots
+    have no real connection to sever, so they need Carpet's ``player … kill``
+    instead. The name must match a roster entry, which also keeps arbitrary
+    text out of the console command."""
+    if session.get(Server, server_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
+    proc = manager.get_process(server_id)
+    if proc is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Server is not running")
+    player = proc.roster.players.get(name)
+    if player is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{name} is not online")
+    if player.bot:
+        command = f"player {name} kill"
+    else:
+        command = f"kick {name}"
+        reason = (payload.reason or "").replace("\n", " ").strip() if payload else ""
+        if reason:
+            command += f" {reason}"
+    try:
+        await manager.send(server_id, command)
+    except ManagerError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
+    # The roster updates when the server logs the departure; wait briefly so
+    # the response already reflects the kick.
+    for _ in range(max(1, int(_LIVE_APPLY_TIMEOUT / _LIVE_POLL))):
+        await asyncio.sleep(_LIVE_POLL)
+        if name not in proc.roster.players:
+            break
+    return _roster_read(proc)

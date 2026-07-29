@@ -256,6 +256,89 @@ def test_playerlists_installed_guard(client):
     assert client.get(f"/api/servers/{sid}/playerlists").status_code == 409
 
 
+# --- online roster endpoints -------------------------------------------------
+
+
+class _FakeProc:
+    def __init__(self):
+        from lectern.servers.roster import Roster
+
+        self.roster = Roster()
+
+
+def _proc_with(monkeypatch, *joins) -> _FakeProc:
+    """A fake running process whose roster contains the given players."""
+    from lectern.servers.manager import manager
+
+    proc = _FakeProc()
+    prefix = "[12:00:00] [Server thread/INFO]: "
+    for name, bot in joins:
+        conn = "local" if bot else "/192.0.2.7:1"
+        proc.roster.feed(f"{prefix}{name}[{conn}] logged in with entity id 1 at (0, 0, 0)")
+        proc.roster.feed(f"{prefix}{name} joined the game")
+    monkeypatch.setattr(manager, "get_process", lambda sid: proc)
+    return proc
+
+
+def test_online_players_lists_bots(client, engine, tmp_path, monkeypatch):
+    sid = _installed(client, engine, tmp_path)
+    _proc_with(monkeypatch, ("Notch", False), ("bot_farm", True))
+
+    body = client.get(f"/api/servers/{sid}/players/online").json()
+    assert [(p["name"], p["bot"]) for p in body] == [("Notch", False), ("bot_farm", True)]
+    assert body[1]["uuid"] is None
+
+
+def test_online_players_empty_when_stopped(client, engine, tmp_path):
+    sid = _installed(client, engine, tmp_path)
+    assert client.get(f"/api/servers/{sid}/players/online").json() == []
+    assert client.get("/api/servers/nope/players/online").status_code == 404
+
+
+def test_kick_sends_command_and_updates_roster(client, engine, tmp_path, monkeypatch):
+    from lectern.servers.manager import manager
+
+    sid = _installed(client, engine, tmp_path)
+    proc = _proc_with(monkeypatch, ("Notch", False), ("bot_farm", True))
+    sent: list = []
+
+    async def send(server_id, command):
+        sent.append(command)
+        name = command.split()[1]
+        proc.roster.feed(f"[12:00:00] [Server thread/INFO]: {name} left the game")
+
+    monkeypatch.setattr(manager, "send", send)
+
+    # Bots can't be kicked (no real connection) — Carpet's kill command is used.
+    body = client.post(
+        f"/api/servers/{sid}/players/online/bot_farm/kick", json={}
+    ).json()
+    assert sent == ["player bot_farm kill"]
+    assert [p["name"] for p in body] == ["Notch"]
+
+    # Reason is passed through, newlines stripped (no command injection).
+    client.post(
+        f"/api/servers/{sid}/players/online/Notch/kick",
+        json={"reason": "bye\nstop evil"},
+    )
+    assert sent[-1] == "kick Notch bye stop evil"
+
+
+def test_kick_guards(client, engine, tmp_path, monkeypatch):
+    sid = _installed(client, engine, tmp_path)
+    # Not running → 409.
+    assert (
+        client.post(f"/api/servers/{sid}/players/online/Notch/kick", json={}).status_code
+        == 409
+    )
+    _proc_with(monkeypatch, ("Notch", False))
+    # Not online → 404 (also keeps arbitrary names out of the console).
+    assert (
+        client.post(f"/api/servers/{sid}/players/online/ghost/kick", json={}).status_code
+        == 404
+    )
+
+
 # --- avatars ----------------------------------------------------------------
 
 

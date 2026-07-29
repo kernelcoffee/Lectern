@@ -20,6 +20,7 @@ from collections.abc import Awaitable, Callable
 import psutil
 
 from ..ws import ConsoleHub
+from .roster import Roster
 
 # Vanilla/Fabric print e.g. `[Server thread/INFO]: Done (12.345s)! For help, …`.
 _DONE_MARKER = "Done ("
@@ -51,6 +52,7 @@ class ServerProcess:
         self._pump_task: asyncio.Task[None] | None = None
         self._stopping = False
         self.started_at: float | None = None  # wall-clock, for uptime display
+        self.roster = Roster()  # online players, parsed from console output
 
     @property
     def running(self) -> bool:
@@ -82,6 +84,7 @@ class ServerProcess:
                 # renders plain text, and modded servers love colored output.
                 line = _ANSI_RE.sub("", raw.decode(errors="replace")).rstrip("\r\n")
                 self.hub.publish(self.server_id, line)
+                self.roster.feed(line)
                 if not self._stopping and _DONE_MARKER in line:
                     await self.on_state(self.server_id, "running")
         finally:

@@ -11,8 +11,9 @@ the browser.
 ## Features
 
 - **Servers** — Vanilla + **Fabric**, created from a wizard (auto jar + per-version JRE download),
-  with start/stop/restart/kill, a live console (WebSocket), CPU/memory/player stats, and a typed
-  `server.properties` editor. Clone a server, rename it, auto-start on boot (staggered).
+  with start/stop/restart/kill, a live console (WebSocket), CPU/memory/player stats, an online
+  player roster (Carpet-bot aware) with kick, and a typed `server.properties` editor. Clone a
+  server, rename it, auto-start on boot (staggered).
 - **Content** — browse & install **Modrinth** mods (dependency resolution, update checks),
   **Vanilla Tweaks** resource packs / datapacks / crafting tweaks, resource-pack serving,
   datapacks, and **`.mrpack` modpack import**.

@@ -396,6 +396,23 @@ class PlayerListAddRequest(SQLModel):
     uuid: str
 
 
+class OnlinePlayerRead(SQLModel):
+    """A player currently on a running server (from the console roster).
+    ``uuid`` is undashed and absent for Carpet-style bots / offline-mode joins;
+    ``bot`` marks artificial players (joined over a non-network connection)."""
+
+    name: str
+    uuid: str | None = None
+    bot: bool = False
+    joined_at: float
+
+
+class KickRequest(SQLModel):
+    """Kick an online player, with an optional message shown to them."""
+
+    reason: str | None = None
+
+
 class SettingRead(SQLModel):
     """One app-level tunable for the Settings UI: its current effective value
     plus the metadata to render/validate an input."""

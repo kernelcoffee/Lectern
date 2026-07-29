@@ -142,6 +142,12 @@ which is why one content pipeline serves them all.
   (skin-face avatar + username) and a
   list view; **avatars are rendered by Lectern itself** from the Mojang skin (no dependency on a
   flaky community service like Crafatar).
+- **F-PL-2 — Online roster.** For a running server, an "Online now" list parsed from the console's
+  own join/leave messages, with a per-player **kick**. **Artificial players** (Carpet's `/player`
+  bots and similar) are first-class: they're detected by their `[local]` (non-network) login,
+  badged as bots, may lack a Mojang UUID/avatar, and are never required to be in the registry.
+  Removing a bot sends Carpet's `player <name> kill` instead of `kick` — a bot has no real
+  connection to sever, so `kick` wouldn't remove it.
 - **F-APP-1 — App settings.** *(post-M12)* A Settings page edits app-level tunables — the file-
   manager upload limit, the world-import upload limit, and the create-form default memory — that
   would otherwise be env vars / config file. Overrides persist server-side (the `Setting` table,
