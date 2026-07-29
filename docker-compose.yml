@@ -5,8 +5,11 @@
 #   docker compose up -d
 #
 # Then open http://<host>:8000. Minecraft clients connect on 25565.
-# Pin a version with LECTERN_TAG (defaults to :latest), e.g.
-#   LECTERN_TAG=1.2.3 docker compose up -d
+# Pick a channel or pin a version with LECTERN_TAG (defaults to :latest):
+#   latest / stable → the newest tagged release (default)
+#   master          → the newest build of the main branch (bleeding edge)
+#   1.2.3 / 1.2     → an exact release / its patch line
+#   LECTERN_TAG=master docker compose up -d
 # To upgrade: `docker compose pull && docker compose up -d`.
 #
 # To build from source instead of pulling (e.g. local changes), run:
