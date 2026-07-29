@@ -34,6 +34,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
+from . import events
 from .config import get_settings
 from .models import Backup, Server
 
@@ -105,6 +106,9 @@ async def create_backup(
             while manager.is_running(server.id):
                 await asyncio.sleep(0.5)
         except ManagerError as exc:
+            events.record(
+                server.id, "backup_failed", f"could not stop server: {exc}"
+            )
             raise BackupError(f"Could not stop server for backup: {exc}") from exc
 
     # Microseconds keep filenames unique even for back-to-back backups —
@@ -120,6 +124,9 @@ async def create_backup(
             prefixes=_excluded_prefixes(server),
             compress=server.backup_compress,
         )
+    except Exception as exc:
+        events.record(server.id, "backup_failed", str(exc))
+        raise
     finally:
         if was_running and server.backup_stop_server:
             try:
@@ -134,6 +141,7 @@ async def create_backup(
     session.commit()
     session.refresh(backup)
     _prune(session, server)
+    events.record(server.id, "backup_created", f"{filename} ({trigger})")
     return backup
 
 
@@ -218,4 +226,9 @@ async def restore_backup(session: Session, server: Server, backup: Backup) -> No
         raise BackupError("Server is not installed yet")
     archive = _backups_dir(server.id) / backup.filename
     _validate_archive(archive)
-    await asyncio.to_thread(_swap_restore, archive, Path(server.path))
+    try:
+        await asyncio.to_thread(_swap_restore, archive, Path(server.path))
+    except Exception as exc:
+        events.record(server.id, "backup_failed", f"restore of {backup.filename}: {exc}")
+        raise
+    events.record(server.id, "backup_restored", backup.filename)

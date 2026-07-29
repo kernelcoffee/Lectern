@@ -151,6 +151,24 @@ class ServerStat(SQLModel, table=True):
     players_online: int = 0
 
 
+class ServerEvent(SQLModel, table=True):
+    """One row in a server's persisted event timeline (day-2 ops).
+
+    The live console shows what's happening; this remembers what *happened* —
+    lifecycle transitions, crash restarts, backup and schedule outcomes — so a
+    3am crash or a failed nightly backup is still reviewable in the morning.
+    ``kind`` is one of: started | stopped | crashed | crash_restart |
+    crash_gave_up | backup_created | backup_restored | backup_failed |
+    schedule_failed. Pruned to a per-server cap; integer PK like ServerStat.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    server_id: str = Field(foreign_key="server.id", index=True)
+    created_at: datetime = Field(default_factory=_now, index=True)
+    kind: str
+    message: str = ""
+
+
 class Schedule(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     server_id: str = Field(foreign_key="server.id", index=True)
@@ -394,6 +412,22 @@ class PlayerListAddRequest(SQLModel):
     """Add a registered player (by UUID) to one of a server's lists."""
 
     uuid: str
+
+
+class ServerEventRead(SQLModel):
+    """One timeline event, newest-first in listings."""
+
+    id: int
+    server_id: str
+    created_at: datetime
+    kind: str
+    message: str
+
+
+class EventWithServerRead(ServerEventRead):
+    """Cross-server event (dashboard feed) — carries the server's name."""
+
+    server_name: str
 
 
 class OnlinePlayerRead(SQLModel):

@@ -18,6 +18,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
+from .. import events
 from ..db import engine
 from ..models import Server, ServerStatus
 from ..servers.install import build_launch_command, eula_accepted
@@ -98,17 +99,32 @@ class ServerManager:
         server = self._write_status(server_id, status)
         if status == ServerStatus.running.value:
             self._crash_counts.pop(server_id, None)
+            events.record(server_id, "started")
         if status in (ServerStatus.stopped.value, ServerStatus.crashed.value):
             self._procs.pop(server_id, None)
+            if status == ServerStatus.stopped.value:
+                events.record(server_id, "stopped")
+            if status == ServerStatus.crashed.value:
+                events.record(server_id, "crashed")
             if status == ServerStatus.crashed.value and server is not None and server.crash_restart:
                 crashes = self._crash_counts.get(server_id, 0) + 1
                 self._crash_counts[server_id] = crashes
                 if crashes > _MAX_CRASH_RESTARTS:
+                    events.record(
+                        server_id,
+                        "crash_gave_up",
+                        f"crashed {crashes} times in a row",
+                    )
                     self.hub.publish(
                         server_id,
                         f"[lectern] crashed {crashes} times in a row — giving up on auto-restart",
                     )
                     return
+                events.record(
+                    server_id,
+                    "crash_restart",
+                    f"attempt {crashes}/{_MAX_CRASH_RESTARTS}",
+                )
                 self.hub.publish(
                     server_id,
                     f"[lectern] crash detected — restarting… (attempt {crashes}/{_MAX_CRASH_RESTARTS})",

@@ -109,9 +109,11 @@ class SchedulerService:
             try:
                 await self._dispatch(session, schedule)
             except Exception as exc:  # noqa: BLE001 — surfaced, not swallowed
+                from . import events
                 from .servers.manager import manager
 
                 log.warning("schedule %s (%s) failed: %s", schedule_id, schedule.action, exc)
+                events.record(server_id, "schedule_failed", f"{schedule.action}: {exc}")
                 manager.hub.publish(
                     server_id,
                     f"[lectern] scheduled {schedule.action} failed: {exc}",
