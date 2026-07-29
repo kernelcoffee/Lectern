@@ -34,5 +34,5 @@ def record(server_id: str, kind: str, message: str = "") -> None:
             for row in stale:
                 session.delete(row)
             session.commit()
-    except Exception:  # noqa: BLE001 — never break the caller over telemetry
+    except Exception:
         log.exception("failed to record event %s for server %s", kind, server_id)

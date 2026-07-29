@@ -4,7 +4,7 @@ computed off-request, and the endpoints serve the window / cached size."""
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import Session, select
 
@@ -12,7 +12,6 @@ from lectern.db import engine, init_db
 from lectern.models import Server, ServerStat
 from lectern.servers import stats_sampler as ss
 from lectern.servers.stats_sampler import SizeInfo, StatsSampler, _dir_size
-
 
 # --- dir size ---------------------------------------------------------------
 
@@ -101,7 +100,7 @@ def test_sample_once_computes_sizes(tmp_path, monkeypatch):
 
     from lectern.servers.manager import manager
 
-    monkeypatch.setattr(manager, "running_processes", lambda: [])
+    monkeypatch.setattr(manager, "running_processes", list)
     try:
         asyncio.run(sampler.sample_once(compute_sizes=True))
         info = sampler.size_of(server_id)
@@ -115,7 +114,7 @@ def test_sample_once_computes_sizes(tmp_path, monkeypatch):
 
 def test_prune_drops_old_samples(tmp_path):
     server_id = _make_server(tmp_path)
-    old = datetime.now(timezone.utc) - timedelta(hours=48)
+    old = datetime.now(UTC) - timedelta(hours=48)
     with Session(engine) as s:
         s.add(ServerStat(server_id=server_id, created_at=old))
         s.add(ServerStat(server_id=server_id))  # now
@@ -138,7 +137,7 @@ def test_history_endpoint_windows(client, engine, tmp_path):
     server_id = client.post(
         "/api/servers", json={"name": "H", "type": "vanilla", "mc_version": "1.21"}
     ).json()["id"]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with Session(engine) as s:
         s.add(ServerStat(server_id=server_id, created_at=now - timedelta(minutes=90), cpu_percent=1))
         s.add(ServerStat(server_id=server_id, created_at=now - timedelta(minutes=30), cpu_percent=2))
@@ -166,7 +165,7 @@ def test_size_endpoint_reads_cache(client, engine, tmp_path, monkeypatch):
     monkeypatch.setitem(
         stats_sampler._sizes,
         server_id,
-        SizeInfo(world_bytes=1024, server_bytes=4096, computed_at=datetime.now(timezone.utc)),
+        SizeInfo(world_bytes=1024, server_bytes=4096, computed_at=datetime.now(UTC)),
     )
     got = client.get(f"/api/servers/{server_id}/size").json()
     assert got["world_bytes"] == 1024 and got["server_bytes"] == 4096

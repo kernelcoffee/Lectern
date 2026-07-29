@@ -18,7 +18,8 @@ import pytest
 from sqlmodel import Session
 
 from lectern.models import ContentItem, Server
-from lectern.servers import install, version_change as vc
+from lectern.servers import install
+from lectern.servers import version_change as vc
 from lectern.servers.version_change import is_downgrade
 
 RELEASES = ["1.21", "1.20.4", "1.20.1", "1.19.4"]  # newest-first (Mojang order)
@@ -249,7 +250,7 @@ def test_backup_first_runs_a_backup(client, engine, changeable, tmp_path, monkey
     async def fake_backup(session, server, *, trigger="manual"):
         calls.append(server.id)
 
-    import lectern.backups as backups
+    from lectern import backups
     monkeypatch.setattr(backups, "create_backup", fake_backup)
 
     resp = client.post(

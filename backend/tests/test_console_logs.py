@@ -8,7 +8,6 @@ from pathlib import Path
 
 from lectern.servers.logs import prune_logs
 
-
 # --- log retention ----------------------------------------------------------
 
 

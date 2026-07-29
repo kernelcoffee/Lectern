@@ -15,7 +15,7 @@ equivalent console command instead and only falls back to these file edits.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..providers.mojang import dash_uuid, undash_uuid
@@ -71,7 +71,7 @@ def _new_entry(kind: str, uuid: str, name: str) -> dict:
         return {
             "uuid": dashed,
             "name": name,
-            "created": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S +0000"),
+            "created": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S +0000"),
             "source": "Lectern",
             "expires": "forever",
             "reason": "Banned by an operator.",

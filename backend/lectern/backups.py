@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlmodel import Session, select
@@ -113,7 +113,7 @@ async def create_backup(
 
     # Microseconds keep filenames unique even for back-to-back backups —
     # a same-second collision would silently overwrite the previous archive.
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
     filename = f"{timestamp}.zip"
     dest = _backups_dir(server.id) / filename
     try:

@@ -11,7 +11,6 @@ from lectern.db import engine, init_db
 from lectern.models import Server, ServerEvent, ServerStatus
 from lectern.servers.manager import ServerManager
 
-
 # --- record / prune (module-level engine, like test_manager) -----------------
 
 

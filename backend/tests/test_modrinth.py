@@ -19,7 +19,6 @@ from lectern.providers.modrinth import (
     select_version,
 )
 
-
 # --- facets ------------------------------------------------------------------
 
 

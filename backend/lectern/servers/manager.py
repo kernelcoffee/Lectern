@@ -269,7 +269,7 @@ class ServerManager:
         servers; others are skipped with a console note rather than erroring."""
         with Session(engine) as session:
             rows = session.exec(
-                select(Server).where(Server.auto_start == True)  # noqa: E712
+                select(Server).where(Server.auto_start == True)
             ).all()
             candidates = [(s.id, s.auto_start_delay) for s in rows]
         for server_id, delay in candidates:

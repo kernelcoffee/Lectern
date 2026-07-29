@@ -13,13 +13,13 @@ import tempfile
 
 os.environ.setdefault("LECTERN_DATA", tempfile.mkdtemp(prefix="lectern-test-"))
 
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy.pool import StaticPool  # noqa: E402
-from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine
 
-from lectern.db import get_session  # noqa: E402
-from lectern.main import app  # noqa: E402
+from lectern.db import get_session
+from lectern.main import app
 
 
 @pytest.fixture(name="engine")

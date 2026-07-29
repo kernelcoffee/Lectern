@@ -36,6 +36,11 @@ packages = ["lectern"]
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint]
+# B008 flags function calls in argument defaults, but `Depends(...)` in
+# endpoint signatures is FastAPI's own idiom.
+ignore = ["B008"]
+
 [tool.ruff.lint.per-file-ignores]
 # Sharing a pytest fixture across modules imports it (F401, noqa'd) and then
 # takes it as a same-named parameter, which ruff reads as a redefinition (F811).

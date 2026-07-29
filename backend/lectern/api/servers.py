@@ -14,9 +14,10 @@ import shutil
 import tempfile
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import anyio
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -31,7 +32,9 @@ from fastapi import (
 )
 from sqlmodel import Session, select
 
+from .. import app_settings
 from ..config import get_settings
+from ..content import manager as content_manager
 from ..db import get_session
 from ..models import (
     InstallProgressRead,
@@ -44,18 +47,16 @@ from ..models import (
     ServerDetailRead,
     ServerRead,
     ServerSettingsUpdate,
-    ServerSuggestRead,
     ServerSizeRead,
     ServerStat,
     ServerStatsRead,
     ServerStatus,
+    ServerSuggestRead,
     StatSampleRead,
     VersionChangeRead,
     VersionChangeRequest,
     WorldImportRead,
 )
-from .. import app_settings
-from ..content import manager as content_manager
 from ..providers.base import download_file
 from ..servers import properties as props
 from ..servers import stats as stats_mod
@@ -470,7 +471,10 @@ async def import_world(
     try:
         if file is not None:
             received = 0
-            with tmp.open("wb") as out:
+            # Async file I/O: a multi-hundred-MB upload written with blocking
+            # writes would stall the event loop (console WebSockets included)
+            # on every chunk.
+            async with await anyio.open_file(tmp, "wb") as out:
                 while chunk := await file.read(1 << 20):
                     received += len(chunk)
                     if received > max_bytes:
@@ -478,7 +482,7 @@ async def import_world(
                             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                             f"World archive exceeds the {max_mb} MB limit",
                         )
-                    out.write(chunk)
+                    await out.write(chunk)
         else:
             await download_file(url, tmp)  # type: ignore[arg-type]
         written, skipped = await asyncio.to_thread(
@@ -611,7 +615,7 @@ def server_stats_history(
     if server is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
     window = max(1, min(minutes, 1440))
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=window)
+    cutoff = datetime.now(UTC) - timedelta(minutes=window)
     return list(
         session.exec(
             select(ServerStat)

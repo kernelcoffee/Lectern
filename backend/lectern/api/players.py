@@ -20,7 +20,6 @@ from fastapi.responses import Response
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..providers import avatars
 from ..models import (
     KickRequest,
     OnlinePlayerRead,
@@ -33,7 +32,7 @@ from ..models import (
     Server,
     ServerStatus,
 )
-from ..providers import mojang
+from ..providers import avatars, mojang
 from ..servers import playerlists
 from ..servers.manager import ManagerError, manager
 

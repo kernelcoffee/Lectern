@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from sqlmodel import Session
 
 from lectern.models import Server
@@ -19,9 +20,6 @@ from lectern.servers.properties import (
     render_properties,
     write_properties,
 )
-
-import pytest
-
 
 # --- unit: parsing / rendering ---------------------------------------------
 

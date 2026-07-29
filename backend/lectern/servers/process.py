@@ -141,7 +141,7 @@ class ServerProcess:
         try:
             await asyncio.wait_for(asyncio.shield(self._proc.wait()), timeout)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     async def _wait_countdown(self, timeout: int) -> bool:
