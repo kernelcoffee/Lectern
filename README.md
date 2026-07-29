@@ -8,6 +8,16 @@ Create a server from a wizard, and Lectern downloads the jar and the **exact Jav
 version needs**, then manages the process, console, config, content, backups and schedules from
 the browser.
 
+![Dashboard — servers, players, and the recent-events feed](docs/screenshots/dashboard.png)
+
+| Live console | Resource metrics |
+|---|---|
+| ![Live console](docs/screenshots/console.png) | ![CPU / memory / player history](docs/screenshots/metrics.png) |
+
+| Modrinth mods | Player registry |
+|---|---|
+| ![Installed mods from Modrinth](docs/screenshots/mods.png) | ![Player cards with self-rendered avatars](docs/screenshots/players.png) |
+
 ## Features
 
 - **Servers** — Vanilla + **Fabric**, created from a wizard (auto jar + per-version JRE download),
