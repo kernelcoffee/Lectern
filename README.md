@@ -8,6 +8,16 @@ Create a server from a wizard, and Lectern downloads the jar and the **exact Jav
 version needs**, then manages the process, console, config, content, backups and schedules from
 the browser.
 
+![Dashboard — servers, players, and the recent-events feed](docs/screenshots/dashboard.png)
+
+| Live console | Resource metrics |
+|---|---|
+| ![Live console](docs/screenshots/console.png) | ![CPU / memory / player history](docs/screenshots/metrics.png) |
+
+| Modrinth mods | Player registry |
+|---|---|
+| ![Installed mods from Modrinth](docs/screenshots/mods.png) | ![Player cards with self-rendered avatars](docs/screenshots/players.png) |
+
 ## Features
 
 - **Servers** — Vanilla + **Fabric**, created from a wizard (auto jar + per-version JRE download),
@@ -46,11 +56,17 @@ This pulls the pre-built image `ghcr.io/kernelcoffee/lectern` — a single conta
 API and the built web UI on one port. All state (database, downloaded JREs, caches, backups,
 server files) lives in the `lectern_data` volume.
 
-Compose uses `:latest` by default. Pin a specific release with `LECTERN_TAG`, and upgrade by
-pulling a newer image:
+Images are published on two channels, selected with `LECTERN_TAG`:
+
+| Tag | Tracks |
+|---|---|
+| `latest` / `stable` | The newest tagged release (default). |
+| `master` | Every push to the `main` branch that passes CI — bleeding edge. |
+| `1.2.3` / `1.2` | An exact release / its patch line. |
 
 ```bash
 LECTERN_TAG=1.2.3 docker compose up -d          # pin a version
+LECTERN_TAG=master docker compose up -d         # ride the main branch
 docker compose pull && docker compose up -d     # upgrade in place
 ```
 

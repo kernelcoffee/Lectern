@@ -33,7 +33,9 @@ def server_events(
         session.exec(
             select(ServerEvent)
             .where(ServerEvent.server_id == server_id)
-            .order_by(ServerEvent.id.desc())  # type: ignore[union-attr]
+            # created_at (id as tiebreak): ids don't follow event time for
+            # backfilled/imported rows.
+            .order_by(ServerEvent.created_at.desc(), ServerEvent.id.desc())  # type: ignore[union-attr]
             .limit(_clamp(limit))
         ).all()
     )
@@ -47,7 +49,7 @@ def recent_events(
     rows = session.exec(
         select(ServerEvent, Server.name)
         .join(Server, Server.id == ServerEvent.server_id)  # type: ignore[arg-type]
-        .order_by(ServerEvent.id.desc())  # type: ignore[union-attr]
+        .order_by(ServerEvent.created_at.desc(), ServerEvent.id.desc())  # type: ignore[union-attr]
         .limit(_clamp(limit))
     ).all()
     return [

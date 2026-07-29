@@ -51,9 +51,9 @@ jobs:
 
   docker:
     name: Docker — production image builds
-    # Build-only validation for branches/PRs. On a version tag the `publish`
-    # job builds and pushes instead, so skip this redundant build there.
-    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    # Build-only validation for PRs. Pushes to main and version tags go
+    # through `publish` instead, which builds the same image and pushes it.
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,8 +70,12 @@ jobs:
 
   publish:
     name: Publish image to GHCR
-    # Only on version tags (e.g. v1.2.3), and only once tests have passed.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Two channels, both gated on tests:
+    #   * version tags (v1.2.3) → 1.2.3, 1.2, stable, latest  — the release channel
+    #   * pushes to main        → master                      — the bleeding edge
+    if: >-
+      github.event_name == 'push' &&
+      (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
     needs: [backend, frontend]
     runs-on: ubuntu-latest
     permissions:
@@ -91,9 +95,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          # `latest` comes from the default flavor (auto): added on semver tags
+          # only, so it always aliases the newest release, never a main build.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=master,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha
       - name: Build and push
         uses: docker/build-push-action@v6
