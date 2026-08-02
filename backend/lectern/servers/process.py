@@ -19,8 +19,9 @@ from collections.abc import Awaitable, Callable
 
 import psutil
 
+from .. import events
 from ..ws import ConsoleHub
-from .roster import Roster
+from .roster import OnlinePlayer, Roster
 
 # Vanilla/Fabric print e.g. `[Server thread/INFO]: Done (12.345s)! For help, …`.
 _DONE_MARKER = "Done ("
@@ -52,7 +53,16 @@ class ServerProcess:
         self._pump_task: asyncio.Task[None] | None = None
         self._stopping = False
         self.started_at: float | None = None  # wall-clock, for uptime display
-        self.roster = Roster()  # online players, parsed from console output
+        # Online players, parsed from console output; joins/leaves also land
+        # in the persisted event timeline.
+        self.roster = Roster(on_change=self._on_roster_change)
+
+    def _on_roster_change(self, player: OnlinePlayer, joined: bool) -> None:
+        events.record(
+            self.server_id,
+            "player_joined" if joined else "player_left",
+            f"{player.name} (bot)" if player.bot else player.name,
+        )
 
     @property
     def running(self) -> bool:

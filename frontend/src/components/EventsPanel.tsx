@@ -23,6 +23,8 @@ const KIND: Record<string, { label: string; dot: string }> = {
   backup_restored: { label: "Backup restored", dot: "bg-sky-500" },
   backup_failed: { label: "Backup failed", dot: "bg-red-500" },
   schedule_failed: { label: "Schedule failed", dot: "bg-amber-500" },
+  player_joined: { label: "Player joined", dot: "bg-sky-500" },
+  player_left: { label: "Player left", dot: "bg-slate-500" },
 };
 
 function timeAgo(iso: string): string {

@@ -77,3 +77,41 @@ def test_rejoin_refreshes_entry():
     r.feed(PREFIX + "Notch left the game")
     _join_real(r)
     assert [p.name for p in r.online()] == ["Notch"]
+
+
+def test_on_change_fires_once_per_transition():
+    changes = []
+    r = Roster(on_change=lambda p, joined: changes.append((p.name, p.bot, joined)))
+    _join_real(r)
+    _join_bot(r)
+    # Disconnect + the trailing "left the game" → a single leave notification.
+    r.feed(PREFIX + "Notch lost connection: Timed out")
+    r.feed(PREFIX + "Notch left the game")
+    # Leave for someone never seen → no notification.
+    r.feed(PREFIX + "Ghost left the game")
+    assert changes == [
+        ("Notch", False, True),
+        ("bot_farm", True, True),
+        ("Notch", False, False),
+    ]
+
+
+def test_process_records_join_leave_events(monkeypatch):
+    from lectern import events
+    from lectern.servers.process import ServerProcess
+    from lectern.ws import ConsoleHub
+
+    recorded = []
+    monkeypatch.setattr(events, "record", lambda *a: recorded.append(a))
+
+    async def on_state(sid, status):
+        pass
+
+    proc = ServerProcess("srv1", ["java"], ".", ConsoleHub(), on_state)
+    proc.roster.feed(PREFIX + "bot_farm[local] logged in with entity id 1 at (0, 0, 0)")
+    proc.roster.feed(PREFIX + "bot_farm joined the game")
+    proc.roster.feed(PREFIX + "bot_farm left the game")
+    assert recorded == [
+        ("srv1", "player_joined", "bot_farm (bot)"),
+        ("srv1", "player_left", "bot_farm (bot)"),
+    ]

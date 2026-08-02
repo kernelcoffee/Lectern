@@ -149,7 +149,8 @@ which is why one content pipeline serves them all.
   Removing a bot sends Carpet's `player <name> kill` instead of `kick` — a bot has no real
   connection to sever, so `kick` wouldn't remove it.
 - **F-EV-1 — Event timeline.** A persisted per-server event log — start/stop, crashes,
-  auto-restart attempts and give-ups, backup created/restored/failed, and failed schedule runs —
+  auto-restart attempts and give-ups, backup created/restored/failed, failed schedule runs, and
+  **player joins/leaves** (from the console roster, bots marked as such) —
   so incidents that only flashed by in the live console (a 3am crash, a failed nightly backup)
   are still reviewable later. Shown as a "Recent events" panel on the Dashboard (all servers,
   with names) and in a server's Metrics tab (that server only). Kept to the newest ~300 events

@@ -159,7 +159,8 @@ class ServerEvent(SQLModel, table=True):
     3am crash or a failed nightly backup is still reviewable in the morning.
     ``kind`` is one of: started | stopped | crashed | crash_restart |
     crash_gave_up | backup_created | backup_restored | backup_failed |
-    schedule_failed. Pruned to a per-server cap; integer PK like ServerStat.
+    schedule_failed | player_joined | player_left. Pruned to a per-server cap;
+    integer PK like ServerStat.
     """
 
     id: int | None = Field(default=None, primary_key=True)

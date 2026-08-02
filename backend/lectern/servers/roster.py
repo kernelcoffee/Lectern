@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 # Vanilla names are [A-Za-z0-9_]{3,16}; be a little laxer (dots, dashes, any
@@ -55,6 +56,9 @@ class OnlinePlayer:
 @dataclass
 class Roster:
     players: dict[str, OnlinePlayer] = field(default_factory=dict)
+    # Fired on actual membership changes — (player, joined) — never on the
+    # redundant "left the game" that follows a "lost connection".
+    on_change: Callable[[OnlinePlayer, bool], None] | None = None
     # Seen before "joined the game" lands: authenticator UUIDs and login
     # connection kinds, keyed by name.
     _uuids: dict[str, str] = field(default_factory=dict)
@@ -67,17 +71,23 @@ class Roster:
             self._local[m.group(1)] = m.group(2) == "local"
         elif m := _RE_JOINED.match(line):
             name = m.group(1)
-            self.players[name] = OnlinePlayer(
+            was_online = name in self.players
+            player = OnlinePlayer(
                 name=name,
                 uuid=self._uuids.pop(name, None),
                 bot=self._local.pop(name, False),
                 joined_at=time.time(),
             )
+            self.players[name] = player
+            if not was_online and self.on_change is not None:
+                self.on_change(player, True)
         elif m := _RE_LEFT.match(line):
             name = m.group(1)
-            self.players.pop(name, None)
+            player = self.players.pop(name, None)
             self._uuids.pop(name, None)
             self._local.pop(name, None)
+            if player is not None and self.on_change is not None:
+                self.on_change(player, False)
 
     def online(self) -> list[OnlinePlayer]:
         return sorted(self.players.values(), key=lambda p: p.joined_at)
