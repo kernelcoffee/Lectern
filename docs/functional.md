@@ -76,7 +76,11 @@ end-to-end slice**:
 | Area | Later additions |
 |------|-----------------|
 | Server types | **Quilt**, **Paper** (plugins), then **Forge/NeoForge**, **Bedrock** |
+| Proxy servers | **Velocity** / **BungeeCord** — one entry point routing players between the servers Lectern already manages (multi-server networks) |
 | Content sources | **CurseForge** alongside Modrinth |
+| Mod versioning | **Auto-update mods on (re)start** (opt-in, per server or per mod), and a **version picker/rollback** — browse a mod's releases within the server's Minecraft version and pin or revert to any of them |
+| Command library | **Saved admin commands** (e.g. "kill all mobs holding items") — named, reusable console commands runnable with one click and selectable as a **schedule action**, instead of retyping raw command text |
+| Carpet bots | **Managed fake players** (requires the Carpet mod): define bots with a name + dimension/position (e.g. to keep a farm's chunks loaded), spawn/despawn from the UI, send them Carpet `/player` actions — and **auto-respawn them after every server (re)start**, which plain Carpet doesn't do. Builds on the console pipe and the roster's existing bot detection |
 | Access | Optional single-password gate |
 
 **Design implication:** server types/editions and content sources are treated as **pluggable
