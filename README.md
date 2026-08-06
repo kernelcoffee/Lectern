@@ -1,5 +1,13 @@
 # Lectern
 
+[![CI](https://github.com/kernelcoffee/Lectern/actions/workflows/ci.yml/badge.svg)](https://github.com/kernelcoffee/Lectern/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/tag/kernelcoffee/Lectern?label=release&color=2ea44f)](https://github.com/kernelcoffee/Lectern/tags)
+[![GHCR](https://img.shields.io/badge/ghcr.io-kernelcoffee%2Flectern-1f6feb?logo=docker&logoColor=white)](https://github.com/kernelcoffee/Lectern/pkgs/container/lectern)
+![Python](https://img.shields.io/badge/python-3.14-3776ab?logo=python&logoColor=white)
+![React](https://img.shields.io/badge/react-18-58c4dc?logo=react&logoColor=white)
+![Minecraft](https://img.shields.io/badge/minecraft-vanilla%20%2B%20fabric-62b47a)
+[![Built with Claude](https://img.shields.io/badge/built%20with-Claude-D97757?logo=claude&logoColor=white)](https://claude.com/claude-code)
+
 A self-hosted **web app for creating and managing modded Minecraft servers**. Think *Crafty's
 "servers run in the background, managed over the web" model* + *Prism's mod management*, minus the
 heavy auth, plus Vanilla Tweaks — designed for a trusted LAN.
