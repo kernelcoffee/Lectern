@@ -167,8 +167,85 @@ test("full server journey: create → mods → properties → delete @full", asy
   await backupRow.getByRole("button", { name: "Delete" }).click();
   await expect(page.getByText("No backups yet")).toBeVisible();
 
+  // --- Schedule tab: friendly builder ↔ APScheduler round-trip -------------
+  await page.getByRole("button", { name: "Schedule", exact: true }).click();
+  await expect(page.getByText("No schedules yet")).toBeVisible();
+
+  await page.getByLabel("Do this").selectOption("backup");
+  await page.getByLabel("How often").selectOption("weekly");
+  await page.getByLabel("At", { exact: true }).fill("06:30");
+  // Chips default to all seven days — leave only Tue & Thu selected.
+  for (const day of ["Mon", "Wed", "Fri", "Sat", "Sun"]) {
+    await page.getByRole("button", { name: day, exact: true }).click();
+  }
+  // The preview shows the generated cron: weekday NAMES, never numbers —
+  // APScheduler maps 0→Monday, so a numeric day would fire on the wrong day.
+  await expect(page.getByText("30 6 * * tue,thu")).toBeVisible();
+  await page.getByRole("button", { name: "Add schedule" }).click();
+
+  // A "next" run proves the backend parsed the names the same way.
+  const schedRow = page.locator("li", { hasText: "Back up server" });
+  await expect(schedRow).toBeVisible();
+  await expect(schedRow.getByText(/On Tue, Thu at 06:30/)).toBeVisible();
+  await expect(schedRow.getByText(/next /)).toBeVisible();
+
+  // Edit: the friendly controls are re-seeded from the stored cron.
+  await schedRow.getByRole("button", { name: "Edit" }).click();
+  const editModal = page.locator("div.fixed", { hasText: "Edit schedule" });
+  await expect(editModal.getByLabel("How often")).toHaveValue("weekly");
+  await expect(editModal.getByLabel("At", { exact: true })).toHaveValue("06:30");
+  await editModal.getByLabel("Do this").selectOption("restart");
+  await editModal.getByLabel("At", { exact: true }).fill("07:00");
+  await editModal.getByRole("button", { name: "Save changes" }).click();
+  const editedRow = page.locator("li", { hasText: "Restart server" });
+  await expect(editedRow.getByText(/On Tue, Thu at 07:00/)).toBeVisible();
+
+  // Disable (next run disappears), then delete.
+  await editedRow.getByRole("button", { name: "Disable" }).click();
+  await expect(editedRow.getByText(/disabled/)).toBeVisible();
+  await editedRow.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("No schedules yet")).toBeVisible();
+
+  // --- Files tab: browse, create/edit a file, rename, delete ---------------
+  await page.getByRole("button", { name: "Files", exact: true }).click();
+  // The real server dir lists — the installed server has its properties file.
+  await expect(
+    page.getByRole("button", { name: "server.properties" }),
+  ).toBeVisible();
+
+  // New file (named via the prompt dialog), then write to it in the editor.
+  page.once("dialog", (d) => d.accept("e2e-note.txt"));
+  await page.getByRole("button", { name: "New file" }).click();
+  const fileBtn = page.getByRole("button", { name: "e2e-note.txt" });
+  await expect(fileBtn).toBeVisible();
+
+  await fileBtn.click();
+  const editor = page.locator("div.fixed", { hasText: "e2e-note.txt" });
+  await editor.getByRole("textbox").fill("hello from e2e");
+  await expect(editor.getByText("unsaved")).toBeVisible();
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.getByText("unsaved")).not.toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // Re-open: the content came back from disk.
+  await fileBtn.click();
+  await expect(editor.getByRole("textbox")).toHaveValue("hello from e2e");
+  await page.keyboard.press("Escape");
+
+  // Rename via the row menu, then delete (confirm dialog).
+  const fileRow = page.locator("tr", { hasText: "e2e-note.txt" });
+  await fileRow.getByRole("button", { name: "Actions" }).click();
+  page.once("dialog", (d) => d.accept("e2e-renamed.txt"));
+  await fileRow.getByRole("button", { name: "Rename" }).click();
+  const renamedRow = page.locator("tr", { hasText: "e2e-renamed.txt" });
+  await expect(renamedRow).toBeVisible();
+  await renamedRow.getByRole("button", { name: "Actions" }).click();
+  page.once("dialog", (d) => d.accept());
+  await renamedRow.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(renamedRow).not.toBeVisible();
+
   // --- Properties tab: edit a property and persist it ---------------------
-  await page.getByRole("button", { name: "Properties" }).click();
+  await page.getByRole("button", { name: "Properties", exact: true }).click();
   // Two Save buttons on this tab (settings vs server.properties), and the
   // sections nest — .last() picks the innermost (server.properties) match.
   const propsSection = page
@@ -187,13 +264,42 @@ test("full server journey: create → mods → properties → delete @full", asy
     .locator("aside")
     .getByRole("button", { name: "e2e-journey" })
     .click();
-  await page.getByRole("button", { name: "Properties" }).click();
+  await page.getByRole("button", { name: "Properties", exact: true }).click();
   await expect(
     page
       .locator("section", { hasText: "server.properties" })
       .last()
       .getByLabel("motd", { exact: true }),
   ).toHaveValue("e2e was here", { timeout: 15_000 });
+
+  // --- clone: full copy under a free name/port, then delete the copy -------
+  await page.getByRole("button", { name: "Clone", exact: true }).click();
+  // Success navigates to the clone's detail page.
+  await expect(
+    page.getByRole("heading", { name: "e2e-journey copy" }),
+  ).toBeVisible({ timeout: 60_000 });
+  // The copy carried the source's server.properties edits.
+  await page.getByRole("button", { name: "Properties", exact: true }).click();
+  await expect(
+    page
+      .locator("section", { hasText: "server.properties" })
+      .last()
+      .getByLabel("motd", { exact: true }),
+  ).toHaveValue("e2e was here", { timeout: 15_000 });
+
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Delete server" }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+
+  // Back to the original for the final teardown. NB: the sidebar button's
+  // accessible name includes the status dot's title ("stopped e2e-journey"),
+  // so this must NOT be an exact match — the clone is already gone, so the
+  // substring is unambiguous.
+  await page
+    .locator("aside")
+    .getByRole("button", { name: "e2e-journey" })
+    .click();
+  await expect(page.getByRole("heading", { name: "e2e-journey" })).toBeVisible();
 
   // --- delete from the detail page (confirm dialog) ------------------------
   page.once("dialog", (d) => d.accept());

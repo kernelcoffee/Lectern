@@ -85,3 +85,65 @@ test("vanilla type has no loader field", async ({ page }) => {
   });
   await expect(page.getByLabel("Fabric loader build")).not.toBeVisible();
 });
+
+test("create page: security, seed and world-import sections", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator("aside").getByRole("button", { name: "New server" }).click();
+
+  // Whitelist is on by default (secure by default).
+  const whitelist = page.getByRole("checkbox", { name: /Enable whitelist/ });
+  await expect(whitelist).toBeChecked();
+
+  // Seed is free-form while generating a new world…
+  const seed = page.getByLabel(/World seed/);
+  await expect(seed).toBeEnabled();
+  await seed.fill("e2e-seed");
+
+  // …but ignored (disabled) when importing a world; the skip-files filter
+  // appears with the Distant Horizons default, and the submit label flips.
+  await page.getByLabel("World source").selectOption("upload");
+  await expect(seed).toBeDisabled();
+  await expect(page.getByLabel(/Skip files/)).toHaveValue("*DistantHorizons*");
+  await expect(
+    page.getByRole("button", { name: "Build server + import world" }),
+  ).toBeVisible();
+
+  // Back to a fresh world: seed usable again, plain submit label.
+  await page.getByLabel("World source").selectOption("none");
+  await expect(seed).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Build server" })).toBeVisible();
+});
+
+test("settings: edit a tunable, save, and see it drive the create form", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator("aside").getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+
+  // Tunables render grouped with bounds; save is gated on a real change.
+  const memory = page.getByLabel("Default server memory");
+  await expect(memory).not.toHaveValue("", { timeout: 10_000 });
+  const original = await memory.inputValue();
+  const save = page.getByRole("button", { name: "Save changes" });
+  await expect(save).toBeDisabled();
+
+  await memory.fill("3072");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+
+  // The create form prefills memory from the stored setting (via /suggest).
+  await page.locator("aside").getByRole("button", { name: "New server" }).click();
+  await expect(page.getByLabel("Memory (MB)")).toHaveValue("3072", {
+    timeout: 10_000,
+  });
+
+  // Restore the original so this test doesn't leak into later specs.
+  await page.locator("aside").getByRole("button", { name: "Settings" }).click();
+  await page.getByLabel("Default server memory").fill(original);
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+});
