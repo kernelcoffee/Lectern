@@ -265,14 +265,14 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
             value={newKey}
             onChange={(e) => setNewKey(e.target.value)}
             placeholder="key"
-            className="rounded bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200"
+            className="w-28 sm:w-44 rounded bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200"
           />
         </label>
         <input
           value={newValue}
           onChange={(e) => setNewValue(e.target.value)}
           placeholder="value"
-          className="flex-1 rounded bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200"
+          className="flex-1 min-w-0 rounded bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200"
         />
       </div>
 

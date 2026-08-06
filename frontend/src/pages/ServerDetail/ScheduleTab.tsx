@@ -139,8 +139,8 @@ export default function ScheduleTab({ serverId }: { serverId: string }) {
       ) : (
         <ul className="divide-y divide-slate-800 rounded-lg border border-slate-800">
           {schedules.map((s) => (
-            <li key={s.id} className="flex items-center gap-3 p-3">
-              <div className="min-w-0 flex-1">
+            <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
+              <div className="min-w-0 w-full sm:w-auto sm:flex-1">
                 <p className="truncate text-sm">
                   {ACTIONS.find((a) => a.value === s.action)?.label ?? s.action}
                   {s.action === "command" && s.command && (

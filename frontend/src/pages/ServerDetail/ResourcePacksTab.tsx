@@ -119,8 +119,8 @@ export default function ResourcePacksTab({
       ) : (
         <ul className="divide-y divide-slate-800 rounded-lg border border-slate-800">
           {items.map((item) => (
-            <li key={item.id} className="flex items-center gap-3 p-3">
-              <div className="flex-1 min-w-0">
+            <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
+              <div className="w-full sm:w-auto sm:flex-1 min-w-0">
                 <p className="text-sm truncate">
                   {item.name}{" "}
                   <span className="text-xs text-slate-500">

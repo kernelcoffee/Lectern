@@ -57,7 +57,7 @@ export default function Players() {
   }
 
   return (
-    <div className="space-y-5 p-6">
+    <div className="space-y-5 p-4 sm:p-6">
       <div className="flex items-start gap-3">
         <div className="flex-1">
           <h2 className="text-xl font-semibold">Players</h2>

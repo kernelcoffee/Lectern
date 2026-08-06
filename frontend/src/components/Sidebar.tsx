@@ -22,17 +22,37 @@ export default function Sidebar({
   servers,
   route,
   onNavigate,
+  open,
+  onClose,
   backend,
   backendOk,
 }: {
   servers: Server[];
   route: Route;
   onNavigate: (r: Route) => void;
+  /** Mobile drawer state — ignored from md up, where the sidebar is static. */
+  open: boolean;
+  onClose: () => void;
   backend: string;
   backendOk: boolean;
 }) {
   return (
-    <aside className="w-60 shrink-0 h-screen sticky top-0 flex flex-col bg-slate-950 border-r border-slate-800">
+    <>
+      {/* Mobile backdrop */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+          onClick={onClose}
+          aria-hidden
+        />
+      )}
+      <aside
+        className={
+          "fixed inset-y-0 left-0 z-50 w-60 flex flex-col bg-slate-950 border-r border-slate-800 " +
+          "transform transition-transform duration-200 md:static md:h-dvh md:shrink-0 md:translate-x-0 md:transition-none " +
+          (open ? "translate-x-0" : "-translate-x-full")
+        }
+      >
       {/* Brand */}
       <button
         onClick={() => onNavigate({ view: "dashboard" })}
@@ -100,12 +120,13 @@ export default function Sidebar({
         </ul>
       </div>
 
-      <footer className="px-5 py-3 border-t border-slate-800/60 text-[11px]">
-        <span className={backendOk ? "text-emerald-400" : "text-slate-500"}>
-          backend {backend}
-        </span>
-      </footer>
-    </aside>
+        <footer className="px-5 py-3 border-t border-slate-800/60 text-[11px]">
+          <span className={backendOk ? "text-emerald-400" : "text-slate-500"}>
+            backend {backend}
+          </span>
+        </footer>
+      </aside>
+    </>
   );
 }
 

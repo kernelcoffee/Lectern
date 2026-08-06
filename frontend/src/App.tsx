@@ -31,6 +31,8 @@ export default function App() {
   const [healthError, setHealthError] = useState(false);
   const [route, setRoute] = useState<Route>({ view: "dashboard" });
   const [servers, setServers] = useState<Server[]>([]);
+  // Mobile-only nav drawer (the sidebar is static from md up).
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     apiGet<Health>("/api/health")
@@ -58,21 +60,45 @@ export default function App() {
     return () => window.clearInterval(t);
   }, [anyInstalling, reload]);
 
-  const go = useCallback((r: Route) => setRoute(r), []);
+  const go = useCallback((r: Route) => {
+    setRoute(r);
+    setNavOpen(false); // navigating from the drawer closes it
+  }, []);
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex">
+    <div className="min-h-dvh bg-slate-900 text-slate-100 md:flex">
+      {/* Mobile top bar — the sidebar is off-canvas below md. */}
+      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 md:hidden">
+        <button
+          onClick={() => setNavOpen(true)}
+          aria-label="Open navigation"
+          className="text-slate-300 hover:text-slate-100"
+        >
+          <svg viewBox="0 0 16 16" className="w-5 h-5 fill-current">
+            <path d="M1 3h14v2H1zM1 7h14v2H1zM1 11h14v2H1z" />
+          </svg>
+        </button>
+        <button
+          onClick={() => go({ view: "dashboard" })}
+          className="text-base font-semibold tracking-tight"
+        >
+          Lectern
+        </button>
+      </header>
+
       <Sidebar
         servers={servers}
         route={route}
         onNavigate={go}
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
         backend={
           health ? `v${health.version}` : healthError ? "offline" : "connecting…"
         }
         backendOk={health !== null}
       />
 
-      <main className="flex-1 min-w-0 overflow-y-auto h-screen">
+      <main className="flex-1 min-w-0 md:h-dvh md:overflow-y-auto">
         {route.view === "dashboard" && (
           <Dashboard servers={servers} onReload={reload} onNavigate={go} />
         )}

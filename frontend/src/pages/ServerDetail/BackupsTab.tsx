@@ -123,8 +123,8 @@ export default function BackupsTab({
       ) : (
         <ul className="divide-y divide-slate-800 rounded-lg border border-slate-800">
           {backups.map((b) => (
-            <li key={b.id} className="flex items-center gap-3 p-3">
-              <div className="flex-1 min-w-0">
+            <li key={b.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
+              <div className="w-full sm:w-auto sm:flex-1 min-w-0">
                 <p className="text-sm truncate">
                   {new Date(b.created_at + "Z").toLocaleString()}{" "}
                   <span className="text-xs text-slate-500">

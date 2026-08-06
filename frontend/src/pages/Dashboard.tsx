@@ -137,7 +137,7 @@ export default function Dashboard({
   );
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <h2 className="text-xl font-semibold">Dashboard</h2>
 
       {/* Stat tiles */}
@@ -179,11 +179,13 @@ export default function Dashboard({
         ) : (
           <table className="w-full text-sm">
             <thead>
+              {/* Version/Port/Players collapse into a subline under the name
+                  on narrow screens — a 6-column table can't fit a phone. */}
               <tr className="text-left text-xs text-slate-500 border-b border-slate-800">
                 <th className="px-4 py-2 font-medium">Server</th>
-                <th className="px-4 py-2 font-medium">Version</th>
-                <th className="px-4 py-2 font-medium">Port</th>
-                <th className="px-4 py-2 font-medium">Players</th>
+                <th className="hidden md:table-cell px-4 py-2 font-medium">Version</th>
+                <th className="hidden md:table-cell px-4 py-2 font-medium">Port</th>
+                <th className="hidden sm:table-cell px-4 py-2 font-medium">Players</th>
                 <th className="px-4 py-2 font-medium">Status</th>
                 <th className="px-4 py-2 font-medium text-right">Actions</th>
               </tr>
@@ -207,14 +209,17 @@ export default function Dashboard({
                       {s.status === "installing" && progress[s.id] && (
                         <p className="text-xs text-sky-400">{progress[s.id]}…</p>
                       )}
+                      <p className="md:hidden text-xs text-slate-500">
+                        {s.type} {s.mc_version} · :{s.port}
+                      </p>
                     </td>
-                    <td className="px-4 py-2.5 text-slate-400">
+                    <td className="hidden md:table-cell px-4 py-2.5 text-slate-400">
                       {s.type} {s.mc_version}
                     </td>
-                    <td className="px-4 py-2.5 text-slate-400 tabular-nums">
+                    <td className="hidden md:table-cell px-4 py-2.5 text-slate-400 tabular-nums">
                       {s.port}
                     </td>
-                    <td className="px-4 py-2.5 text-slate-400 tabular-nums">
+                    <td className="hidden sm:table-cell px-4 py-2.5 text-slate-400 tabular-nums">
                       {s.status === "running" && ping
                         ? `${ping.online} / ${ping.max}`
                         : "—"}

@@ -226,7 +226,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 sm:p-6 space-y-5">
       <h2 className="text-xl font-semibold">New server</h2>
 
       <form

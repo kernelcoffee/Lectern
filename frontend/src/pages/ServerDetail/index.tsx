@@ -183,7 +183,7 @@ export default function ServerDetail({
 
   if (!server) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="p-4 sm:p-6 space-y-4">
         <button onClick={onBack} className="text-sm text-slate-400 hover:text-slate-200">
           ← Back
         </button>
@@ -201,7 +201,7 @@ export default function ServerDetail({
     server.status === "installing" || server.status === "install_failed";
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 sm:p-6 space-y-5">
       <button onClick={onBack} className="text-sm text-slate-400 hover:text-slate-200">
         ← Dashboard
       </button>
@@ -209,7 +209,7 @@ export default function ServerDetail({
       {/* Header — identity + controls on the left, live-stats card top-right. */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
         <div className="space-y-2.5">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span
               className={`text-xs px-2 py-0.5 rounded-full ${STATUS_STYLES[server.status]}`}
             >
@@ -314,7 +314,8 @@ export default function ServerDetail({
       {/* Tabs — plain conditional rendering, no router. */}
       {!installing && (
         <>
-          <div className="flex gap-1 border-b border-slate-800">
+          {/* Scrolls horizontally on narrow screens — 11 tabs never fit a phone. */}
+          <div className="flex gap-1 border-b border-slate-800 overflow-x-auto">
             <TabButton
               label="Console"
               active={tab === "console"}
@@ -508,7 +509,7 @@ function TabButton({
     <button
       onClick={onClick}
       className={
-        "px-4 py-2 text-sm rounded-t border-b-2 -mb-px " +
+        "px-3 sm:px-4 py-2 text-sm rounded-t border-b-2 -mb-px whitespace-nowrap shrink-0 " +
         (active
           ? "border-emerald-500 text-slate-100"
           : "border-transparent text-slate-400 hover:text-slate-200")

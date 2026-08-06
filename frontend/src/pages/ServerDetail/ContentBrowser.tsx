@@ -115,12 +115,12 @@ export default function ContentBrowser({
 
   return (
     <div
-      className="fixed inset-0 z-10 bg-black/60 flex items-start justify-center p-6"
+      className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-2 sm:p-6"
       onClick={onClose}
     >
       <div
         data-testid="content-browser"
-        className="bg-slate-900 border border-slate-700 rounded-lg w-full max-w-5xl h-[85vh] flex flex-col"
+        className="bg-slate-900 border border-slate-700 rounded-lg w-full max-w-5xl h-[95dvh] sm:h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
@@ -135,9 +135,10 @@ export default function ContentBrowser({
           </button>
         </div>
 
-        <div className="flex flex-1 min-h-0">
-          {/* Left rails */}
-          <aside className="w-44 shrink-0 border-r border-slate-800 py-3 space-y-5 overflow-y-auto">
+        {/* Rails sit left from sm up; on phones they stack on top as
+            horizontally scrollable pill rows. */}
+        <div className="flex flex-col sm:flex-row flex-1 min-h-0">
+          <aside className="shrink-0 border-b sm:border-b-0 sm:border-r border-slate-800 py-2 sm:py-3 sm:w-44 flex gap-6 sm:block sm:space-y-5 overflow-x-auto sm:overflow-x-visible sm:overflow-y-auto">
             <RailGroup label="Provider">
               <RailItem
                 label="Modrinth"
@@ -206,7 +207,7 @@ function RailGroup({ label, children }: { label: string; children: React.ReactNo
       <p className="px-4 pb-1 text-[11px] font-medium uppercase tracking-wider text-slate-500">
         {label}
       </p>
-      <ul>{children}</ul>
+      <ul className="flex gap-1 px-3 sm:block sm:gap-0 sm:px-0">{children}</ul>
     </div>
   );
 }
@@ -225,10 +226,12 @@ function RailItem({
       <button
         onClick={onClick}
         className={
-          "w-full text-left px-4 py-1.5 text-sm border-l-2 " +
+          // Pill on phones (horizontal rail), left-edge marker from sm up.
+          "w-full text-left text-sm whitespace-nowrap rounded-full border px-3 py-1 " +
+          "sm:rounded-none sm:border-0 sm:border-l-2 sm:px-4 sm:py-1.5 " +
           (active
             ? "border-emerald-500 bg-slate-800/60 text-slate-100"
-            : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40")
+            : "border-slate-700 sm:border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40")
         }
       >
         {label}
@@ -346,7 +349,7 @@ function ModrinthPane({
             setQuery(e.target.value);
           }}
           placeholder={`Search ${TYPE_LABEL[type].toLowerCase()}…`}
-          className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm"
+          className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm"
         />
         <select
           value={sort}

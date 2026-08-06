@@ -138,8 +138,8 @@ export default function ModsTab({
 
   return (
     <section className="space-y-3">
-      <div className="flex items-center gap-2">
-        <h3 className="text-sm font-medium text-slate-300 flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-medium text-slate-300 flex-1 whitespace-nowrap">
           Installed mods {items && <span className="text-slate-500">({items.length})</span>}
         </h3>
         {updates && updates.length > 0 && (
@@ -198,8 +198,8 @@ export default function ModsTab({
           {items.map((item) => {
             const upd = updateFor(item.id);
             return (
-              <li key={item.id} className="flex items-center gap-3 p-3">
-                <div className="flex-1 min-w-0">
+              <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
+                <div className="w-full sm:w-auto sm:flex-1 min-w-0">
                   <p className="text-sm truncate">
                     <span className={item.enabled ? "" : "text-slate-500 line-through"}>
                       {item.name}
