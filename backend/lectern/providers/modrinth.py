@@ -38,10 +38,19 @@ CHANNELS = ("release", "beta", "alpha")
 # --- pure helpers (unit-tested) --------------------------------------------
 
 
+def as_loader_list(loader: str | list[str] | None) -> list[str]:
+    """Normalize a loader spec: None → [], str → [str], list passes through.
+    A LIST is a compatibility chain (e.g. Quilt servers accept ["quilt",
+    "fabric"] because Quilt loads Fabric mods) — facets OR them together."""
+    if loader is None:
+        return []
+    return [loader] if isinstance(loader, str) else list(loader)
+
+
 def build_facets(
     *,
     project_type: str,
-    loader: str | None,
+    loader: str | list[str] | None,
     mc_version: str | None,
     categories: list[str] | None = None,
 ) -> str:
@@ -53,8 +62,10 @@ def build_facets(
     key ("categories:…") on Modrinth.
     """
     facets: list[list[str]] = [[f"project_type:{project_type}"]]
-    if loader:
-        facets.append([f"categories:{loader}"])
+    loaders = as_loader_list(loader)
+    if loaders:
+        # One OR-group: any loader in the chain qualifies.
+        facets.append([f"categories:{ld}" for ld in loaders])
     for category in categories or []:
         facets.append([f"categories:{category}"])
     if mc_version:
@@ -117,7 +128,7 @@ async def search(
     query: str,
     *,
     project_type: str = "mod",
-    loader: str | None = None,
+    loader: str | list[str] | None = None,
     mc_version: str | None = None,
     categories: list[str] | None = None,
     index: str = "relevance",
@@ -150,13 +161,15 @@ async def list_categories() -> list[dict[str, Any]]:
 
 
 async def list_versions(
-    project_id: str, *, loader: str | None = None, mc_version: str | None = None
+    project_id: str, *, loader: str | list[str] | None = None, mc_version: str | None = None
 ) -> list[dict[str, Any]]:
-    """Versions of a project compatible with ``loader``/``mc_version``,
-    newest first. ``project_id`` may be an id or a slug."""
+    """Versions of a project compatible with ``loader`` (a single loader or
+    a compatibility chain — any match qualifies) and ``mc_version``, newest
+    first. ``project_id`` may be an id or a slug."""
     params: dict[str, str] = {}
-    if loader:
-        params["loaders"] = json.dumps([loader])
+    loaders = as_loader_list(loader)
+    if loaders:
+        params["loaders"] = json.dumps(loaders)
     if mc_version:
         params["game_versions"] = json.dumps([mc_version])
     return await get_json(
@@ -182,7 +195,7 @@ async def check_update(
     project_id: str,
     current_version_id: str,
     *,
-    loader: str | None,
+    loader: str | list[str] | None,
     mc_version: str | None,
     channel: str = "release",
 ) -> dict[str, Any] | None:

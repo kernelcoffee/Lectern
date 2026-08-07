@@ -41,10 +41,19 @@ from ..providers.vanillatweaks import VanillaTweaksError
 
 router = APIRouter(prefix="/api", tags=["content"])
 
-# Which loader category to search/install Modrinth mods with, per server
-# type. Vanilla has no entry — mods are refused for it (by the manager),
-# while loaderless kinds (resource packs) work on every type.
-_LOADERS = {"fabric": "fabric", "quilt": "quilt", "paper": "paper"}
+# Loader compatibility chain per server type: which Modrinth loader facets
+# the server can actually run, most-native first. Vanilla has no entry —
+# mods are refused for it (by the manager), while loaderless kinds (resource
+# packs) work on every type. Quilt's chain includes fabric because Quilt
+# loads Fabric mods — without it, dependency closures dead-end on projects
+# with no quilt-tagged builds (Fabric API is the canonical case).
+_LOADERS: dict[str, list[str]] = {
+    "fabric": ["fabric"],
+    "quilt": ["quilt", "fabric"],
+    "neoforge": ["neoforge"],
+    "forge": ["forge"],
+    "paper": ["paper"],
+}
 
 _MAX_UPLOAD = 100 * 1024 * 1024  # 100 MB — generous for a resource pack
 _MAX_MRPACK = 500 * 1024 * 1024  # .mrpack archives can bundle big overrides
@@ -57,10 +66,10 @@ def _get_server(server_id: str, session: Session) -> Server:
     return server
 
 
-def _content_context(server: Server) -> tuple[str | None, Path]:
-    """(loader-or-None, server_dir) for content operations. The loader is
-    ``None`` for loaderless server types — installing a *mod* then fails in
-    the manager; resource packs go through fine."""
+def _content_context(server: Server) -> tuple[list[str] | None, Path]:
+    """(loader-chain-or-None, server_dir) for content operations. The chain
+    is ``None`` for loaderless server types — installing a *mod* then fails
+    in the manager; resource packs go through fine."""
     if not server.path:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "Server is not installed yet"
@@ -75,7 +84,7 @@ def _content_context(server: Server) -> tuple[str | None, Path]:
 async def search_content(
     query: str = "",
     project_type: str = "mod",
-    loader: str | None = None,
+    loader: str | None = None,  # a server TYPE — expanded to its compat chain
     mc_version: str | None = None,
     categories: str | None = None,  # comma-separated Modrinth category slugs
     index: str = "relevance",
@@ -86,7 +95,7 @@ async def search_content(
     return await modrinth.search(
         query,
         project_type=project_type,
-        loader=loader,
+        loader=_LOADERS.get(loader, [loader]) if loader else None,
         mc_version=mc_version,
         categories=[c for c in (categories or "").split(",") if c],
         index=index,
@@ -109,13 +118,15 @@ async def content_categories(project_type: str = "mod") -> list[dict]:
 @router.get("/content/projects/{project_id}/versions")
 async def project_versions(
     project_id: str,
-    loader: str | None = None,
+    loader: str | None = None,  # a server TYPE — expanded to its compat chain
     mc_version: str | None = None,
 ) -> list[dict]:
     """Compatible versions of a project, newest first (id, version_number,
     version_type, dependencies, files)."""
     return await modrinth.list_versions(
-        project_id, loader=loader, mc_version=mc_version
+        project_id,
+        loader=_LOADERS.get(loader, [loader]) if loader else None,
+        mc_version=mc_version,
     )
 
 

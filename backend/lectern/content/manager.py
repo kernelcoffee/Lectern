@@ -172,6 +172,34 @@ def ensure_synced(session: Session, server_id: str, server_dir: Path) -> None:
 # --- resolution ------------------------------------------------------------
 
 
+def _loader_chain(loader: str | list[str] | None) -> list[str]:
+    if loader is None:
+        return []
+    return [loader] if isinstance(loader, str) else list(loader)
+
+
+def _matched_loader(version: dict, chain: list[str]) -> str | None:
+    """Which loader in the chain this version actually satisfies — stored on
+    the item so update checks re-resolve against the right facet (a Fabric
+    build installed on a Quilt server must keep updating as Fabric)."""
+    tagged = version.get("loaders") or []
+    for candidate in chain:
+        if candidate in tagged:
+            return candidate
+    return chain[0] if chain else None
+
+
+def _prefer_primary(versions: list[dict], chain: list[str]) -> list[dict]:
+    """Stable-partition: versions tagged for the chain's primary loader
+    first, fallbacks after — a native Quilt build beats a newer Fabric one."""
+    if len(chain) < 2:
+        return versions
+    primary = chain[0]
+    native = [v for v in versions if primary in (v.get("loaders") or [])]
+    rest = [v for v in versions if primary not in (v.get("loaders") or [])]
+    return native + rest
+
+
 def _side(project: dict) -> str:
     client = project.get("client_side") != "unsupported"
     server = project.get("server_side") != "unsupported"
@@ -208,7 +236,7 @@ async def _resolve_install_set(
     project_ref: str,
     *,
     version_id: str | None,
-    loader: str | None,
+    loader: str | list[str] | None,
     mc_version: str,
     channel: str,
     include_optional: bool,
@@ -241,7 +269,11 @@ async def _resolve_install_set(
         else:
             loader = None
 
-    versions = await source.list_versions(root_id, loader=loader, mc_version=mc_version)
+    chain = _loader_chain(loader)
+    versions = _prefer_primary(
+        await source.list_versions(root_id, loader=loader, mc_version=mc_version),
+        chain,
+    )
     if version_id is not None:
         root_version = next((v for v in versions if v["id"] == version_id), None)
         if root_version is None:
@@ -273,8 +305,9 @@ async def _resolve_install_set(
             project = projects.get(pid)
             if project is None:
                 continue  # unavailable dependency — skip, don't fail the batch
-            dep_versions = await source.list_versions(
-                pid, loader=loader, mc_version=mc_version
+            dep_versions = _prefer_primary(
+                await source.list_versions(pid, loader=loader, mc_version=mc_version),
+                chain,
             )
             dep_version = modrinth.select_version(dep_versions, channel)
             if dep_version is None:
@@ -301,7 +334,7 @@ async def install(
     project_id: str,
     source_key: str = "modrinth",
     version_id: str | None = None,
-    loader: str | None,
+    loader: str | list[str] | None,
     mc_version: str,
     channel: str = "release",
     include_optional_deps: bool = False,
@@ -341,11 +374,12 @@ async def install(
                 raise ContentError(f"{project.get('title')}: version has no files")
             # Store the loader the item was actually resolved under — None
             # for loaderless kinds (resource packs), "datapack" for datapack
-            # builds, whatever the server runs for mods/plugins.
+            # builds, and for mods/plugins the chain entry this version
+            # matched (a Fabric build on a Quilt server records "fabric").
             if kind == "datapack":
                 item_loader: str | None = "datapack"
             elif project.get("project_type", "mod") in ("mod", "plugin"):
-                item_loader = loader
+                item_loader = _matched_loader(version, _loader_chain(loader))
             else:
                 item_loader = None
             new_item = _build_item(

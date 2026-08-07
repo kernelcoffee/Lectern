@@ -315,3 +315,121 @@ def test_update_disabled_item_keeps_disabled(client, engine, tmp_path, catalog):
     client.post(f"/api/servers/{sid}/content/{item['id']}/update")
     assert (tmp_path / "mods/P_opt-3.1.0.jar.disabled").exists()
     assert not (tmp_path / "mods/P_opt-3.0.0.jar.disabled").exists()
+
+
+# --- quilt loader-compat chain ----------------------------------------------
+# Quilt servers resolve with ["quilt", "fabric"]: Fabric API has no
+# quilt-tagged builds, so without the chain any mod depending on it
+# dead-ends. Native quilt builds win over newer fabric ones.
+
+
+def _quilt_server(client, engine, tmp_path: Path) -> str:
+    server_id = client.post(
+        "/api/servers",
+        json={"name": "Q", "type": "quilt", "mc_version": "26.2"},
+    ).json()["id"]
+    with Session(engine) as session:
+        server = session.get(Server, server_id)
+        server.path = str(tmp_path)
+        server.status = "stopped"
+        session.add(server)
+        session.commit()
+    return server_id
+
+
+@pytest.fixture
+def quilt_catalog(monkeypatch):
+    projects = {
+        "P_qmod": _project("P_qmod", "qmod", "Quilt Mod"),
+        "P_fapi": _project("P_fapi", "fabric-api", "Fabric API"),
+        "P_both": _project("P_both", "both", "Dual Loader"),
+    }
+    qmod = _version("V_qmod_1", "P_qmod", "1.0.0", deps=[("P_fapi", "required")])
+    qmod["loaders"] = ["quilt"]
+    fapi = _version("V_fapi_9", "P_fapi", "0.99.0")
+    fapi["loaders"] = ["fabric"]  # the real situation: never quilt-tagged
+    both_fabric_newer = _version("V_both_2", "P_both", "2.0.0")
+    both_fabric_newer["loaders"] = ["fabric"]
+    both_quilt_older = _version("V_both_1", "P_both", "1.5.0")
+    both_quilt_older["loaders"] = ["quilt", "fabric"]
+
+    versions = {
+        "P_qmod": [qmod],
+        "P_fapi": [fapi],
+        # Modrinth order: newest first — the fabric-only build is newer.
+        "P_both": [both_fabric_newer, both_quilt_older],
+    }
+    downloads: list[str] = []
+
+    from lectern.providers import modrinth
+
+    async def get_project(ref):
+        by_slug = {p["slug"]: p for p in projects.values()}
+        project = projects.get(ref) or by_slug.get(ref)
+        if project is None:
+            raise RuntimeError(f"404 project {ref}")
+        return project
+
+    async def get_projects(ids):
+        return [projects[i] for i in ids if i in projects]
+
+    async def list_versions(pid, *, loader=None, mc_version=None):
+        # Behave like Modrinth: any loader in the requested set qualifies.
+        wanted = modrinth.as_loader_list(loader)
+        rows = versions.get(pid, [])
+        if not wanted:
+            return rows
+        return [v for v in rows if set(v.get("loaders", [])) & set(wanted)]
+
+    async def fake_download(url, dest: Path, *, expected_hash=None, hash_algo="sha512"):
+        downloads.append(url)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"JAR:" + url.encode())
+        return dest
+
+    monkeypatch.setattr(modrinth, "get_project", get_project)
+    monkeypatch.setattr(modrinth, "get_projects", get_projects)
+    monkeypatch.setattr(modrinth, "list_versions", list_versions)
+    monkeypatch.setattr(content, "download_file", fake_download)
+    return {"versions": versions, "downloads": downloads}
+
+
+def test_quilt_dependency_closure_falls_back_to_fabric(
+    client, engine, tmp_path, quilt_catalog
+):
+    sid = _quilt_server(client, engine, tmp_path)
+    resp = client.post(
+        f"/api/servers/{sid}/content", json={"project_id": "P_qmod"}
+    )
+    assert resp.status_code == 201, resp.text
+    installed = {i["project_id"] for i in resp.json()}
+    assert installed == {"P_qmod", "P_fapi"}
+    # Each item records the loader it actually matched: the quilt mod
+    # native, Fabric API through the chain.
+    manifest = {i["project_id"]: i for i in _manifest(tmp_path)}
+    assert manifest["P_qmod"]["loader"] == "quilt"
+    assert manifest["P_fapi"]["loader"] == "fabric"
+
+
+def test_quilt_prefers_native_build_over_newer_fabric(
+    client, engine, tmp_path, quilt_catalog
+):
+    sid = _quilt_server(client, engine, tmp_path)
+    resp = client.post(
+        f"/api/servers/{sid}/content", json={"project_id": "P_both"}
+    )
+    assert resp.status_code == 201, resp.text
+    (manifest_item,) = _manifest(tmp_path)
+    # 1.5.0 is older but quilt-tagged — it wins over the fabric-only 2.0.0.
+    assert manifest_item["version_id"] == "V_both_1"
+    assert manifest_item["loader"] == "quilt"
+
+
+def test_fabric_server_unaffected_by_chain(client, engine, tmp_path, quilt_catalog):
+    sid = _fabric_server(client, engine, tmp_path)
+    resp = client.post(
+        f"/api/servers/{sid}/content", json={"project_id": "P_fapi"}
+    )
+    assert resp.status_code == 201, resp.text
+    (manifest_item,) = _manifest(tmp_path)
+    assert manifest_item["loader"] == "fabric"
