@@ -8,22 +8,17 @@
 // datapacks dir); changes apply the next time the server starts.
 
 import { useCallback, useEffect, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
 import {
   ContentItem,
   listContent,
   patchContent,
   removeContent,
+  SOURCE_LABEL,
 } from "../../api/content";
 import { ServerDetail } from "../../api/servers";
 import { useToast } from "../../components/Toasts";
 import ContentBrowser from "./ContentBrowser";
-
-const SOURCE_LABEL: Record<string, string> = {
-  modrinth: "Modrinth",
-  vanillatweaks: "Vanilla Tweaks",
-  upload: "Uploaded",
-};
 
 export default function DatapacksTab({
   serverId,
@@ -45,7 +40,7 @@ export default function DatapacksTab({
       setItems(all.filter((i) => i.kind === "datapack"));
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }, [serverId]);
 
@@ -58,7 +53,7 @@ export default function DatapacksTab({
     try {
       await fn();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(null);
     }

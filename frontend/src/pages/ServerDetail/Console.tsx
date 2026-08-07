@@ -71,6 +71,7 @@ export default function Console({ serverId }: { serverId: string }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search output…"
+          aria-label="Search console output"
           className="ml-auto w-48 rounded bg-slate-800 px-2 py-1 text-slate-200 placeholder:text-slate-600"
         />
         {search && (

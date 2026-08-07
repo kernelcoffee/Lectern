@@ -85,7 +85,7 @@ test("full server journey: create → mods → properties → delete @full", asy
   await expect(
     fabricApiRow.getByRole("button", { name: "Installed" }),
   ).toBeVisible();
-  await browser.getByRole("button", { name: "✕ Close" }).click();
+  await browser.getByRole("button", { name: "Close" }).click();
 
   // Installed list shows it; the mod row exposes disable/remove.
   const modRow = page.locator("li", { hasText: "Fabric API" });
@@ -117,7 +117,7 @@ test("full server journey: create → mods → properties → delete @full", asy
   await expect(rpBrowser.getByText(/^Uploaded: E2E test pack/)).toBeVisible({
     timeout: 15_000,
   });
-  await rpBrowser.getByRole("button", { name: "✕ Close" }).click();
+  await rpBrowser.getByRole("button", { name: "Close" }).click();
 
   const packRow = page.locator("li", { hasText: "E2E test pack" });
   await expect(packRow).toBeVisible({ timeout: 15_000 });
@@ -145,7 +145,7 @@ test("full server journey: create → mods → properties → delete @full", asy
   await expect(dpBrowser.getByText(/^Uploaded: E2E test pack/)).toBeVisible({
     timeout: 15_000,
   });
-  await dpBrowser.getByRole("button", { name: "✕ Close" }).click();
+  await dpBrowser.getByRole("button", { name: "Close" }).click();
 
   const dpRow = page.locator("li", { hasText: "E2E test pack" });
   await expect(dpRow).toBeVisible();

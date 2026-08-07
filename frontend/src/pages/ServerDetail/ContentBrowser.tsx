@@ -21,7 +21,8 @@
 // tab to refresh its own list.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
+import Modal from "../../components/Modal";
 import {
   ContentItem,
   getModrinthCategories,
@@ -114,27 +115,19 @@ export default function ContentBrowser({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-2 sm:p-6"
-      onClick={onClose}
+    <Modal
+      onClose={onClose}
+      testId="content-browser"
+      panelClassName="max-w-5xl h-[95dvh] sm:h-[85vh]"
+      title={
+        <h3 className="text-sm font-medium truncate">
+          Add content{" "}
+          <span className="text-slate-500">
+            — {server.name} · {server.type} · MC {server.mc_version}
+          </span>
+        </h3>
+      }
     >
-      <div
-        data-testid="content-browser"
-        className="bg-slate-900 border border-slate-700 rounded-lg w-full max-w-5xl h-[95dvh] sm:h-[85vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
-          <h3 className="text-sm font-medium flex-1">
-            Add content{" "}
-            <span className="text-slate-500">
-              — {server.name} · {server.type} · MC {server.mc_version}
-            </span>
-          </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-sm">
-            ✕ Close
-          </button>
-        </div>
-
         {/* Rails sit left from sm up; on phones they stack on top as
             horizontally scrollable pill rows. */}
         <div className="flex flex-col sm:flex-row flex-1 min-h-0">
@@ -196,8 +189,7 @@ export default function ContentBrowser({
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -301,7 +293,7 @@ function ModrinthPane({
         setTotal(res.total_hits);
         setError(null);
       } catch (e) {
-        setError(e instanceof ApiError ? e.message : String(e));
+        setError(errorMessage(e));
       } finally {
         setSearching(false);
       }
@@ -325,7 +317,7 @@ function ModrinthPane({
       setNotice(`Installed: ${items.map((i) => i.name).join(", ")}`);
       await onChanged();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     } finally {
       setInstalling(null);
     }
@@ -498,7 +490,7 @@ function VanillaTweaksPane({
     getVtCategories(server.id, vtType)
       .then((d) => setCategories(d.categories))
       .catch((e) =>
-        setError(e instanceof ApiError ? e.message : String(e)),
+        setError(errorMessage(e)),
       );
   }, [server.id, vtType]);
 
@@ -523,7 +515,7 @@ function VanillaTweaksPane({
       );
       await onChanged();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }

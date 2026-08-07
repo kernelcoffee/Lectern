@@ -27,7 +27,7 @@
 // and Lectern rebuilds the launch command on boot) — the banner reminds users.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
 import {
   getProperties,
   patchProperties,
@@ -125,7 +125,7 @@ function LecternSettingsForm({
       setEdits({});
       toast.success("Server settings saved.");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     } finally {
       setSaving(false);
     }
@@ -187,7 +187,7 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
       setError(null);
     } catch (e) {
       // 409 while still installing: show the message instead of a form.
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }, [serverId]);
 
@@ -230,7 +230,7 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
       toast.success("server.properties saved.");
     } catch (e) {
       // 422 carries the list of invalid keys/messages from the backend.
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     } finally {
       setSaving(false);
     }

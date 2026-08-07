@@ -17,7 +17,7 @@
 // rather than tracking dirtiness — the backend is always the source of truth.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
 import {
   applyContentUpdate,
   checkContentUpdates,
@@ -59,7 +59,7 @@ export default function ModsTab({
       setItems(all.filter((i) => i.kind === "mod" || i.kind === "plugin"));
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }, [serverId]);
 
@@ -72,7 +72,7 @@ export default function ModsTab({
     try {
       await fn();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(null);
     }

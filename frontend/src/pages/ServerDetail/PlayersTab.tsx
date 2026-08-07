@@ -5,7 +5,7 @@
 // the files, which Minecraft reads at the next start.
 
 import { useCallback, useEffect, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
 import {
   addToList,
   getOnlinePlayers,
@@ -45,7 +45,7 @@ export default function PlayersTab({ serverId }: { serverId: string }) {
       setRegistry(r);
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }, [serverId]);
 
@@ -58,7 +58,7 @@ export default function PlayersTab({ serverId }: { serverId: string }) {
     try {
       setLists(await fn());
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -113,7 +113,7 @@ function OnlineSection({ serverId }: { serverId: string }) {
           setError(null);
         }
       } catch (e) {
-        if (live) setError(e instanceof ApiError ? e.message : String(e));
+        if (live) setError(errorMessage(e));
       }
     };
     tick();
@@ -130,7 +130,7 @@ function OnlineSection({ serverId }: { serverId: string }) {
       setOnline(await kickPlayer(serverId, name));
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }

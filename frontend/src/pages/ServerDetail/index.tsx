@@ -21,7 +21,8 @@
 // WebSocket; history replays from the server buffer when it remounts.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
+import { STATUS_CHIP } from "../../components/status";
 import { useToast } from "../../components/Toasts";
 import {
   acceptEula,
@@ -63,16 +64,6 @@ type Tab =
 // Server types that load mods — the Mods tab only renders for these.
 const MODDED_TYPES: ServerDetailType["type"][] = ["fabric", "quilt", "paper"];
 
-const STATUS_STYLES: Record<ServerStatus, string> = {
-  installing: "bg-sky-500 text-slate-900",
-  install_failed: "bg-red-500 text-slate-100",
-  stopped: "bg-slate-600 text-slate-100",
-  starting: "bg-amber-500 text-slate-900",
-  running: "bg-emerald-500 text-slate-900",
-  stopping: "bg-amber-500 text-slate-900",
-  crashed: "bg-red-500 text-slate-100",
-};
-
 // Which controls are enabled for a given status.
 function controlsFor(status: ServerStatus) {
   const running = status === "running" || status === "starting" || status === "stopping";
@@ -112,7 +103,7 @@ export default function ServerDetail({
       setServer(await getServer(serverId));
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }, [serverId]);
 
@@ -135,7 +126,7 @@ export default function ServerDetail({
     try {
       setServer(await serverAction(serverId, action));
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -146,7 +137,7 @@ export default function ServerDetail({
     try {
       setServer(await acceptEula(serverId));
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -161,7 +152,7 @@ export default function ServerDetail({
       onChanged?.();
       onOpen?.(clone.id);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -179,7 +170,7 @@ export default function ServerDetail({
       await deleteServer(serverId);
       onDeleted();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
       setBusy(null);
     }
   }
@@ -214,7 +205,7 @@ export default function ServerDetail({
         <div className="space-y-2.5">
           <div className="flex flex-wrap items-center gap-3">
             <span
-              className={`text-xs px-2 py-0.5 rounded-full ${STATUS_STYLES[server.status]}`}
+              className={`text-xs px-2 py-0.5 rounded-full ${STATUS_CHIP[server.status]}`}
             >
               {server.status}
             </span>
@@ -450,7 +441,7 @@ function EditableName({
       await onRename(trimmed);
       setEditing(false);
     } catch (e) {
-      onError(e instanceof ApiError ? e.message : String(e));
+      onError(errorMessage(e));
       inputRef.current?.select(); // keep editing so the user can fix it
     } finally {
       setSaving(false);

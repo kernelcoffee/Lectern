@@ -222,3 +222,10 @@ export const serveResourcePack = (
     `/api/servers/${serverId}/content/${itemId}/serve`,
     { enabled },
   );
+
+/** Display names for where a content item came from. */
+export const SOURCE_LABEL: Record<string, string> = {
+  modrinth: "Modrinth",
+  vanillatweaks: "Vanilla Tweaks",
+  upload: "Uploaded",
+};

@@ -4,7 +4,7 @@
 // (on the server's Players tab).
 
 import { FormEvent, useEffect, useState } from "react";
-import { ApiError } from "../api/client";
+import { errorMessage } from "../api/client";
 import { addPlayer, listPlayers, Player, removePlayer } from "../api/players";
 import Avatar from "../components/Avatar";
 import { useToast } from "../components/Toasts";
@@ -24,7 +24,7 @@ export default function Players() {
     try {
       setPlayers(await listPlayers());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -42,7 +42,7 @@ export default function Players() {
       setQuery("");
       await refresh();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -54,7 +54,7 @@ export default function Players() {
       await removePlayer(player.uuid);
       await refresh();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     }
   }
 

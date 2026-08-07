@@ -4,7 +4,7 @@
 // fields are sent on Save, then the response replaces the source of truth.
 
 import { useEffect, useState } from "react";
-import { ApiError } from "../api/client";
+import { errorMessage } from "../api/client";
 import { AppSetting, getSettings, updateSettings } from "../api/settings";
 import { useToast } from "../components/Toasts";
 
@@ -30,7 +30,7 @@ export default function Settings() {
   useEffect(() => {
     getSettings()
       .then(setSettings)
-      .catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
+      .catch((e) => setError(errorMessage(e)));
   }, []);
 
   const dirty = Object.keys(edits).length > 0;
@@ -43,7 +43,7 @@ export default function Settings() {
       setEdits({});
       toast.success("Settings saved.");
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(false);
     }

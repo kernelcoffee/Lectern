@@ -11,7 +11,7 @@
 // live install progress.
 
 import { useEffect, useState } from "react";
-import { ApiError } from "../api/client";
+import { ApiError, errorMessage } from "../api/client";
 import {
   getFabricLoaders,
   getMinecraftVersions,
@@ -64,7 +64,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   const fail = (e: unknown) =>
-    setError(e instanceof ApiError ? e.message : String(e));
+    setError(errorMessage(e));
 
   // Prefill name/port with the backend's first-free suggestion ("New server
   // 2", port 25566, …) so stacking servers needs no manual deconfliction.

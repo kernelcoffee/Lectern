@@ -9,7 +9,7 @@
 // Edits apply at the next start (like Properties), so no stop is required.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
 import {
   deletePath,
   fileDownloadUrl,
@@ -22,16 +22,11 @@ import {
   uploadFile,
   writeFile,
 } from "../../api/files";
+import Modal from "../../components/Modal";
 import { useToast } from "../../components/Toasts";
+import { formatBytes } from "../../lib/format";
 
 const isZip = (name: string) => name.toLowerCase().endsWith(".zip");
-
-function fmtSize(bytes: number): string {
-  if (bytes >= 1 << 30) return `${(bytes / (1 << 30)).toFixed(1)} GB`;
-  if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
 
 function fmtDate(epoch: number): string {
   return new Date(epoch * 1000).toLocaleString();
@@ -73,7 +68,7 @@ export default function FilesTab({ serverId }: { serverId: string }) {
       setSelected(new Set());
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }, [serverId, cwd]);
 
@@ -87,7 +82,7 @@ export default function FilesTab({ serverId }: { serverId: string }) {
     try {
       await fn();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -114,7 +109,7 @@ export default function FilesTab({ serverId }: { serverId: string }) {
       setEditContent(f.content ?? "");
       setDirty(false);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -364,7 +359,7 @@ export default function FilesTab({ serverId }: { serverId: string }) {
                     {fmtDate(entry.mtime)}
                   </td>
                   <td className="px-2 py-1.5 text-right tabular-nums text-slate-400">
-                    {entry.is_dir ? "—" : fmtSize(entry.size)}
+                    {entry.is_dir ? "—" : formatBytes(entry.size)}
                   </td>
                   <td className="hidden px-2 py-1.5 font-mono text-xs text-slate-500 sm:table-cell">
                     {entry.mode}
@@ -515,37 +510,21 @@ function EditorModal({
   onSave: () => void;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const editable = !file.binary && !file.tooLarge;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onMouseDown={onClose}
-    >
-      <div
-        className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-lg border border-slate-700 bg-slate-900 shadow-xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2 border-b border-slate-800 px-4 py-3">
-          <h3 className="flex-1 truncate font-mono text-sm text-slate-200">{file.path}</h3>
-          {dirty && <span className="text-xs text-amber-400">unsaved</span>}
-          <button
-            onClick={onClose}
-            className="rounded px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
-            aria-label="Close"
-          >
-            ✕
-          </button>
+    <Modal
+      onClose={onClose}
+      panelClassName="max-w-4xl max-h-[85vh]"
+      title={
+        <div className="flex items-center gap-2">
+          <h3 className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200">
+            {file.path}
+          </h3>
+          {dirty && <span className="shrink-0 text-xs text-amber-400">unsaved</span>}
         </div>
-
+      }
+    >
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {editable ? (
             <textarea
@@ -560,7 +539,7 @@ function EditorModal({
               <p>
                 {file.binary
                   ? "This looks like a binary file — it can't be edited here."
-                  : `This file is ${fmtSize(file.size)}, too large to edit here.`}
+                  : `This file is ${formatBytes(file.size)}, too large to edit here.`}
               </p>
               <a
                 href={fileDownloadUrl(serverId, file.path)}
@@ -587,8 +566,7 @@ function EditorModal({
             </span>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 

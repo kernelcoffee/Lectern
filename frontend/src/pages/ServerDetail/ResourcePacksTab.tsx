@@ -7,22 +7,17 @@
 // server.properties URL (it embeds the item id).
 
 import { useCallback, useEffect, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
 import {
   ContentItem,
   listContent,
   removeContent,
   serveResourcePack,
+  SOURCE_LABEL,
 } from "../../api/content";
 import { getProperties, ServerDetail } from "../../api/servers";
 import { useToast } from "../../components/Toasts";
 import ContentBrowser from "./ContentBrowser";
-
-const SOURCE_LABEL: Record<string, string> = {
-  modrinth: "Modrinth",
-  vanillatweaks: "Vanilla Tweaks",
-  upload: "Uploaded",
-};
 
 export default function ResourcePacksTab({
   serverId,
@@ -54,7 +49,7 @@ export default function ResourcePacksTab({
       }
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }, [serverId]);
 
@@ -67,7 +62,7 @@ export default function ResourcePacksTab({
     try {
       await fn();
     } catch (e) {
-      toast.error(e instanceof ApiError || e instanceof Error ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(null);
     }

@@ -9,6 +9,7 @@
 // giving per-metric identity reinforced by the title (direct label).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatBytes } from "../../lib/format";
 import {
   getServerSize,
   getStatsHistory,
@@ -27,13 +28,8 @@ const RANGES = [
   { label: "24h", minutes: 1440 },
 ];
 
-function fmtBytes(bytes: number | null): string {
-  if (bytes === null) return "—";
-  if (bytes >= 1 << 30) return `${(bytes / (1 << 30)).toFixed(2)} GB`;
-  if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
+const fmtBytes = (bytes: number | null): string =>
+  bytes === null ? "—" : formatBytes(bytes);
 
 function fmtMem(mb: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;

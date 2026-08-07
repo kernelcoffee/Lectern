@@ -6,7 +6,7 @@
 // the other Lectern settings on the Properties tab.
 
 import { useCallback, useEffect, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
 import {
   Backup,
   backupDownloadUrl,
@@ -17,12 +17,7 @@ import {
 } from "../../api/backups";
 import { ServerDetail } from "../../api/servers";
 import { useToast } from "../../components/Toasts";
-
-function formatSize(bytes: number): string {
-  if (bytes >= 1 << 30) return `${(bytes / (1 << 30)).toFixed(1)} GB`;
-  if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
+import { formatBytes } from "../../lib/format";
 
 export default function BackupsTab({
   serverId,
@@ -45,7 +40,7 @@ export default function BackupsTab({
       setBackups(await listBackups(serverId));
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }, [serverId]);
 
@@ -58,7 +53,7 @@ export default function BackupsTab({
     try {
       await fn();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -67,7 +62,7 @@ export default function BackupsTab({
   const create = () =>
     run("create", async () => {
       const backup = await createBackup(serverId);
-      toast.success(`Backup created (${formatSize(backup.size_bytes)}).`);
+      toast.success(`Backup created (${formatBytes(backup.size_bytes)}).`);
       await refresh();
     });
 
@@ -127,7 +122,7 @@ export default function BackupsTab({
                 <p className="text-sm truncate">
                   {new Date(b.created_at + "Z").toLocaleString()}{" "}
                   <span className="text-xs text-slate-500">
-                    {formatSize(b.size_bytes)} · {b.trigger}
+                    {formatBytes(b.size_bytes)} · {b.trigger}
                   </span>
                 </p>
                 <p className="text-xs text-slate-500 truncate">{b.filename}</p>

@@ -6,17 +6,8 @@
 // never color-alone anywhere it matters.
 
 import { Route } from "../App";
-import { Server, ServerStatus } from "../api/servers";
-
-const DOT: Record<ServerStatus, string> = {
-  installing: "bg-sky-400",
-  install_failed: "bg-red-500",
-  stopped: "bg-slate-500",
-  starting: "bg-amber-400",
-  running: "bg-emerald-400",
-  stopping: "bg-amber-400",
-  crashed: "bg-red-500",
-};
+import { Server } from "../api/servers";
+import { STATUS_DOT } from "./status";
 
 export default function Sidebar({
   servers,
@@ -90,7 +81,7 @@ export default function Sidebar({
                 icon={
                   <span
                     title={s.status}
-                    className={`w-2 h-2 rounded-full shrink-0 ${DOT[s.status]}`}
+                    className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[s.status]}`}
                   />
                 }
                 active={route.view === "server" && route.id === s.id}

@@ -11,28 +11,18 @@
 //     shown under the server name (same behaviour the old list page had).
 
 import { useEffect, useState } from "react";
-import { ApiError } from "../api/client";
+import { errorMessage } from "../api/client";
 import {
   getServerProgress,
   getServerStats,
   Server,
   serverAction,
   ServerStats,
-  ServerStatus,
 } from "../api/servers";
 import { Route } from "../App";
 import EventsPanel from "../components/EventsPanel";
+import { STATUS_CHIP } from "../components/status";
 import { useToast } from "../components/Toasts";
-
-const CHIP: Record<ServerStatus, string> = {
-  installing: "bg-sky-500 text-slate-900",
-  install_failed: "bg-red-500 text-slate-100",
-  stopped: "bg-slate-600 text-slate-100",
-  starting: "bg-amber-500 text-slate-900",
-  running: "bg-emerald-500 text-slate-900",
-  stopping: "bg-amber-500 text-slate-900",
-  crashed: "bg-red-500 text-slate-100",
-};
 
 export default function Dashboard({
   servers,
@@ -116,7 +106,7 @@ export default function Dashboard({
       await onReload();
     } catch (e) {
       toast.error(
-        `${server.name}: ${e instanceof ApiError ? e.message : String(e)}`,
+        `${server.name}: ${errorMessage(e)}`,
       );
     } finally {
       setBusy(null);
@@ -226,7 +216,7 @@ export default function Dashboard({
                     </td>
                     <td className="px-4 py-2.5">
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-full ${CHIP[s.status]}`}
+                        className={`text-xs px-2 py-0.5 rounded-full ${STATUS_CHIP[s.status]}`}
                       >
                         {s.status}
                       </span>

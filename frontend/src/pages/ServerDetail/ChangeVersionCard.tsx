@@ -11,7 +11,7 @@
 // the refreshed server up so the page header reflects the new version.
 
 import { useEffect, useMemo, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
 import { getFabricLoaders, getMinecraftVersions } from "../../api/catalog";
 import {
   changeServerVersion,
@@ -57,7 +57,7 @@ export default function ChangeVersionCard({
     let live = true;
     getMinecraftVersions(server.type)
       .then((vs) => live && setVersions(vs))
-      .catch((e) => live && setError(e instanceof ApiError ? e.message : String(e)));
+      .catch((e) => live && setError(errorMessage(e)));
     return () => {
       live = false;
     };
@@ -120,7 +120,7 @@ export default function ChangeVersionCard({
       setAckDowngrade(false);
       toast.success(`Version changed to ${res.server.mc_version}.`);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(false);
     }

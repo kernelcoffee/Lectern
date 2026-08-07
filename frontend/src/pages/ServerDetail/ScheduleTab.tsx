@@ -13,7 +13,7 @@
 // friendly controls it was built with.
 
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError } from "../../api/client";
+import { errorMessage } from "../../api/client";
 import {
   createSchedule,
   deleteSchedule,
@@ -22,6 +22,7 @@ import {
   ScheduleAction,
   updateSchedule,
 } from "../../api/schedules";
+import Modal from "../../components/Modal";
 import { useToast } from "../../components/Toasts";
 import {
   buildCron,
@@ -73,7 +74,7 @@ export default function ScheduleTab({ serverId }: { serverId: string }) {
       setSchedules(await listSchedules(serverId));
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e));
     }
   }, [serverId]);
 
@@ -89,7 +90,7 @@ export default function ScheduleTab({ serverId }: { serverId: string }) {
       await refresh();
       return true;
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : String(e);
+      const msg = errorMessage(e);
       // The edit modal shows its error inline (the form stays open with the
       // user's values); list-level ops report through toasts.
       if (key === "edit") setError(msg);
@@ -437,34 +438,13 @@ function EditModal({
   onSubmit: (values: ScheduleFormValues) => void;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onMouseDown={onClose}
+    <Modal
+      onClose={onClose}
+      panelClassName="max-w-2xl max-h-[85vh]"
+      title={<h3 className="text-sm font-semibold text-slate-200">Edit schedule</h3>}
     >
-      <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-slate-700 bg-slate-900 shadow-xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2 border-b border-slate-800 px-4 py-3">
-          <h3 className="flex-1 text-sm font-semibold text-slate-200">Edit schedule</h3>
-          <button
-            onClick={onClose}
-            className="rounded px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
-            aria-label="Close"
-          >
-            ✕
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto p-4">
+      <div className="min-h-0 flex-1 overflow-auto p-4">
           {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
           <ScheduleForm
             initial={schedule}
@@ -475,8 +455,7 @@ function EditModal({
             onCancel={onClose}
           />
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

@@ -11,6 +11,11 @@ export class ApiError extends Error {
   }
 }
 
+/** Human-readable message from any thrown value (ApiError, Error, or other). */
+export function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
