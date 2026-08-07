@@ -63,7 +63,7 @@ type Tab =
   | "properties";
 
 // Server types that load mods — the Mods tab only renders for these.
-const MODDED_TYPES: ServerDetailType["type"][] = ["fabric", "quilt", "paper"];
+const MODDED_TYPES: ServerDetailType["type"][] = ["fabric", "quilt", "neoforge", "forge", "paper"];
 
 // Which controls are enabled for a given status.
 function controlsFor(status: ServerStatus) {

@@ -49,7 +49,7 @@ const TYPE_LABEL: Record<BrowserType, string> = {
   craftingtweak: "Crafting tweaks",
 };
 
-const MODDED_TYPES = ["fabric", "quilt", "paper"];
+const MODDED_TYPES = ["fabric", "quilt", "neoforge", "forge", "paper"];
 const PAGE_SIZE = 20;
 
 /** Which types each provider offers (crafting tweaks are VT-only; mods are

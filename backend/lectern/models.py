@@ -30,6 +30,8 @@ class ServerType(str, enum.Enum):
     vanilla = "vanilla"
     fabric = "fabric"
     quilt = "quilt"
+    neoforge = "neoforge"
+    forge = "forge"
     paper = "paper"
 
 

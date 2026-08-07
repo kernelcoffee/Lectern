@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../../api/client";
-import { getFabricLoaders, getMinecraftVersions } from "../../api/catalog";
+import { getLoaders, getMinecraftVersions } from "../../api/catalog";
 import {
   changeServerVersion,
   MigrationReport,
@@ -21,9 +21,8 @@ import {
 } from "../../api/servers";
 import { useToast } from "../../components/Toasts";
 
-// Server types that carry a loader build (the backend registry only implements
-// Fabric today; vanilla has none).
-const LOADER_TYPES: ServerDetail["type"][] = ["fabric", "quilt"];
+// Server types that carry a loader build (vanilla has none).
+const LOADER_TYPES: ServerDetail["type"][] = ["fabric", "quilt", "neoforge", "forge"];
 
 export default function ChangeVersionCard({
   server,
@@ -69,7 +68,7 @@ export default function ChangeVersionCard({
     let live = true;
     setLoaders(null);
     setLoader(""); // reset to auto when the version changes
-    getFabricLoaders(target)
+    getLoaders(server.type, target)
       .then((ls) => live && setLoaders(ls))
       .catch(() => live && setLoaders([]));
     return () => {

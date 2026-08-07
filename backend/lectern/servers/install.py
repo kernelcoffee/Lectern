@@ -12,6 +12,7 @@ endpoint; a WebSocket feed is layered on in M4.
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -25,7 +26,7 @@ from ..models import Server, ServerStatus
 from ..providers import adoptium, mojang
 from ..providers.base import download_file
 from ..ws import progress_hub
-from .types import get_server_type
+from .types import JarSpec, get_server_type
 
 # --- progress registry -----------------------------------------------------
 
@@ -75,11 +76,20 @@ def render_server_properties(port: int, extra: dict[str, str] | None = None) -> 
 def build_launch_command(
     java_path: str, memory_mb: int, jar_name: str, jvm_args: str = ""
 ) -> list[str]:
-    """Assemble the process argv for launching a server (consumed in M4)."""
+    """Assemble the process argv for launching a server (consumed in M4).
+
+    ``jar_name`` is either a jar (``-jar name.jar``) or, for installer-based
+    types (Forge/NeoForge), a JVM @args file reference (``@libraries/…/
+    unix_args.txt``) passed through verbatim — that file carries the module
+    path and main class the installer laid down."""
     cmd = [java_path, f"-Xmx{memory_mb}M", f"-Xms{memory_mb}M"]
     if jvm_args.strip():
         cmd.extend(jvm_args.split())
-    cmd.extend(["-jar", jar_name, "nogui"])
+    if jar_name.startswith("@"):
+        cmd.append(jar_name)
+    else:
+        cmd.extend(["-jar", jar_name])
+    cmd.append("nogui")
     return cmd
 
 
@@ -132,26 +142,83 @@ async def provision(
     step("resolving", "Resolving server jar…")
     spec = await provider.resolve_jar(mc_version, loader_version)
 
-    step("downloading-jar", f"Downloading {spec.jar_name}…")
-    await download_file(
-        spec.url, server_dir / spec.jar_name, expected_hash=spec.sha1, hash_algo="sha1"
-    )
-
-    # Prefer Mojang's declared requirement (authoritative, e.g. MC 26.2 → 25);
-    # fall back to the version-range heuristic only when it's absent.
+    # Java first: installer-based types (Quilt/Forge/NeoForge) need it to run
+    # their installer. Prefer Mojang's declared requirement (authoritative,
+    # e.g. MC 26.2 → 25); fall back to the range heuristic when absent.
     java_major = await mojang.get_java_major(mc_version)
     if java_major is None:
         java_major = adoptium.java_major_for_mc(mc_version)
     step("installing-java", f"Provisioning Java {java_major}…")
     java_exe = await adoptium.ensure_java(java_major, settings.java_dir)
+    java_path = str(Path(java_exe).resolve())
+
+    step("downloading-jar", f"Downloading {spec.jar_name}…")
+    await download_file(
+        spec.url, server_dir / spec.jar_name, expected_hash=spec.sha1, hash_algo="sha1"
+    )
+
+    if spec.is_installer:
+        step(
+            "running-installer",
+            f"Running the {server.type} installer (downloads libraries — can take a few minutes)…",
+        )
+        launch_target = await run_installer(server_dir, java_path, spec)
+    else:
+        launch_target = spec.jar_name
 
     server.path = str(server_dir)
     server.mc_version = mc_version
-    server.server_jar = spec.jar_name
+    server.server_jar = launch_target
     server.loader_version = spec.loader_version if provider.needs_loader else None
     server.java_major = java_major
-    server.java_path = str(Path(java_exe).resolve())
+    server.java_path = java_path
     return server_dir
+
+
+_INSTALLER_TIMEOUT = 900  # seconds — installers download every library
+
+
+async def run_installer(server_dir: Path, java_path: str, spec: JarSpec) -> str:
+    """Run an installer jar (Quilt/Forge/NeoForge) inside the server dir and
+    return the launch target it produced: a jar name, or ``@<relpath>`` for a
+    JVM args file. Output is kept in ``installer.log`` only on failure; the
+    installer jar itself is removed on success."""
+    log_path = server_dir / "installer.log"
+    proc = await asyncio.create_subprocess_exec(
+        java_path,
+        "-jar",
+        spec.jar_name,
+        *spec.installer_args,
+        cwd=server_dir,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=_INSTALLER_TIMEOUT)
+    except TimeoutError:
+        proc.kill()
+        raise RuntimeError(
+            f"{spec.jar_name} timed out after {_INSTALLER_TIMEOUT}s"
+        ) from None
+    if proc.returncode != 0:
+        log_path.write_bytes(out or b"")
+        tail = (out or b"").decode(errors="replace").strip().splitlines()[-8:]
+        raise RuntimeError(
+            f"{spec.jar_name} failed (exit {proc.returncode}; full output in "
+            f"installer.log): " + " | ".join(tail)
+        )
+    matches = sorted(server_dir.glob(spec.launch_glob or ""))
+    if not matches:
+        log_path.write_bytes(out or b"")
+        raise RuntimeError(
+            f"Installer finished but nothing matched {spec.launch_glob} "
+            "(full output in installer.log)"
+        )
+    target = matches[-1]  # newest when several versions linger after upgrades
+    (server_dir / spec.jar_name).unlink(missing_ok=True)
+    log_path.unlink(missing_ok=True)
+    rel = target.relative_to(server_dir)
+    return f"@{rel}" if target.suffix == ".txt" else str(rel)
 
 
 # --- pipeline --------------------------------------------------------------

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
-from ..providers import fabric
 from ..servers.types import get_server_type, list_server_types
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
@@ -28,6 +27,11 @@ async def minecraft_versions(type: str) -> list[str]:
     return await provider.list_minecraft_versions()
 
 
-@router.get("/loaders/fabric/{mc_version}")
-async def fabric_loaders(mc_version: str) -> list[str]:
-    return await fabric.list_loader_versions(mc_version)
+# NB: `/loaders/fabric/{mc}` keeps working — "fabric" is just one type key.
+@router.get("/loaders/{type}/{mc_version}")
+async def loader_versions(type: str, mc_version: str) -> list[str]:
+    try:
+        provider = get_server_type(type)
+    except KeyError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown server type: {type}")
+    return await provider.list_loader_versions(mc_version)

@@ -53,6 +53,28 @@ async def get_json(
     return data
 
 
+async def get_text(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    ttl: int = _DEFAULT_TTL,
+) -> str:
+    """GET ``url`` and return the raw body (XML metadata etc.), with the same
+    on-disk TTL cache as ``get_json``."""
+    cache_file = _cache_path(url, None)
+    if cache_file.exists() and (time.time() - cache_file.stat().st_mtime) < ttl:
+        return cache_file.read_text()
+
+    request_headers = {"User-Agent": USER_AGENT, **(headers or {})}
+    async with httpx.AsyncClient(headers=request_headers, timeout=30.0, follow_redirects=True) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        text = resp.text
+
+    cache_file.write_text(text)
+    return text
+
+
 class ChecksumMismatch(Exception):
     """Downloaded file's hash does not match the expected one."""
 

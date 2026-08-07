@@ -13,5 +13,7 @@ export const getMinecraftVersions = (type: string) =>
     `/api/catalog/minecraft-versions?type=${encodeURIComponent(type)}`,
   );
 
-export const getFabricLoaders = (mcVersion: string) =>
-  apiGet<string[]>(`/api/catalog/loaders/fabric/${encodeURIComponent(mcVersion)}`);
+export const getLoaders = (type: string, mcVersion: string) =>
+  apiGet<string[]>(
+    `/api/catalog/loaders/${encodeURIComponent(type)}/${encodeURIComponent(mcVersion)}`,
+  );

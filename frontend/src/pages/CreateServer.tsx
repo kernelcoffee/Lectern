@@ -17,7 +17,7 @@ import {
   installProgressUrl,
 } from "../hooks/useInstallProgress";
 import {
-  getFabricLoaders,
+  getLoaders,
   getMinecraftVersions,
   getServerTypes,
   ServerTypeInfo,
@@ -35,6 +35,9 @@ type WorldMode = "none" | "upload" | "url";
 const TYPE_LABELS: Record<string, string> = {
   vanilla: "Vanilla",
   fabric: "Fabric",
+  quilt: "Quilt",
+  neoforge: "NeoForge",
+  forge: "Forge",
 };
 
 export default function CreateServer({ onCreated }: { onCreated: () => void }) {
@@ -128,7 +131,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     setLoader("");
     setLoadingLoaders(true);
     try {
-      const ls = await getFabricLoaders(v);
+      const ls = await getLoaders(forType.key, v);
       setLoaders(ls);
       setLoader(ls[0] ?? "");
     } catch (e) {
@@ -327,7 +330,9 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
 
           {type?.needs_loader && (
             <label className="text-sm space-y-1">
-              <span className="text-slate-400">Fabric loader build</span>
+              <span className="text-slate-400">
+                {TYPE_LABELS[type?.key ?? ""] ?? "Loader"} loader build
+              </span>
               {loadingLoaders ? (
                 <p className="text-sm text-slate-500 py-1.5">Loading loaders…</p>
               ) : (

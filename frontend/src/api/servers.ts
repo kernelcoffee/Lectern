@@ -7,7 +7,13 @@ import {
   apiUpload,
 } from "./client";
 
-export type ServerType = "vanilla" | "fabric" | "quilt" | "paper";
+export type ServerType =
+  | "vanilla"
+  | "fabric"
+  | "quilt"
+  | "neoforge"
+  | "forge"
+  | "paper";
 export type ServerStatus =
   | "installing"
   | "install_failed"
