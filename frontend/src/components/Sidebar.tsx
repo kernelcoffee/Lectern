@@ -72,25 +72,58 @@ export default function Sidebar({
           />
         </ul>
 
+        {/* Proxies get their own section — they front the game servers, so
+            mixing them into one list obscures the topology. */}
+        {servers.some((s) => s.type === "velocity") && (
+          <div>
+            <p className="px-5 pb-1 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+              Proxies
+            </p>
+            <ul>
+              {servers
+                .filter((s) => s.type === "velocity")
+                .map((s) => (
+                  <NavItem
+                    key={s.id}
+                    label={s.name}
+                    icon={
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        <ProxyIcon />
+                        <span
+                          title={s.status}
+                          className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[s.status]}`}
+                        />
+                      </span>
+                    }
+                    active={route.view === "server" && route.id === s.id}
+                    onClick={() => onNavigate({ view: "server", id: s.id })}
+                  />
+                ))}
+            </ul>
+          </div>
+        )}
+
         <div>
           <p className="px-5 pb-1 text-[11px] font-medium uppercase tracking-wider text-slate-500">
             Servers
           </p>
           <ul>
-            {servers.map((s) => (
-              <NavItem
-                key={s.id}
-                label={s.name}
-                icon={
-                  <span
-                    title={s.status}
-                    className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[s.status]}`}
-                  />
-                }
-                active={route.view === "server" && route.id === s.id}
-                onClick={() => onNavigate({ view: "server", id: s.id })}
-              />
-            ))}
+            {servers
+              .filter((s) => s.type !== "velocity")
+              .map((s) => (
+                <NavItem
+                  key={s.id}
+                  label={s.name}
+                  icon={
+                    <span
+                      title={s.status}
+                      className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[s.status]}`}
+                    />
+                  }
+                  active={route.view === "server" && route.id === s.id}
+                  onClick={() => onNavigate({ view: "server", id: s.id })}
+                />
+              ))}
             <NavItem
               label="New server"
               icon={<PlusIcon />}
@@ -154,6 +187,15 @@ function NavItem({
         <span className="truncate">{label}</span>
       </button>
     </li>
+  );
+}
+
+function ProxyIcon() {
+  // Fork/fan-out glyph: one inlet, several outlets — the proxy topology.
+  return (
+    <svg viewBox="0 0 16 16" className="w-3 h-3 fill-current shrink-0 text-slate-500">
+      <path d="M7 1h2v5.2l4.5 3-1.1 1.6L8 7.9l-4.4 2.9-1.1-1.6L7 6.2Zm-5 12a2 2 0 1 1 4 0 2 2 0 0 1-4 0Zm8 0a2 2 0 1 1 4 0 2 2 0 0 1-4 0Z" />
+    </svg>
   );
 }
 

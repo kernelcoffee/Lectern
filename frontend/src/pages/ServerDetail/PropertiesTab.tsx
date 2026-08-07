@@ -56,7 +56,9 @@ export default function PropertiesTab({
         Changes apply the next time the server starts.
       </p>
       <LecternSettingsForm server={server} onServerUpdate={onServerUpdate} />
-      <ServerPropertiesForm serverId={serverId} />
+      {/* Proxies have no server.properties — velocity.toml lives in the
+          Files tab, links in the Proxy tab. */}
+      {server.type !== "velocity" && <ServerPropertiesForm serverId={serverId} />}
     </div>
   );
 }

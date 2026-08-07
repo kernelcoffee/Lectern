@@ -116,6 +116,43 @@ test("create page: security, seed and world-import sections", async ({
   await expect(page.getByRole("button", { name: "Build server" })).toBeVisible();
 });
 
+test("create page: the Proxy kind is explicit and separate", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("aside").getByRole("button", { name: "New server" }).click();
+
+  // Game server is the default; Velocity is NOT in the game-type dropdown.
+  const kindSwitch = page.getByRole("radiogroup", { name: "What to create" });
+  await expect(kindSwitch.getByRole("radio", { name: /Game server/ })).toBeChecked();
+  await expect(page.getByLabel("Server type")).toBeVisible();
+  await expect(
+    page.getByLabel("Server type").locator('option[value="velocity"]'),
+  ).toHaveCount(0);
+
+  // Switching to Proxy: fixed software, proxy version list, no MC-only
+  // sections, and a proxy-specific submit label.
+  await kindSwitch.getByRole("radio", { name: /Proxy/ }).click();
+  await expect(page.getByRole("heading", { name: "New proxy" })).toBeVisible();
+  // Kind-aware prefill: proxies get a proxy name and the public port.
+  await expect(page.getByLabel("Proxy name")).toHaveValue("New proxy", {
+    timeout: 10_000,
+  });
+  await expect(page.getByText("Proxy software")).toBeVisible();
+  await expect(page.getByText("Velocity", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Velocity version")).not.toHaveValue("", {
+    timeout: 15_000,
+  });
+  await expect(page.getByLabel(/World seed/)).not.toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /Enable whitelist/ })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "Build proxy" })).toBeEnabled();
+
+  // And back: the game flow is intact.
+  await kindSwitch.getByRole("radio", { name: /Game server/ }).click();
+  await expect(page.getByLabel("Server type")).toHaveValue("vanilla", {
+    timeout: 15_000,
+  });
+  await expect(page.getByRole("button", { name: "Build server" })).toBeVisible();
+});
+
 test("settings: edit a tunable, save, and see it drive the create form", async ({
   page,
 }) => {

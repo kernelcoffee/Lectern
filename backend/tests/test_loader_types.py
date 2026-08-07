@@ -89,9 +89,17 @@ def test_quilt_loader_versions_sorted_newest_first():
 # --- registry + resolve shapes -------------------------------------------------
 
 
-def test_registry_lists_all_five_types():
-    assert list(REGISTRY) == ["vanilla", "fabric", "quilt", "neoforge", "forge"]
+def test_registry_lists_all_types():
+    assert list(REGISTRY) == [
+        "vanilla",
+        "fabric",
+        "quilt",
+        "neoforge",
+        "forge",
+        "velocity",
+    ]
     assert all(REGISTRY[k].needs_loader for k in ("fabric", "quilt", "neoforge", "forge"))
+    assert getattr(REGISTRY["velocity"], "is_proxy", False) is True
 
 
 def test_installer_specs_have_run_instructions(monkeypatch):

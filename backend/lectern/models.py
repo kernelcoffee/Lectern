@@ -32,6 +32,7 @@ class ServerType(str, enum.Enum):
     quilt = "quilt"
     neoforge = "neoforge"
     forge = "forge"
+    velocity = "velocity"  # proxy, not a game server
     paper = "paper"
 
 

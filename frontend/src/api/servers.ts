@@ -13,6 +13,7 @@ export type ServerType =
   | "quilt"
   | "neoforge"
   | "forge"
+  | "velocity"
   | "paper";
 export type ServerStatus =
   | "installing"
@@ -141,9 +142,9 @@ export interface ServerStats {
 
 export const listServers = () => apiGet<Server[]>("/api/servers");
 /** Next free name/port + configured default memory for the create form. */
-export const suggestServerDefaults = () =>
+export const suggestServerDefaults = (kind: "game" | "proxy" = "game") =>
   apiGet<{ name: string; port: number; memory_mb: number }>(
-    "/api/servers/suggest",
+    `/api/servers/suggest?kind=${kind}`,
   );
 export const getServer = (id: string) =>
   apiGet<ServerDetail>(`/api/servers/${id}`);

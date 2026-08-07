@@ -23,6 +23,8 @@ from ..ws import ConsoleHub
 from .roster import Roster
 
 # Vanilla/Fabric print e.g. `[Server thread/INFO]: Done (12.345s)! For help, …`.
+# Proxies differ — Velocity prints `Listening on /…:25577` when ready, so the
+# manager passes a type-appropriate marker.
 _DONE_MARKER = "Done ("
 # Modded servers emit ANSI color/cursor codes; strip them before display.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
@@ -42,8 +44,10 @@ class ServerProcess:
         cwd: str,
         hub: ConsoleHub,
         on_state: StateCallback,
+        ready_marker: str = _DONE_MARKER,
     ) -> None:
         self.server_id = server_id
+        self.ready_marker = ready_marker
         self.argv = argv
         self.cwd = cwd
         self.hub = hub
@@ -85,7 +89,7 @@ class ServerProcess:
                 line = _ANSI_RE.sub("", raw.decode(errors="replace")).rstrip("\r\n")
                 self.hub.publish(self.server_id, line)
                 self.roster.feed(line)
-                if not self._stopping and _DONE_MARKER in line:
+                if not self._stopping and self.ready_marker in line:
                     await self.on_state(self.server_id, "running")
         finally:
             code = await self._proc.wait()

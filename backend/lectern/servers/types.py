@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..providers import fabric, forge, mojang, neoforge, quilt
+from ..providers import fabric, forge, mojang, neoforge, papermc, quilt
 
 
 @dataclass
@@ -30,8 +30,9 @@ class JarSpec:
     # the record stores exactly what was installed.
     loader_version: str | None = None
     # Publisher-declared jar hash, verified on download when available.
-    # Mojang publishes SHA1; the loader metas publish none.
+    # Mojang publishes SHA1, PaperMC SHA256; the loader metas publish none.
     sha1: str | None = None
+    sha256: str | None = None
     # Installer shape only:
     installer_args: list[str] = field(default_factory=list)
     # Glob (relative to the server dir) locating the runnable target after the
@@ -90,6 +91,33 @@ class FabricType:
         # Fabric's meta endpoint serves a self-contained launcher jar.
         return JarSpec(
             url=url, jar_name="fabric-server-launch.jar", loader_version=loader_version
+        )
+
+
+class VelocityType:
+    """Velocity proxy — not a Minecraft server: no world, no EULA, no mods.
+    The "Minecraft version" slot holds the Velocity version. Proxy-specific
+    behavior (config scaffold, tab trimming) keys off ``is_proxy``."""
+
+    key = "velocity"
+    needs_loader = False
+    is_proxy = True
+    # No Mojang manifest to consult. Velocity 4 is compiled for Java 25
+    # (class file 69); newer runtimes also run the 3.x line fine.
+    java_major = 25
+
+    async def list_minecraft_versions(self) -> list[str]:
+        return await papermc.list_velocity_versions()
+
+    async def list_loader_versions(self, mc_version: str) -> list[str]:
+        return []
+
+    async def resolve_jar(
+        self, mc_version: str, loader_version: str | None = None
+    ) -> JarSpec:
+        build = await papermc.latest_velocity_build(mc_version)
+        return JarSpec(
+            url=build["url"], jar_name="velocity.jar", sha256=build["sha256"] or None
         )
 
 
@@ -192,8 +220,22 @@ class ForgeType:
 
 REGISTRY: dict[str, object] = {
     t.key: t
-    for t in (VanillaType(), FabricType(), QuiltType(), NeoForgeType(), ForgeType())
+    for t in (
+        VanillaType(),
+        FabricType(),
+        QuiltType(),
+        NeoForgeType(),
+        ForgeType(),
+        VelocityType(),
+    )
 }
+
+
+def is_proxy_type(key: str) -> bool:
+    try:
+        return bool(getattr(get_server_type(key), "is_proxy", False))
+    except KeyError:
+        return False
 
 
 def get_server_type(key: str):

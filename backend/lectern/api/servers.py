@@ -61,11 +61,12 @@ from ..models import (
 from ..providers.base import download_file
 from ..servers import properties as props
 from ..servers import stats as stats_mod
+from ..servers import velocity, world_import
 from ..servers import version_change as version_change_mod
-from ..servers import world_import
 from ..servers.install import eula_accepted, get_progress, install_server, set_eula
 from ..servers.manager import ManagerError, manager
 from ..servers.stats_sampler import stats_sampler
+from ..servers.types import is_proxy_type
 from ..ws import progress_hub
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
@@ -92,7 +93,11 @@ def _detail(server: Server) -> ServerDetailRead:
         backup_max=server.backup_max,
         backup_compress=server.backup_compress,
         backup_stop_server=server.backup_stop_server,
-        eula_accepted=eula_accepted(Path(server.path)) if server.path else False,
+        eula_accepted=(
+            True
+            if is_proxy_type(server.type)
+            else (eula_accepted(Path(server.path)) if server.path else False)
+        ),
         running=manager.is_running(server.id),
     )
 
@@ -102,20 +107,40 @@ def list_servers(session: Session = Depends(get_session)) -> list[Server]:
     return list(session.exec(select(Server).order_by(Server.created_at)).all())
 
 
+# The port players actually reach (docker-compose publishes exactly this one).
+PUBLIC_PORT = 25565
+# Suggested range for game servers once a proxy exists: clearly internal —
+# backends behind a proxy are reached via 127.0.0.1, not the LAN.
+BACKEND_PORT_BASE = 25600
+
+
 # NB: declared before GET /{server_id} so "suggest" isn't read as an id.
 @router.get("/suggest", response_model=ServerSuggestRead)
-def suggest_defaults(session: Session = Depends(get_session)) -> ServerSuggestRead:
+def suggest_defaults(
+    kind: str = "game", session: Session = Depends(get_session)
+) -> ServerSuggestRead:
     """First free name/port for the create form (mirrors _check_conflicts:
-    names compared case/whitespace-insensitively, ports across all servers)."""
+    names compared case/whitespace-insensitively).
+
+    Port policy assumes a proxy sits in FRONT of game servers:
+    - proxies claim the public port (25565 up), ignoring game servers that
+      may be configured on it — linking moves those backends off it;
+    - game servers never get a proxy's port suggested, and once any proxy
+      exists they're suggested clearly-internal ports (25600 up)."""
     servers = session.exec(select(Server)).all()
     taken_names = {s.name.strip().lower() for s in servers}
-    base = "New server"
+    base = "New proxy" if kind == "proxy" else "New server"
     name, n = base, 2
     while name.lower() in taken_names:
         name = f"{base} {n}"
         n += 1
-    taken_ports = {s.port for s in servers}
-    port = 25565
+    proxy_ports = {s.port for s in servers if is_proxy_type(s.type)}
+    if kind == "proxy":
+        taken_ports = proxy_ports
+        port = PUBLIC_PORT
+    else:
+        taken_ports = {s.port for s in servers}
+        port = BACKEND_PORT_BASE if proxy_ports else PUBLIC_PORT
     while port in taken_ports:
         port += 1
     return ServerSuggestRead(
@@ -164,6 +189,8 @@ def create_server(
         whitelist=payload.whitelist,
         status=ServerStatus.installing.value,
     )
+    if is_proxy_type(server.type):
+        server.stop_command = "shutdown"  # Velocity's console command
     session.add(server)
     session.commit()
     session.refresh(server)
@@ -369,9 +396,13 @@ def update_server_settings(
 
     if "port" in updates and server.path:
         server_dir = Path(server.path)
-        file_props = props.read_properties(server_dir)
-        file_props["server-port"] = str(updates["port"])
-        props.write_properties(server_dir, file_props)
+        if is_proxy_type(server.type):
+            with contextlib.suppress(velocity.VelocityConfigError):
+                velocity.set_bind_port(server_dir, updates["port"])
+        else:
+            file_props = props.read_properties(server_dir)
+            file_props["server-port"] = str(updates["port"])
+            props.write_properties(server_dir, file_props)
 
     session.add(server)
     session.commit()

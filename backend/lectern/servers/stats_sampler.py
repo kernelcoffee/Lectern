@@ -30,6 +30,8 @@ from ..db import engine
 from ..models import Server, ServerStat
 from . import properties as props
 from . import stats as stats_mod
+from . import velocity
+from .types import is_proxy_type
 
 log = logging.getLogger(__name__)
 
@@ -62,11 +64,17 @@ def _dir_size(path: Path) -> int:
 
 
 def effective_port(server: Server) -> int:
-    """The port the server actually bound: server.properties wins over the DB."""
+    """The port the server actually bound: the on-disk config
+    (server.properties, or velocity.toml's bind for proxies) wins over the DB."""
     if server.path:
-        file_port = props.read_properties(Path(server.path)).get("server-port")
-        if file_port is not None and file_port.isdigit():
-            return int(file_port)
+        if is_proxy_type(server.type):
+            bind_port = velocity.get_bind_port(Path(server.path))
+            if bind_port is not None:
+                return bind_port
+        else:
+            file_port = props.read_properties(Path(server.path)).get("server-port")
+            if file_port is not None and file_port.isdigit():
+                return int(file_port)
     return server.port
 
 

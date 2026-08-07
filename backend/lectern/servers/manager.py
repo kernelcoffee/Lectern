@@ -22,6 +22,7 @@ from .. import events
 from ..db import engine
 from ..models import Server, ServerStatus
 from ..servers.install import build_launch_command, eula_accepted
+from ..servers.types import is_proxy_type
 from ..ws import ConsoleHub
 from .process import ServerProcess
 
@@ -153,7 +154,8 @@ class ServerManager:
                 raise NotRunning("Server not found")
             if not server.server_jar or not server.java_path or not server.path:
                 raise NotInstalled("Server is not installed yet")
-            if not eula_accepted(Path(server.path)):
+            # Proxies (Velocity) have no Minecraft EULA to accept.
+            if not is_proxy_type(server.type) and not eula_accepted(Path(server.path)):
                 raise EulaNotAccepted("The Minecraft EULA must be accepted first")
             # Never launch a java binary located *inside* the server directory —
             # a mod could drop one there and get it executed (ref: crafty-4).
@@ -178,8 +180,10 @@ class ServerManager:
                     raise PortInUse(
                         f'Port {my_port} is already in use by "{other.name}"'
                     )
+            proxy = is_proxy_type(server.type)
             argv = build_launch_command(
-                server.java_path, server.memory_mb, server.server_jar, server.jvm_args
+                server.java_path, server.memory_mb, server.server_jar, server.jvm_args,
+                nogui=not proxy,
             )
             cwd = server.path
             # Drop rotated logs past the retention window before this run adds more.
@@ -191,7 +195,11 @@ class ServerManager:
             session.commit()
 
         self.hub.clear(server_id)
-        proc = ServerProcess(server_id, argv, cwd, self.hub, self._on_state)
+        # Proxies signal readiness differently (Velocity: "Listening on …").
+        ready_marker = "Listening on" if proxy else "Done ("
+        proc = ServerProcess(
+            server_id, argv, cwd, self.hub, self._on_state, ready_marker=ready_marker
+        )
         self._procs[server_id] = proc
         self.hub.publish(server_id, f"[lectern] starting: {' '.join(argv)}")
         await proc.start()

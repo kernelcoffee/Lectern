@@ -45,6 +45,7 @@ import ModsTab from "./ModsTab";
 import MonitorPanel from "./MonitorPanel";
 import PlayersTab from "./PlayersTab";
 import PropertiesTab from "./PropertiesTab";
+import ProxyTab from "./ProxyTab";
 import ResourcePacksTab from "./ResourcePacksTab";
 import ScheduleTab from "./ScheduleTab";
 import StatsBar from "./StatsBar";
@@ -52,6 +53,7 @@ import StatsBar from "./StatsBar";
 type Tab =
   | "console"
   | "metrics"
+  | "proxy"
   | "players"
   | "mods"
   | "resourcepacks"
@@ -204,6 +206,8 @@ export default function ServerDetail({
   const c = controlsFor(server.status);
   const installing =
     server.status === "installing" || server.status === "install_failed";
+  // Proxies aren't Minecraft servers: no players/content/version tabs.
+  const isProxy = server.type === "velocity";
 
   return (
     <div className="p-4 sm:p-6 space-y-5">
@@ -340,11 +344,20 @@ export default function ServerDetail({
               active={tab === "metrics"}
               onClick={() => setTab("metrics")}
             />
-            <TabButton
-              label="Players"
-              active={tab === "players"}
-              onClick={() => setTab("players")}
-            />
+            {isProxy && (
+              <TabButton
+                label="Proxy"
+                active={tab === "proxy"}
+                onClick={() => setTab("proxy")}
+              />
+            )}
+            {!isProxy && (
+              <TabButton
+                label="Players"
+                active={tab === "players"}
+                onClick={() => setTab("players")}
+              />
+            )}
             {MODDED_TYPES.includes(server.type) && (
               <TabButton
                 label="Mods"
@@ -352,16 +365,20 @@ export default function ServerDetail({
                 onClick={() => setTab("mods")}
               />
             )}
-            <TabButton
-              label="Resource packs"
-              active={tab === "resourcepacks"}
-              onClick={() => setTab("resourcepacks")}
-            />
-            <TabButton
-              label="Datapacks"
-              active={tab === "datapacks"}
-              onClick={() => setTab("datapacks")}
-            />
+            {!isProxy && (
+              <TabButton
+                label="Resource packs"
+                active={tab === "resourcepacks"}
+                onClick={() => setTab("resourcepacks")}
+              />
+            )}
+            {!isProxy && (
+              <TabButton
+                label="Datapacks"
+                active={tab === "datapacks"}
+                onClick={() => setTab("datapacks")}
+              />
+            )}
             <TabButton
               label="Backups"
               active={tab === "backups"}
@@ -377,11 +394,13 @@ export default function ServerDetail({
               active={tab === "files"}
               onClick={() => setTab("files")}
             />
-            <TabButton
-              label="Version"
-              active={tab === "version"}
-              onClick={() => setTab("version")}
-            />
+            {!isProxy && (
+              <TabButton
+                label="Version"
+                active={tab === "version"}
+                onClick={() => setTab("version")}
+              />
+            )}
             <TabButton
               label="Properties"
               active={tab === "properties"}
@@ -409,6 +428,7 @@ export default function ServerDetail({
             />
           )}
           {tab === "metrics" && <MonitorPanel serverId={serverId} />}
+          {tab === "proxy" && <ProxyTab serverId={serverId} />}
           {tab === "players" && <PlayersTab serverId={serverId} />}
           {tab === "schedule" && <ScheduleTab serverId={serverId} />}
           {tab === "files" && <FilesTab serverId={serverId} />}

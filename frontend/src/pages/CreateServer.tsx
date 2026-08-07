@@ -38,11 +38,18 @@ const TYPE_LABELS: Record<string, string> = {
   quilt: "Quilt",
   neoforge: "NeoForge",
   forge: "Forge",
+  velocity: "Velocity (proxy)",
 };
+
+// Proxies are created from the same page but as an explicit, separate kind —
+// picking "Proxy" locks the software to Velocity and hides everything
+// Minecraft-specific (seed, whitelist, world import).
+type CreateKind = "game" | "proxy";
 
 export default function CreateServer({ onCreated }: { onCreated: () => void }) {
   const [types, setTypes] = useState<ServerTypeInfo[]>([]);
   const [type, setType] = useState<ServerTypeInfo | null>(null);
+  const [kind, setKind] = useState<CreateKind>("game");
 
   const [mcVersions, setMcVersions] = useState<string[]>([]);
   const [mcVersion, setMcVersion] = useState("");
@@ -77,8 +84,8 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
   // 2", port 25566, …) so stacking servers needs no manual deconfliction.
   // Applied only to untouched fields — a slow response must never overwrite
   // something the user already typed.
-  const applySuggestion = () =>
-    suggestServerDefaults()
+  const applySuggestion = (forKind: CreateKind = "game") =>
+    suggestServerDefaults(forKind)
       .then((s) => {
         setName((prev) => (prev === "" ? s.name : prev));
         setPort((prev) => (prev === 25565 ? s.port : prev));
@@ -160,6 +167,24 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
       setLoaders([]);
       setLoader("");
     }
+  }
+
+  const gameTypes = types.filter((t) => t.key !== "velocity");
+  const proxyType = types.find((t) => t.key === "velocity") ?? null;
+
+  function chooseKind(next: CreateKind) {
+    if (next === kind) return;
+    setKind(next);
+    setWorldMode("none");
+    // Re-prefill for the new kind (proxies get the public port + a proxy
+    // name); anything the user already typed would survive applySuggestion's
+    // untouched-only guards, but a kind switch is a fresh start — reset.
+    setName("");
+    setPort(25565);
+    setMemory(2048);
+    applySuggestion(next);
+    const target = next === "proxy" ? proxyType : gameTypes[0] ?? null;
+    if (target) chooseType(target);
   }
 
   const worldReady =
@@ -262,7 +287,9 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
 
   return (
     <div className="p-4 sm:p-6 space-y-5">
-      <h2 className="text-xl font-semibold">New server</h2>
+      <h2 className="text-xl font-semibold">
+        {kind === "proxy" ? "New proxy" : "New server"}
+      </h2>
 
       <form
         onSubmit={(e) => {
@@ -271,9 +298,38 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
         }}
         className="rounded-lg border border-slate-800 p-5 space-y-5 max-w-3xl"
       >
+        {/* What is being created — a game server, or a proxy in front of them. */}
+        <div className="flex gap-2" role="radiogroup" aria-label="What to create">
+          {(
+            [
+              ["game", "Game server", "runs a Minecraft world"],
+              ["proxy", "Proxy", "one address in front of your servers"],
+            ] as const
+          ).map(([value, label, hint]) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={kind === value}
+              onClick={() => chooseKind(value)}
+              className={
+                "flex-1 rounded-lg border px-3 py-2 text-left " +
+                (kind === value
+                  ? "border-emerald-500 bg-emerald-950/30"
+                  : "border-slate-700 hover:border-slate-500")
+              }
+            >
+              <span className="block text-sm font-medium">{label}</span>
+              <span className="block text-xs text-slate-500">{hint}</span>
+            </button>
+          ))}
+        </div>
+
         <div className="grid sm:grid-cols-2 gap-4">
           <label className="text-sm space-y-1 sm:col-span-2">
-            <span className="text-slate-400">Server name</span>
+            <span className="text-slate-400">
+              {kind === "proxy" ? "Proxy name" : "Server name"}
+            </span>
             <input
               required
               autoFocus
@@ -284,29 +340,40 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
             />
           </label>
 
-          <label className="text-sm space-y-1">
-            <span className="text-slate-400">Server type</span>
-            <select
-              value={type?.key ?? ""}
-              onChange={(e) => {
-                const t = types.find((x) => x.key === e.target.value);
-                if (t) chooseType(t);
-              }}
-              disabled={types.length === 0}
-              className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 disabled:opacity-50"
-            >
-              {types.length === 0 && <option value="">Loading types…</option>}
-              {types.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {TYPE_LABELS[t.key] ?? t.key}
-                  {t.needs_loader ? " (mod loader)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
+          {kind === "game" ? (
+            <label className="text-sm space-y-1">
+              <span className="text-slate-400">Server type</span>
+              <select
+                value={type?.key ?? ""}
+                onChange={(e) => {
+                  const t = types.find((x) => x.key === e.target.value);
+                  if (t) chooseType(t);
+                }}
+                disabled={types.length === 0}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 disabled:opacity-50"
+              >
+                {types.length === 0 && <option value="">Loading types…</option>}
+                {gameTypes.map((t) => (
+                  <option key={t.key} value={t.key}>
+                    {TYPE_LABELS[t.key] ?? t.key}
+                    {t.needs_loader ? " (mod loader)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="text-sm space-y-1">
+              <span className="text-slate-400">Proxy software</span>
+              <p className="rounded border border-slate-700 bg-slate-800/50 px-2.5 py-1.5 text-slate-300">
+                Velocity
+              </p>
+            </div>
+          )}
 
           <label className="text-sm space-y-1">
-            <span className="text-slate-400">Minecraft version</span>
+            <span className="text-slate-400">
+              {type?.key === "velocity" ? "Velocity version" : "Minecraft version"}
+            </span>
             {loadingVersions ? (
               <p className="text-sm text-slate-500 py-1.5">Loading versions…</p>
             ) : (
@@ -396,7 +463,9 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
             </label>
           </div>
 
-          {/* World seed — first-generation only; a matching world ignores it. */}
+          {/* World seed — first-generation only; a matching world ignores it.
+              Proxies have no world. */}
+          {type?.key !== "velocity" && (
           <label className="block text-sm space-y-1 max-w-md">
             <span className="text-slate-400">World seed (optional)</span>
             <input
@@ -413,9 +482,11 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
                 : "Ignored when importing a world — that world's seed is kept."}
             </span>
           </label>
+          )}
         </div>
 
-        {/* Security */}
+        {/* Security — MC servers only (a proxy has no whitelist of its own). */}
+        {type?.key !== "velocity" && (
         <div className="space-y-3">
           <div>
             <h3 className="text-sm font-medium text-slate-300">Security</h3>
@@ -441,8 +512,10 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
             </span>
           </label>
         </div>
+        )}
 
-        {/* Import a world (optional) */}
+        {/* Import a world (optional) — MC servers only. */}
+        {type?.key !== "velocity" && (
         <div className="space-y-3">
           <div>
             <h3 className="text-sm font-medium text-slate-300">
@@ -523,6 +596,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
             )}
           </div>
         </div>
+        )}
 
         <div className="flex items-center gap-2 pt-1">
           <button
@@ -532,9 +606,11 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
           >
             {submitting
               ? statusMsg ?? "Creating…"
-              : worldMode === "none"
-                ? "Build server"
-                : "Build server + import world"}
+              : kind === "proxy"
+                ? "Build proxy"
+                : worldMode === "none"
+                  ? "Build server"
+                  : "Build server + import world"}
           </button>
           <button
             type="button"

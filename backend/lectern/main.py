@@ -20,6 +20,7 @@ from .api import content as content_api
 from .api import events as events_api
 from .api import files as files_api
 from .api import players as players_api
+from .api import proxy as proxy_api
 from .api import schedules as schedules_api
 from .api import servers as servers_api
 from .api import settings as settings_api
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(files_api.router)
     app.include_router(settings_api.router)
     app.include_router(players_api.router)
+    app.include_router(proxy_api.router)
     app.include_router(events_api.router)
 
     # Production: serve the built SPA from the same origin (no CORS, one port).

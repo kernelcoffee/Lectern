@@ -9,9 +9,10 @@ from lectern.providers import fabric, mojang
 def test_server_types(client):
     types = client.get("/api/catalog/server-types").json()
     keys = {t["key"] for t in types}
-    assert keys == {"vanilla", "fabric", "quilt", "neoforge", "forge"}
+    assert keys == {"vanilla", "fabric", "quilt", "neoforge", "forge", "velocity"}
     needs_loader = {t["key"]: t["needs_loader"] for t in types}
     assert needs_loader["vanilla"] is False
+    assert needs_loader["velocity"] is False
     assert all(needs_loader[k] for k in ("fabric", "quilt", "neoforge", "forge"))
 
 

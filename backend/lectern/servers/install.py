@@ -26,6 +26,7 @@ from ..models import Server, ServerStatus
 from ..providers import adoptium, mojang
 from ..providers.base import download_file
 from ..ws import progress_hub
+from . import velocity
 from .types import JarSpec, get_server_type
 
 # --- progress registry -----------------------------------------------------
@@ -74,7 +75,8 @@ def render_server_properties(port: int, extra: dict[str, str] | None = None) -> 
 
 
 def build_launch_command(
-    java_path: str, memory_mb: int, jar_name: str, jvm_args: str = ""
+    java_path: str, memory_mb: int, jar_name: str, jvm_args: str = "",
+    *, nogui: bool = True,
 ) -> list[str]:
     """Assemble the process argv for launching a server (consumed in M4).
 
@@ -89,7 +91,8 @@ def build_launch_command(
         cmd.append(jar_name)
     else:
         cmd.extend(["-jar", jar_name])
-    cmd.append("nogui")
+    if nogui:
+        cmd.append("nogui")
     return cmd
 
 
@@ -143,9 +146,13 @@ async def provision(
     spec = await provider.resolve_jar(mc_version, loader_version)
 
     # Java first: installer-based types (Quilt/Forge/NeoForge) need it to run
-    # their installer. Prefer Mojang's declared requirement (authoritative,
-    # e.g. MC 26.2 → 25); fall back to the range heuristic when absent.
-    java_major = await mojang.get_java_major(mc_version)
+    # their installer. A type may pin its own requirement (Velocity — its
+    # "mc_version" is a proxy version Mojang knows nothing about); otherwise
+    # prefer Mojang's declared requirement (authoritative, e.g. MC 26.2 → 25)
+    # and fall back to the range heuristic when absent.
+    java_major = getattr(provider, "java_major", None)
+    if java_major is None:
+        java_major = await mojang.get_java_major(mc_version)
     if java_major is None:
         java_major = adoptium.java_major_for_mc(mc_version)
     step("installing-java", f"Provisioning Java {java_major}…")
@@ -153,8 +160,11 @@ async def provision(
     java_path = str(Path(java_exe).resolve())
 
     step("downloading-jar", f"Downloading {spec.jar_name}…")
+    expected, algo = (
+        (spec.sha256, "sha256") if spec.sha256 else (spec.sha1, "sha1")
+    )
     await download_file(
-        spec.url, server_dir / spec.jar_name, expected_hash=spec.sha1, hash_algo="sha1"
+        spec.url, server_dir / spec.jar_name, expected_hash=expected, hash_algo=algo
     )
 
     if spec.is_installer:
@@ -279,17 +289,22 @@ async def _run(session: Session, server: Server) -> None:
     )
 
     _set(server.id, "writing-config", "Writing configuration…")
-    (server_dir / "eula.txt").write_text("eula=false\n")
-    # Create-time server.properties overrides: white-list secure-by-default, and
-    # a chosen world seed. Both only matter for the first launch/world-gen.
-    extra: dict[str, str] = {}
-    if server.whitelist:
-        extra["white-list"] = "true"
-    if server.seed.strip():
-        extra["level-seed"] = server.seed.strip()
-    (server_dir / "server.properties").write_text(
-        render_server_properties(server.port, extra or None)
-    )
+    if getattr(get_server_type(server.type), "is_proxy", False):
+        # Proxies have no EULA and no server.properties — scaffold
+        # velocity.toml (bind port, modern forwarding) + the secret instead.
+        velocity.write_initial_config(server_dir, port=server.port)
+    else:
+        (server_dir / "eula.txt").write_text("eula=false\n")
+        # Create-time server.properties overrides: white-list secure-by-default,
+        # and a chosen world seed. Both only matter for first launch/world-gen.
+        extra: dict[str, str] = {}
+        if server.whitelist:
+            extra["white-list"] = "true"
+        if server.seed.strip():
+            extra["level-seed"] = server.seed.strip()
+        (server_dir / "server.properties").write_text(
+            render_server_properties(server.port, extra or None)
+        )
 
     # The downloads above can take minutes — bail out (and clean up) if the
     # record was deleted meanwhile, instead of re-inserting it below.
