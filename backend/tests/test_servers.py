@@ -113,6 +113,34 @@ def test_console_ws_replays_history(client):
         assert ws.receive_text() == "live line"
 
 
+def test_install_progress_ws_snapshots_then_streams(client):
+    from lectern.servers import install
+
+    # Snapshot on connect comes from the registry…
+    install._set("wspid", "download_jar", "Downloading server jar")
+    with client.websocket_connect("/ws/servers/wspid/install") as ws:
+        first = ws.receive_json()
+        assert first["step"] == "download_jar"
+        assert first["done"] is False
+        # …then live updates stream through the hub; a terminal event ends
+        # the stream (the server closes the socket, not the client).
+        install._set("wspid", "done", "Ready", done=True)
+        second = ws.receive_json()
+        assert second["done"] is True
+        assert second["message"] == "Ready"
+    install._progress.pop("wspid", None)
+
+
+def test_install_progress_ws_closes_on_already_done(client):
+    from lectern.servers import install
+
+    install._set("wspid2", "done", "Ready", done=True)
+    with client.websocket_connect("/ws/servers/wspid2/install") as ws:
+        snap = ws.receive_json()
+        assert snap["done"] is True
+    install._progress.pop("wspid2", None)
+
+
 def test_create_validation_error(client):
     # Missing required mc_version.
     resp = client.post("/api/servers", json={"name": "x", "type": "fabric"})

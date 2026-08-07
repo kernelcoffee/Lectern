@@ -80,8 +80,9 @@ export default function App() {
         </button>
         <button
           onClick={() => go({ view: "dashboard" })}
-          className="text-base font-semibold tracking-tight"
+          className="flex items-center gap-2 text-base font-semibold tracking-tight"
         >
+          <img src="/lectern.svg" alt="" className="h-6 w-6" />
           Lectern
         </button>
       </header>

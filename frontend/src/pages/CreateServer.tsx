@@ -13,6 +13,10 @@
 import { useEffect, useState } from "react";
 import { ApiError, errorMessage } from "../api/client";
 import {
+  InstallProgress,
+  installProgressUrl,
+} from "../hooks/useInstallProgress";
+import {
   getFabricLoaders,
   getMinecraftVersions,
   getServerTypes,
@@ -166,9 +170,11 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
     (!type.needs_loader || loader !== "") &&
     worldReady;
 
-  // Poll install progress to completion — the world can only be imported once
-  // the pipeline has provisioned the server dir (path set, status stopped).
-  async function waitForInstalled(id: string) {
+  // Wait for the install pipeline — the world can only be imported once the
+  // pipeline has provisioned the server dir (path set, status stopped).
+  // WebSocket-first (live step messages, no polling); falls back to the old
+  // 1s poll loop if the socket can't connect or dies mid-install.
+  async function pollUntilInstalled(id: string) {
     for (let i = 0; i < 900; i++) {
       const p = await getServerProgress(id);
       if (p.error) throw new ApiError(0, `Install failed: ${p.error}`);
@@ -177,6 +183,32 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
       await new Promise((r) => setTimeout(r, 1000));
     }
     throw new ApiError(0, "Timed out waiting for the server to install");
+  }
+
+  function waitForInstalled(id: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(installProgressUrl(id));
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        ws.onmessage = ws.onclose = ws.onerror = null;
+        ws.close();
+        fn();
+      };
+      ws.onmessage = (event) => {
+        const p = JSON.parse(event.data as string) as InstallProgress;
+        if (p.error)
+          return settle(() =>
+            reject(new ApiError(0, `Install failed: ${p.error}`)),
+          );
+        setStatusMsg(p.message || "Provisioning server…");
+        if (p.done) settle(resolve);
+      };
+      // Error or an early close (backend restart mid-install): fall back to
+      // polling rather than failing the whole create.
+      ws.onerror = ws.onclose = () => settle(() => resolve(pollUntilInstalled(id)));
+    });
   }
 
   async function submit() {

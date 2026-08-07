@@ -45,3 +45,32 @@ class ConsoleHub:
     def clear(self, server_id: str) -> None:
         """Drop scrollback (used when a server is (re)started)."""
         self._history.pop(server_id, None)
+
+
+class ProgressHub:
+    """Install-progress fan-out: subscribers receive every update as a dict.
+
+    Unlike the console there is no history here — the current snapshot lives
+    in the install progress registry (``servers.install.get_progress``); the
+    WS route replays that one snapshot on connect and this hub only carries
+    live updates.
+    """
+
+    def __init__(self) -> None:
+        self._subs: dict[str, set[asyncio.Queue[dict]]] = defaultdict(set)
+
+    def publish(self, server_id: str, event: dict) -> None:
+        for queue in list(self._subs.get(server_id, ())):
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait(event)
+
+    def subscribe(self, server_id: str) -> asyncio.Queue[dict]:
+        queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
+        self._subs[server_id].add(queue)
+        return queue
+
+    def unsubscribe(self, server_id: str, queue: asyncio.Queue[dict]) -> None:
+        self._subs[server_id].discard(queue)
+
+
+progress_hub = ProgressHub()

@@ -47,10 +47,13 @@ export default function Sidebar({
       {/* Brand */}
       <button
         onClick={() => onNavigate({ view: "dashboard" })}
-        className="px-5 py-4 text-left border-b border-slate-800/60"
+        className="flex items-center gap-2.5 px-5 py-4 text-left border-b border-slate-800/60"
       >
-        <h1 className="text-lg font-semibold tracking-tight">Lectern</h1>
-        <p className="text-[11px] text-slate-500">Minecraft server manager</p>
+        <img src="/lectern.svg" alt="" className="h-7 w-7 shrink-0" />
+        <span>
+          <h1 className="text-lg font-semibold tracking-tight">Lectern</h1>
+          <p className="text-[11px] text-slate-500">Minecraft server manager</p>
+        </span>
       </button>
 
       <nav className="flex-1 overflow-y-auto py-3 space-y-6">

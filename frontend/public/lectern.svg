@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Lectern mark: slanted reading desk on a column. Slate tile + emerald
+       glyph, matching the app's palette (slate-950 / emerald-400). -->
+  <rect width="32" height="32" rx="7" fill="#0f172a"/>
+  <path d="M6 12.5 26 6.5 v5 L6 17.5 Z" fill="#34d399"/>
+  <rect x="14.4" y="15" width="3.2" height="9" fill="#34d399"/>
+  <rect x="9.5" y="23.5" width="13" height="2.8" rx="1.2" fill="#34d399"/>
+</svg>

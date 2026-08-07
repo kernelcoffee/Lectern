@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/client";
 import { STATUS_CHIP } from "../../components/status";
 import { useToast } from "../../components/Toasts";
+import { useInstallProgress } from "../../hooks/useInstallProgress";
 import {
   acceptEula,
   cloneServer,
@@ -97,6 +98,10 @@ export default function ServerDetail({
   const [busy, setBusy] = useState<ServerAction | "eula" | "delete" | "clone" | null>(null);
   const [tab, setTab] = useState<Tab>("console");
   const toast = useToast();
+  // Live pipeline step while installing (WS; null once done/not installing).
+  const installProgress = useInstallProgress(
+    server?.status === "installing" ? serverId : null,
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -110,6 +115,12 @@ export default function ServerDetail({
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // The WS's terminal event is the moment the record flips (stopped or
+  // install_failed) — refetch so the page swaps to the real controls.
+  useEffect(() => {
+    if (installProgress?.done || installProgress?.error) refresh();
+  }, [installProgress?.done, installProgress?.error, refresh]);
 
   // Poll while a transition is in flight so the status chip follows the process.
   useEffect(() => {
@@ -299,11 +310,20 @@ export default function ServerDetail({
         </div>
       )}
 
-      {installing && (
-        <p className="text-sm text-sky-400">
-          Server is still installing — controls appear once it is ready.
-        </p>
-      )}
+      {installing &&
+        (server.status === "install_failed" ? (
+          <p className="text-sm text-red-400">
+            Install failed
+            {installProgress?.error ? ` — ${installProgress.error}` : ""}. Delete
+            the server and try again.
+          </p>
+        ) : (
+          <p className="text-sm text-sky-400">
+            Server is still installing
+            {installProgress ? ` — ${installProgress.message}` : ""}… controls
+            appear once it is ready.
+          </p>
+        ))}
 
       {/* Tabs — plain conditional rendering, no router. */}
       {!installing && (

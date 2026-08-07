@@ -14,6 +14,7 @@ import shutil
 import tempfile
 import time
 import uuid
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -65,6 +66,7 @@ from ..servers import world_import
 from ..servers.install import eula_accepted, get_progress, install_server, set_eula
 from ..servers.manager import ManagerError, manager
 from ..servers.stats_sampler import stats_sampler
+from ..ws import progress_hub
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
 
@@ -690,3 +692,29 @@ async def console_ws(websocket: WebSocket, server_id: str) -> None:
     finally:
         forward_task.cancel()
         hub.unsubscribe(server_id, queue)
+
+
+@console_router.websocket("/ws/servers/{server_id}/install")
+async def install_progress_ws(websocket: WebSocket, server_id: str) -> None:
+    """Stream install progress: current snapshot (if an install is tracked),
+    then live updates. Closes itself after a terminal event so short-lived
+    clients don't need their own teardown logic."""
+    await websocket.accept()
+    # Subscribe BEFORE reading the snapshot so no update can fall in between
+    # (a duplicate of the snapshot is harmless; a gap would be a stuck bar).
+    queue = progress_hub.subscribe(server_id)
+    try:
+        current = get_progress(server_id)
+        if current is not None:
+            await websocket.send_json(asdict(current))
+            if current.done or current.error:
+                return
+        while True:
+            event = await queue.get()
+            await websocket.send_json(event)
+            if event.get("done") or event.get("error"):
+                return
+    except WebSocketDisconnect:
+        pass
+    finally:
+        progress_hub.unsubscribe(server_id, queue)

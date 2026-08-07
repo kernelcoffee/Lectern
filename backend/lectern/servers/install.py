@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from sqlmodel import Session
@@ -24,6 +24,7 @@ from ..db import engine
 from ..models import Server, ServerStatus
 from ..providers import adoptium, mojang
 from ..providers.base import download_file
+from ..ws import progress_hub
 from .types import get_server_type
 
 # --- progress registry -----------------------------------------------------
@@ -46,9 +47,13 @@ def get_progress(server_id: str) -> InstallProgress | None:
 
 
 def _set(server_id: str, step: str, message: str, *, done: bool = False, error: str | None = None) -> None:
-    _progress[server_id] = InstallProgress(
+    progress = InstallProgress(
         server_id=server_id, step=step, message=message, done=done, error=error
     )
+    _progress[server_id] = progress
+    # Live subscribers (WS /ws/servers/{id}/install) get every update; the
+    # registry above stays the source of truth for snapshots/polling.
+    progress_hub.publish(server_id, asdict(progress))
 
 
 # --- pure helpers (unit-tested) --------------------------------------------

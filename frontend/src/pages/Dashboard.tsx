@@ -7,13 +7,12 @@
 //   * Stats (players) are fetched per *running* server on a 5s timer — the
 //     backend endpoint is pull-based, so mounting the dashboard is what starts
 //     polling and leaving it stops it.
-//   * Install progress is polled per *installing* server on the same timer and
-//     shown under the server name (same behaviour the old list page had).
+//   * Install progress streams over WebSocket per *installing* row
+//     (useInstallProgress) — no polling; the socket closes itself when done.
 
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
 import {
-  getServerProgress,
   getServerStats,
   Server,
   serverAction,
@@ -23,6 +22,7 @@ import { Route } from "../App";
 import EventsPanel from "../components/EventsPanel";
 import { STATUS_CHIP } from "../components/status";
 import { useToast } from "../components/Toasts";
+import { useInstallProgress } from "../hooks/useInstallProgress";
 
 export default function Dashboard({
   servers,
@@ -34,7 +34,6 @@ export default function Dashboard({
   onNavigate: (r: Route) => void;
 }) {
   const [stats, setStats] = useState<Record<string, ServerStats>>({});
-  const [progress, setProgress] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null); // server id
   const toast = useToast();
 
@@ -42,16 +41,12 @@ export default function Dashboard({
     .filter((s) => s.status === "running")
     .map((s) => s.id)
     .join(",");
-  const installingIds = servers
-    .filter((s) => s.status === "installing")
-    .map((s) => s.id)
-    .join(",");
   const transientIds = servers
     .filter((s) => s.status === "starting" || s.status === "stopping")
     .map((s) => s.id)
     .join(",");
 
-  // Poll stats for running servers + progress for installing ones.
+  // Poll stats for running servers (the endpoint is pull-based).
   useEffect(() => {
     let cancelled = false;
     async function tick() {
@@ -67,22 +62,8 @@ export default function Dashboard({
             }
           }),
       );
-      const progressEntries = await Promise.all(
-        installingIds
-          .split(",")
-          .filter(Boolean)
-          .map(async (id) => {
-            try {
-              const p = await getServerProgress(id);
-              return [id, p.error ? `Failed: ${p.error}` : p.message] as const;
-            } catch {
-              return null;
-            }
-          }),
-      );
       if (cancelled) return;
       setStats(Object.fromEntries(statEntries.filter((e) => e !== null)));
-      setProgress(Object.fromEntries(progressEntries.filter((e) => e !== null)));
     }
     tick();
     const t = window.setInterval(tick, 5000);
@@ -90,7 +71,7 @@ export default function Dashboard({
       cancelled = true;
       window.clearInterval(t);
     };
-  }, [runningIds, installingIds]);
+  }, [runningIds]);
 
   // Follow start/stop transitions so chips settle without a manual refresh.
   useEffect(() => {
@@ -196,8 +177,8 @@ export default function Dashboard({
                       >
                         {s.name}
                       </button>
-                      {s.status === "installing" && progress[s.id] && (
-                        <p className="text-xs text-sky-400">{progress[s.id]}…</p>
+                      {s.status === "installing" && (
+                        <InstallProgressLine serverId={s.id} />
                       )}
                       <p className="md:hidden text-xs text-slate-500">
                         {s.type} {s.mc_version} · :{s.port}
@@ -272,5 +253,19 @@ function StatTile({
         {value}
       </p>
     </div>
+  );
+}
+
+/** Live install step under the server name (only mounted while installing —
+ *  mounting opens the WS, unmounting closes it). */
+function InstallProgressLine({ serverId }: { serverId: string }) {
+  const progress = useInstallProgress(serverId);
+  if (!progress) return null;
+  return (
+    <p className="text-xs text-sky-400">
+      {progress.error
+        ? `Failed: ${progress.error}`
+        : `${progress.message.replace(/…$/, "")}…`}
+    </p>
   );
 }
