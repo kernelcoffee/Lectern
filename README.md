@@ -28,10 +28,10 @@ the browser.
 
 ## Features
 
-- **Servers** — Vanilla + **Fabric**, created from a wizard (auto jar + per-version JRE download),
-  with start/stop/restart/kill, a live console (WebSocket), CPU/memory/player stats, an online
-  player roster (Carpet-bot aware) with kick, and a typed `server.properties` editor. Clone a
-  server, rename it, auto-start on boot (staggered).
+- **Servers** — Vanilla, **Fabric**, **Quilt**, **NeoForge** and **Forge**, created from a wizard
+  (auto jar/installer + per-version JRE download), with start/stop/restart/kill, a live console
+  (WebSocket), CPU/memory/player stats, an online player roster (Carpet-bot aware) with kick, and
+  a typed `server.properties` editor. Clone a server, rename it, auto-start on boot (staggered).
 - **Content** — browse & install **Modrinth** mods (dependency resolution, update checks),
   **Vanilla Tweaks** resource packs / datapacks / crafting tweaks, resource-pack serving,
   datapacks, and **`.mrpack` modpack import**.
@@ -47,7 +47,14 @@ the browser.
   unzip in place, with path-confinement guards.
 - **Settings** — a UI for app-level tunables (upload limits, default memory).
 
-CurseForge, Quilt/Paper/Forge, and Bedrock are designed for as pluggable providers and come later.
+Paper and Bedrock are designed for as pluggable providers and may come later.
+
+> **Why no CurseForge?** The official CurseForge API is key-gated per application. Launchers
+> like Prism embed an approved key in their compiled binaries, but Lectern is open source with a
+> public image — an embedded key would be public, which the key terms forbid — so every
+> deployment would need to apply for its own key just to search mods. Modrinth needs no key and
+> covers the actively-maintained modding ecosystem; for CurseForge-only mods, download the jar in
+> a browser and drop it onto the server with the file manager (mods land in `mods/`).
 
 ## Quick start (production, one command)
 
