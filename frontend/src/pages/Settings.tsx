@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "../api/client";
 import { AppSetting, getSettings, updateSettings } from "../api/settings";
+import { useToast } from "../components/Toasts";
 
 /** Group settings by category, preserving first-seen category order. */
 function groupByCategory(settings: AppSetting[]): [string, AppSetting[]][] {
@@ -22,8 +23,9 @@ export default function Settings() {
   const [settings, setSettings] = useState<AppSetting[] | null>(null);
   const [edits, setEdits] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Load failures only — save outcomes go through toasts.
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     getSettings()
@@ -35,15 +37,13 @@ export default function Settings() {
 
   async function save() {
     setBusy(true);
-    setError(null);
-    setNotice(null);
     try {
       const updated = await updateSettings(edits);
       setSettings(updated);
       setEdits({});
-      setNotice("Settings saved.");
+      toast.success("Settings saved.");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -60,7 +60,6 @@ export default function Settings() {
       </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
-      {notice && <p className="text-sm text-emerald-400">{notice}</p>}
 
       {settings === null ? (
         <p className="text-sm text-slate-500">Loading…</p>
@@ -112,7 +111,6 @@ export default function Settings() {
                             else next[s.key] = n;
                             return next;
                           });
-                          setNotice(null);
                         }}
                         className="w-32 rounded bg-slate-800 border border-slate-700 px-2.5 py-1.5 text-sm text-right tabular-nums"
                       />

@@ -16,6 +16,7 @@ import {
   restoreBackup,
 } from "../../api/backups";
 import { ServerDetail } from "../../api/servers";
+import { useToast } from "../../components/Toasts";
 
 function formatSize(bytes: number): string {
   if (bytes >= 1 << 30) return `${(bytes / (1 << 30)).toFixed(1)} GB`;
@@ -35,8 +36,9 @@ export default function BackupsTab({
 }) {
   const [backups, setBackups] = useState<Backup[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // backup id or "create"
-  const [notice, setNotice] = useState<string | null>(null);
+  // Load failures only — action outcomes go through toasts.
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
 
   const refresh = useCallback(async () => {
     try {
@@ -53,12 +55,10 @@ export default function BackupsTab({
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
-    setError(null);
-    setNotice(null);
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -67,7 +67,7 @@ export default function BackupsTab({
   const create = () =>
     run("create", async () => {
       const backup = await createBackup(serverId);
-      setNotice(`Backup created (${formatSize(backup.size_bytes)}).`);
+      toast.success(`Backup created (${formatSize(backup.size_bytes)}).`);
       await refresh();
     });
 
@@ -82,7 +82,7 @@ export default function BackupsTab({
       return;
     run(backup.id, async () => {
       await restoreBackup(serverId, backup.id);
-      setNotice("Backup restored — the server directory was replaced.");
+      toast.success("Backup restored — the server directory was replaced.");
       onServerChanged();
       await refresh();
     });
@@ -110,7 +110,6 @@ export default function BackupsTab({
         </button>
       </div>
 
-      {notice && <p className="text-xs text-sky-400">{notice}</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {!backups ? (

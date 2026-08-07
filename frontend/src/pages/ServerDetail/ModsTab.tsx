@@ -30,6 +30,7 @@ import {
   removeContent,
 } from "../../api/content";
 import { ServerDetail } from "../../api/servers";
+import { useToast } from "../../components/Toasts";
 import ContentBrowser from "./ContentBrowser";
 
 const CHANNELS: ReleaseChannel[] = ["release", "beta", "alpha"];
@@ -43,11 +44,12 @@ export default function ModsTab({
 }) {
   const [items, setItems] = useState<ContentItem[] | null>(null);
   const [updates, setUpdates] = useState<ContentUpdate[] | null>(null);
+  // Load failures only — action outcomes go through toasts.
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // item id or "check"/"install"
   const [browsing, setBrowsing] = useState(false);
   const mrpackInput = useRef<HTMLInputElement>(null);
+  const toast = useToast();
 
   const refresh = useCallback(async () => {
     try {
@@ -67,11 +69,10 @@ export default function ModsTab({
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
-    setError(null);
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -81,7 +82,7 @@ export default function ModsTab({
     run("check", async () => {
       const found = await checkContentUpdates(serverId);
       setUpdates(found);
-      setNotice(
+      toast.info(
         found.length === 0
           ? "Everything is up to date."
           : `${found.length} update${found.length > 1 ? "s" : ""} available.`,
@@ -130,7 +131,7 @@ export default function ModsTab({
       if (s.skipped_client_only.length > 0)
         parts.push(`${s.skipped_client_only.length} client-only skipped`);
       if (s.loader_changed) parts.push(`loader pinned to ${s.loader_version}`);
-      setNotice(parts.join(" · ") + ". Applies at next start.");
+      toast.success(parts.join(" · ") + ". Applies at next start.");
       await refresh();
     });
 
@@ -184,7 +185,6 @@ export default function ModsTab({
         </button>
       </div>
 
-      {notice && <p className="text-xs text-sky-400">{notice}</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {!items ? (

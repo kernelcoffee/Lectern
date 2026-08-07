@@ -22,6 +22,7 @@ import {
   uploadFile,
   writeFile,
 } from "../../api/files";
+import { useToast } from "../../components/Toasts";
 
 const isZip = (name: string) => name.toLowerCase().endsWith(".zip");
 
@@ -57,15 +58,14 @@ export default function FilesTab({ serverId }: { serverId: string }) {
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Listing failures only — file-op failures go through toasts.
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
 
   const [open, setOpen] = useState<OpenFile | null>(null);
   const [editContent, setEditContent] = useState("");
   const [dirty, setDirty] = useState(false);
-
-  const fail = (e: unknown) =>
-    setError(e instanceof ApiError ? e.message : String(e));
 
   const refresh = useCallback(async () => {
     try {
@@ -73,7 +73,7 @@ export default function FilesTab({ serverId }: { serverId: string }) {
       setSelected(new Set());
       setError(null);
     } catch (e) {
-      fail(e);
+      setError(e instanceof ApiError ? e.message : String(e));
     }
   }, [serverId, cwd]);
 
@@ -83,12 +83,11 @@ export default function FilesTab({ serverId }: { serverId: string }) {
 
   async function run(fn: () => Promise<void>) {
     setBusy(true);
-    setError(null);
     setMenuFor(null);
     try {
       await fn();
     } catch (e) {
-      fail(e);
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -115,7 +114,7 @@ export default function FilesTab({ serverId }: { serverId: string }) {
       setEditContent(f.content ?? "");
       setDirty(false);
     } catch (e) {
-      fail(e);
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
     }

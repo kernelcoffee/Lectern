@@ -15,6 +15,7 @@ import {
   serveResourcePack,
 } from "../../api/content";
 import { getProperties, ServerDetail } from "../../api/servers";
+import { useToast } from "../../components/Toasts";
 import ContentBrowser from "./ContentBrowser";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -32,10 +33,11 @@ export default function ResourcePacksTab({
 }) {
   const [items, setItems] = useState<ContentItem[] | null>(null);
   const [servedId, setServedId] = useState<string | null>(null);
+  // Load failures only — action outcomes go through toasts.
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  const toast = useToast();
 
   const refresh = useCallback(async () => {
     try {
@@ -62,12 +64,10 @@ export default function ResourcePacksTab({
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
-    setError(null);
-    setNotice(null);
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof ApiError || e instanceof Error ? e.message : String(e));
+      toast.error(e instanceof ApiError || e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -83,7 +83,7 @@ export default function ResourcePacksTab({
     run(item.id, async () => {
       const enable = servedId !== item.id;
       await serveResourcePack(serverId, item.id, enable);
-      setNotice(
+      toast.success(
         enable
           ? `${item.name} will be offered to players (next start).`
           : "In-game resource-pack prompt removed (next start).",
@@ -106,7 +106,6 @@ export default function ResourcePacksTab({
         </button>
       </div>
 
-      {notice && <p className="text-xs text-sky-400">{notice}</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {!items ? (

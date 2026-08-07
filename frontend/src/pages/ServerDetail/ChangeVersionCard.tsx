@@ -19,6 +19,7 @@ import {
   previewVersionChange,
   ServerDetail,
 } from "../../api/servers";
+import { useToast } from "../../components/Toasts";
 
 // Server types that carry a loader build (the backend registry only implements
 // Fabric today; vanilla has none).
@@ -38,7 +39,9 @@ export default function ChangeVersionCard({
   const [backupFirst, setBackupFirst] = useState(true);
   const [ackDowngrade, setAckDowngrade] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Catalog-load failures only — the change itself reports through toasts.
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
   const [report, setReport] = useState<MigrationReport | null>(null);
   // Pre-flight compatibility check for the selected target (null while
   // loading or when the target is the current version).
@@ -104,7 +107,6 @@ export default function ChangeVersionCard({
 
   async function submit() {
     setBusy(true);
-    setError(null);
     setReport(null);
     try {
       const res = await changeServerVersion(server.id, {
@@ -116,8 +118,9 @@ export default function ChangeVersionCard({
       setReport(res.report);
       onServerUpdate(res.server);
       setAckDowngrade(false);
+      toast.success(`Version changed to ${res.server.mc_version}.`);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
     }

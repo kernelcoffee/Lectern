@@ -22,6 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
+import { useToast } from "../../components/Toasts";
 import {
   acceptEula,
   cloneServer,
@@ -100,9 +101,11 @@ export default function ServerDetail({
   onOpen?: (id: string) => void;
 }) {
   const [server, setServer] = useState<ServerDetailType | null>(null);
+  // Load failures only — action failures go through toasts.
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<ServerAction | "eula" | "delete" | "clone" | null>(null);
   const [tab, setTab] = useState<Tab>("console");
+  const toast = useToast();
 
   const refresh = useCallback(async () => {
     try {
@@ -132,7 +135,7 @@ export default function ServerDetail({
     try {
       setServer(await serverAction(serverId, action));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -143,7 +146,7 @@ export default function ServerDetail({
     try {
       setServer(await acceptEula(serverId));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -152,13 +155,13 @@ export default function ServerDetail({
   async function doClone() {
     if (!server) return;
     setBusy("clone");
-    setError(null);
     try {
       const clone = await cloneServer(serverId, {});
+      toast.success(`Cloned "${server.name}".`);
       onChanged?.();
       onOpen?.(clone.id);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -176,7 +179,7 @@ export default function ServerDetail({
       await deleteServer(serverId);
       onDeleted();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
       setBusy(null);
     }
   }
@@ -221,7 +224,7 @@ export default function ServerDetail({
                 setServer(await updateServerSettings(serverId, { name }));
                 onChanged?.();
               }}
-              onError={(msg) => setError(msg)}
+              onError={(msg) => toast.error(msg)}
             />
             <button
               onClick={doClone}
@@ -410,8 +413,6 @@ export default function ServerDetail({
           )}
         </>
       )}
-
-      {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   );
 }

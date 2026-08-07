@@ -16,6 +16,7 @@ import {
   removeContent,
 } from "../../api/content";
 import { ServerDetail } from "../../api/servers";
+import { useToast } from "../../components/Toasts";
 import ContentBrowser from "./ContentBrowser";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -32,9 +33,11 @@ export default function DatapacksTab({
   server: ServerDetail;
 }) {
   const [items, setItems] = useState<ContentItem[] | null>(null);
+  // Load failures only — action outcomes go through toasts.
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  const toast = useToast();
 
   const refresh = useCallback(async () => {
     try {
@@ -52,11 +55,10 @@ export default function DatapacksTab({
 
   async function run(key: string, fn: () => Promise<void>) {
     setBusy(key);
-    setError(null);
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(null);
     }

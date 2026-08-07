@@ -22,6 +22,7 @@ import {
 } from "../api/servers";
 import { Route } from "../App";
 import EventsPanel from "../components/EventsPanel";
+import { useToast } from "../components/Toasts";
 
 const CHIP: Record<ServerStatus, string> = {
   installing: "bg-sky-500 text-slate-900",
@@ -45,7 +46,7 @@ export default function Dashboard({
   const [stats, setStats] = useState<Record<string, ServerStats>>({});
   const [progress, setProgress] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null); // server id
-  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
 
   const runningIds = servers
     .filter((s) => s.status === "running")
@@ -110,12 +111,11 @@ export default function Dashboard({
 
   async function quickAction(server: Server, action: "start" | "stop") {
     setBusy(server.id);
-    setError(null);
     try {
       await serverAction(server.id, action);
       await onReload();
     } catch (e) {
-      setError(
+      toast.error(
         `${server.name}: ${e instanceof ApiError ? e.message : String(e)}`,
       );
     } finally {
@@ -258,8 +258,6 @@ export default function Dashboard({
       </section>
 
       <EventsPanel />
-
-      {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   );
 }

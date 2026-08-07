@@ -22,6 +22,7 @@ import {
   ScheduleAction,
   updateSchedule,
 } from "../../api/schedules";
+import { useToast } from "../../components/Toasts";
 import {
   buildCron,
   CronBuilderState,
@@ -59,10 +60,13 @@ export interface ScheduleFormValues {
 export default function ScheduleTab({ serverId }: { serverId: string }) {
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // schedule id, "add", or "edit"
+  // Load failures + edit-modal save failures (shown inside the modal so the
+  // user's edits survive); everything else goes through toasts.
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Schedule | null>(null);
   // Bumping this remounts the add form, resetting it after a successful add.
   const [formKey, setFormKey] = useState(0);
+  const toast = useToast();
 
   const refresh = useCallback(async () => {
     try {
@@ -85,7 +89,11 @@ export default function ScheduleTab({ serverId }: { serverId: string }) {
       await refresh();
       return true;
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      const msg = e instanceof ApiError ? e.message : String(e);
+      // The edit modal shows its error inline (the form stays open with the
+      // user's values); list-level ops report through toasts.
+      if (key === "edit") setError(msg);
+      else toast.error(msg);
       return false;
     } finally {
       setBusy(null);

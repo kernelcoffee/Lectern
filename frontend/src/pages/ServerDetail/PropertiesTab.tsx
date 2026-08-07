@@ -37,6 +37,7 @@ import {
   ServerSettingsUpdate,
   updateServerSettings,
 } from "../../api/servers";
+import { useToast } from "../../components/Toasts";
 
 export default function PropertiesTab({
   serverId,
@@ -98,8 +99,11 @@ function LecternSettingsForm({
   // Overlay of pending changes; empty object = form is pristine.
   const [edits, setEdits] = useState<ServerSettingsUpdate>({});
   const [saving, setSaving] = useState(false);
+  // Validation errors stay inline next to Save (they refer to the fields);
+  // success is transient → toast.
   const [error, setError] = useState<string | null>(null);
   const dirty = Object.keys(edits).length > 0;
+  const toast = useToast();
 
   // Current display value = pending edit if any, else the saved server value.
   function valueOf(key: keyof ServerSettingsUpdate): string | boolean {
@@ -119,6 +123,7 @@ function LecternSettingsForm({
       // Only the overlay is sent — untouched fields keep their values.
       onServerUpdate(await updateServerSettings(server.id, edits));
       setEdits({});
+      toast.success("Server settings saved.");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -172,7 +177,9 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [saving, setSaving] = useState(false);
+  // Validation errors (422 lists offending keys) stay inline; success → toast.
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     try {
@@ -220,6 +227,7 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
       setEdits({});
       setNewKey("");
       setNewValue("");
+      toast.success("server.properties saved.");
     } catch (e) {
       // 422 carries the list of invalid keys/messages from the backend.
       setError(e instanceof ApiError ? e.message : String(e));

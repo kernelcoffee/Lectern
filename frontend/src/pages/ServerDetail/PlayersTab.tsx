@@ -20,6 +20,7 @@ import {
   removeFromList,
 } from "../../api/players";
 import Avatar from "../../components/Avatar";
+import { useToast } from "../../components/Toasts";
 
 const ONLINE_POLL_MS = 5000;
 
@@ -33,10 +34,9 @@ export default function PlayersTab({ serverId }: { serverId: string }) {
   const [lists, setLists] = useState<PlayerLists | null>(null);
   const [registry, setRegistry] = useState<Player[]>([]);
   const [busy, setBusy] = useState(false);
+  // Load failures only — list mutations report through toasts.
   const [error, setError] = useState<string | null>(null);
-
-  const fail = (e: unknown) =>
-    setError(e instanceof ApiError ? e.message : String(e));
+  const toast = useToast();
 
   const refresh = useCallback(async () => {
     try {
@@ -45,7 +45,7 @@ export default function PlayersTab({ serverId }: { serverId: string }) {
       setRegistry(r);
       setError(null);
     } catch (e) {
-      fail(e);
+      setError(e instanceof ApiError ? e.message : String(e));
     }
   }, [serverId]);
 
@@ -55,11 +55,10 @@ export default function PlayersTab({ serverId }: { serverId: string }) {
 
   async function run(fn: () => Promise<PlayerLists>) {
     setBusy(true);
-    setError(null);
     try {
       setLists(await fn());
     } catch (e) {
-      fail(e);
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
     }

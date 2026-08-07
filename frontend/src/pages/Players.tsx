@@ -7,6 +7,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { ApiError } from "../api/client";
 import { addPlayer, listPlayers, Player, removePlayer } from "../api/players";
 import Avatar from "../components/Avatar";
+import { useToast } from "../components/Toasts";
 
 type View = "cards" | "list";
 
@@ -14,8 +15,10 @@ export default function Players() {
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  // Load failures only — add/remove report through toasts.
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>("cards");
+  const toast = useToast();
 
   async function refresh() {
     try {
@@ -34,13 +37,12 @@ export default function Players() {
     const q = query.trim();
     if (!q) return;
     setBusy(true);
-    setError(null);
     try {
       await addPlayer(q);
       setQuery("");
       await refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -52,7 +54,7 @@ export default function Players() {
       await removePlayer(player.uuid);
       await refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      toast.error(e instanceof ApiError ? e.message : String(e));
     }
   }
 
