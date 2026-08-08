@@ -52,6 +52,7 @@ class ScheduleAction(str, enum.Enum):
     restart = "restart"
     backup = "backup"
     command = "command"  # send a raw console command (needs `command`)
+    update_mods = "update_mods"  # apply qualifying Modrinth updates
 
 
 class ServerStatus(str, enum.Enum):

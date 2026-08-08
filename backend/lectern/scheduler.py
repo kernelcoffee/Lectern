@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -148,6 +149,22 @@ class SchedulerService:
             if server is None:
                 raise ValueError("Server not found")
             await create_backup(session, server, trigger="scheduled")
+        elif action == ScheduleAction.update_mods.value:
+            from . import events
+            from .content.manager import apply_updates_all
+            from .models import Server
+
+            server = session.get(Server, server_id)
+            if server is None or not server.path:
+                raise ValueError("Server not found or not installed")
+            applied = await apply_updates_all(
+                session, server_id, Path(server.path), mc_version=server.mc_version
+            )
+            summary = "; ".join(applied) if applied else "everything up to date"
+            events.record(server_id, "mods_updated", summary)
+            manager.hub.publish(
+                server_id, f"[lectern] scheduled mod update: {summary}"
+            )
         elif action == ScheduleAction.command.value:
             if not (schedule.command or "").strip():
                 raise ValueError("Schedule has no command to send")

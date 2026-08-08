@@ -39,6 +39,7 @@ const ACTIONS: { value: ScheduleAction; label: string }[] = [
   { value: "start", label: "Start server" },
   { value: "stop", label: "Stop server" },
   { value: "backup", label: "Back up server" },
+  { value: "update_mods", label: "Update mods" },
   { value: "command", label: "Run console command" },
 ];
 

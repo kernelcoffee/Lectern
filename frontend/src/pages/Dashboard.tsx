@@ -11,6 +11,7 @@
 //     (useInstallProgress) — no polling; the socket closes itself when done.
 
 import { useEffect, useState } from "react";
+import { getMinecraftVersions } from "../api/catalog";
 import { errorMessage } from "../api/client";
 import {
   getServerStats,
@@ -35,6 +36,8 @@ export default function Dashboard({
 }) {
   const [stats, setStats] = useState<Record<string, ServerStats>>({});
   const [busy, setBusy] = useState<string | null>(null); // server id
+  // Newest-first catalog per server type — powers the "newer version" dots.
+  const [catalogs, setCatalogs] = useState<Record<string, string[]>>({});
   const toast = useToast();
 
   const runningIds = servers
@@ -72,6 +75,38 @@ export default function Dashboard({
       window.clearInterval(t);
     };
   }, [runningIds]);
+
+  // One catalog fetch per distinct type (backend caches them) so each row
+  // can show whether a newer version exists.
+  const typesKey = [...new Set(servers.map((s) => s.type))].sort().join(",");
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      typesKey
+        .split(",")
+        .filter(Boolean)
+        .map(async (type) => {
+          try {
+            return [type, await getMinecraftVersions(type)] as const;
+          } catch {
+            return null;
+          }
+        }),
+    ).then((entries) => {
+      if (!cancelled)
+        setCatalogs(Object.fromEntries(entries.filter((e) => e !== null)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [typesKey]);
+
+  // "Behind" = the version is in the newest-first catalog, but not at the top.
+  function newerVersionFor(s: Server): string | null {
+    const versions = catalogs[s.type];
+    if (!versions) return null;
+    return versions.indexOf(s.mc_version) > 0 ? versions[0] : null;
+  }
 
   // Follow start/stop transitions so chips settle without a manual refresh.
   useEffect(() => {
@@ -186,6 +221,14 @@ export default function Dashboard({
                     </td>
                     <td className="hidden md:table-cell px-4 py-2.5 text-slate-400">
                       {s.type} {s.mc_version}
+                      {newerVersionFor(s) && (
+                        <span
+                          title={`${newerVersionFor(s)} is available`}
+                          className="ml-1.5 text-sky-400"
+                        >
+                          ↑{newerVersionFor(s)}
+                        </span>
+                      )}
                     </td>
                     <td className="hidden md:table-cell px-4 py-2.5 text-slate-400 tabular-nums">
                       {s.port}

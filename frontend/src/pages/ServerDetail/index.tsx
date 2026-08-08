@@ -21,6 +21,7 @@
 // WebSocket; history replays from the server buffer when it remounts.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getMinecraftVersions } from "../../api/catalog";
 import { errorMessage } from "../../api/client";
 import { getServerEvents } from "../../api/events";
 import { STATUS_CHIP } from "../../components/status";
@@ -107,6 +108,28 @@ export default function ServerDetail({
   );
   // Why the server crashed (exit code / signal), from the event timeline.
   const [crashReason, setCrashReason] = useState<string | null>(null);
+  // Newest catalog version for this server's type, when the server is behind.
+  const [newerVersion, setNewerVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    setNewerVersion(null);
+    const type = server?.type;
+    const current = server?.mc_version;
+    if (!type || !current) return;
+    let live = true;
+    getMinecraftVersions(type)
+      .then((versions) => {
+        // Catalogs are newest-first: "behind" = present, but not at index 0.
+        const behind = versions.indexOf(current) > 0;
+        if (live) setNewerVersion(behind ? versions[0] : null);
+      })
+      .catch(() => {
+        // Advisory only — never block the page on a catalog hiccup.
+      });
+    return () => {
+      live = false;
+    };
+  }, [server?.type, server?.mc_version]);
 
   useEffect(() => {
     if (server?.status !== "crashed") {
@@ -274,6 +297,19 @@ export default function ServerDetail({
             {server.type} · MC {server.mc_version}
             {server.loader_version && ` · ${server.loader_version}`} · :{server.port} ·{" "}
             {server.memory_mb} MB
+            {newerVersion && (
+              <span className="ml-2 inline-flex items-center gap-1.5 rounded-full bg-sky-950/60 border border-sky-800/60 px-2 py-0.5 text-sky-300">
+                {isProxy ? "Velocity" : "Minecraft"} {newerVersion} is available
+                {!isProxy && (
+                  <button
+                    onClick={() => setTab("version")}
+                    className="font-medium text-sky-200 underline decoration-sky-500/60 hover:text-sky-100"
+                  >
+                    update
+                  </button>
+                )}
+              </span>
+            )}
           </p>
 
           {/* Controls */}

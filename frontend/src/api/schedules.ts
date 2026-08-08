@@ -1,6 +1,12 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from "./client";
 
-export type ScheduleAction = "start" | "stop" | "restart" | "backup" | "command";
+export type ScheduleAction =
+  | "start"
+  | "stop"
+  | "restart"
+  | "backup"
+  | "update_mods"
+  | "command";
 
 export interface Schedule {
   id: string;

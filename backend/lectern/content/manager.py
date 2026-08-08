@@ -34,7 +34,7 @@ from sqlmodel import Session, select
 
 from ..models import ContentItem
 from ..providers import modrinth
-from ..providers.base import download_file
+from ..providers.base import ChecksumMismatch, download_file
 from ..servers import properties as props
 
 MANIFEST_PATH = ".lectern/manifest.json"
@@ -481,6 +481,29 @@ async def check_updates(server_dir: Path, *, mc_version: str) -> list[dict]:
         if newest is not None:
             results.append({"item": item, "new_version": newest})
     return results
+
+
+async def apply_updates_all(
+    session: Session, server_id: str, server_dir: Path, *, mc_version: str
+) -> list[str]:
+    """Apply every qualifying update (per-item channel rules; Modrinth items
+    only, like the manual flow). Returns human summaries ("Sodium 0.9.0 →
+    0.9.1") for the console/event trail. One item failing is reported in the
+    summary and never stops the batch — used by the update_mods schedule
+    action."""
+    applied: list[str] = []
+    for entry in await check_updates(server_dir, mc_version=mc_version):
+        item = entry["item"]
+        before = item.get("version_number") or item.get("version_id")
+        try:
+            row = await apply_update(
+                session, server_id, server_dir, item["id"], mc_version=mc_version
+            )
+        except (ContentError, ChecksumMismatch) as exc:
+            applied.append(f"{item['name']}: update failed ({exc})")
+            continue
+        applied.append(f"{item['name']} {before} → {row.version_number}")
+    return applied
 
 
 async def apply_update(

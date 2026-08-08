@@ -433,3 +433,32 @@ def test_fabric_server_unaffected_by_chain(client, engine, tmp_path, quilt_catal
     assert resp.status_code == 201, resp.text
     (manifest_item,) = _manifest(tmp_path)
     assert manifest_item["loader"] == "fabric"
+
+
+def test_apply_updates_all_swaps_and_reports(client, engine, tmp_path, catalog):
+    import asyncio
+
+    from lectern.content.manager import apply_updates_all
+
+    sid = _fabric_server(client, engine, tmp_path)
+    # Install pinned to the only version; then teach the catalog a newer one.
+    resp = client.post(
+        f"/api/servers/{sid}/content",
+        json={"project_id": "P_opt"},
+    )
+    assert resp.status_code == 201
+    newer = _version("V_opt_2", "P_opt", "3.1.0")
+    catalog["versions"]["P_opt"].insert(0, newer)
+
+    with Session(engine) as session:
+        applied = asyncio.run(
+            apply_updates_all(session, sid, tmp_path, mc_version="1.20.1")
+        )
+    assert applied == ["Opt 3.0.0 → 3.1.0"]
+    manifest = {i["project_id"]: i for i in _manifest(tmp_path)}
+    assert manifest["P_opt"]["version_id"] == "V_opt_2"
+    # Idempotent: nothing further to apply.
+    with Session(engine) as session:
+        assert asyncio.run(
+            apply_updates_all(session, sid, tmp_path, mc_version="1.20.1")
+        ) == []

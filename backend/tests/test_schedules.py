@@ -272,3 +272,47 @@ def test_fire_stale_or_disabled_is_a_noop(monkeypatch):
         assert called is False
     finally:
         _cleanup(server_id)
+
+
+def test_fire_update_mods_applies_and_records(monkeypatch, tmp_path):
+    server_id, schedule_id = _make_row(action="update_mods")
+    with Session(engine) as session:
+        server = session.get(Server, server_id)
+        server.path = str(tmp_path)
+        session.add(server)
+        session.commit()
+
+    calls: list[tuple] = []
+
+    async def fake_apply(session, sid, server_dir, *, mc_version):
+        calls.append((sid, str(server_dir), mc_version))
+        return ["Sodium 0.9.0 → 0.9.1"]
+
+    recorded: list[tuple] = []
+    from lectern import events
+    from lectern.content import manager as content_manager
+
+    monkeypatch.setattr(content_manager, "apply_updates_all", fake_apply)
+    monkeypatch.setattr(
+        events, "record", lambda sid, kind, message="": recorded.append((sid, kind, message))
+    )
+    try:
+        asyncio.run(scheduler_service._fire(schedule_id))
+        assert calls == [(server_id, str(tmp_path), "1.21")]
+        assert (server_id, "mods_updated", "Sodium 0.9.0 → 0.9.1") in recorded
+    finally:
+        _cleanup(server_id)
+
+
+def test_fire_update_mods_requires_installed_server(monkeypatch):
+    # No path on the server → the failure lands in the console hub, not raised.
+    server_id, schedule_id = _make_row(action="update_mods")
+    try:
+        manager.hub.clear(server_id)
+        asyncio.run(scheduler_service._fire(schedule_id))
+        assert any(
+            "scheduled update_mods failed" in line
+            for line in manager.hub.history(server_id)
+        )
+    finally:
+        _cleanup(server_id)
