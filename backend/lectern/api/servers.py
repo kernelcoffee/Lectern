@@ -143,10 +143,13 @@ def suggest_defaults(
         port = BACKEND_PORT_BASE if proxy_ports else PUBLIC_PORT
     while port in taken_ports:
         port += 1
+    memory_key = (
+        "default_proxy_memory_mb" if kind == "proxy" else "default_memory_mb"
+    )
     return ServerSuggestRead(
         name=name,
         port=port,
-        memory_mb=app_settings.get_int(session, "default_memory_mb"),
+        memory_mb=app_settings.get_int(session, memory_key),
     )
 
 

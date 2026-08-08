@@ -219,6 +219,9 @@ def test_suggest_is_kind_aware(client, engine, tmp_path: Path):
     proxy_suggestion = client.get("/api/servers/suggest?kind=proxy").json()
     assert proxy_suggestion["name"] == "New proxy"
     assert proxy_suggestion["port"] == 25565
+    # Proxies are lightweight — they get their own (small) memory default.
+    assert proxy_suggestion["memory_mb"] == 512
+    assert client.get("/api/servers/suggest").json()["memory_mb"] == 2048
 
     # Without a proxy, game suggestions keep the historical behavior.
     assert client.get("/api/servers/suggest").json()["port"] == 25566

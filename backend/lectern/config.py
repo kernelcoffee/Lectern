@@ -36,6 +36,8 @@ class Settings(BaseSettings):
 
     # Sensible defaults surfaced in the create-server wizard.
     default_memory_mb: int = 2048
+    # Proxies are lightweight — Velocity runs comfortably in 512 MB.
+    default_proxy_memory_mb: int = 512
 
     # Max size of a world archive imported at creation. Modded worlds get large
     # (Distant Horizons alone can add gigabytes of LOD cache), so the ceiling is

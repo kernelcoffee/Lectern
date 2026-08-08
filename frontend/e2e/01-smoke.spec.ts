@@ -132,10 +132,12 @@ test("create page: the Proxy kind is explicit and separate", async ({ page }) =>
   // sections, and a proxy-specific submit label.
   await kindSwitch.getByRole("radio", { name: /Proxy/ }).click();
   await expect(page.getByRole("heading", { name: "New proxy" })).toBeVisible();
-  // Kind-aware prefill: proxies get a proxy name and the public port.
+  // Kind-aware prefill: proxies get a proxy name, the public port, and a
+  // lightweight memory default (Velocity needs far less than a game server).
   await expect(page.getByLabel("Proxy name")).toHaveValue("New proxy", {
     timeout: 10_000,
   });
+  await expect(page.getByLabel("Memory (MB)")).toHaveValue("512");
   await expect(page.getByText("Proxy software")).toBeVisible();
   await expect(page.getByText("Velocity", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Velocity version")).not.toHaveValue("", {

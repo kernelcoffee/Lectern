@@ -53,6 +53,13 @@ TUNABLES: dict[str, Tunable] = {
             "Memory pre-filled for a new server in the create form.",
             "MB", 256, 65536, "default_memory_mb", "Server defaults",
         ),
+        Tunable(
+            "default_proxy_memory_mb",
+            "Default proxy memory",
+            "Memory pre-filled for a new proxy — proxies need far less than "
+            "game servers (Velocity is comfortable in 512 MB).",
+            "MB", 256, 8192, "default_proxy_memory_mb", "Server defaults",
+        ),
     )
 }
 
