@@ -6,6 +6,7 @@
 ![Python](https://img.shields.io/badge/python-3.14-3776ab?logo=python&logoColor=white)
 ![React](https://img.shields.io/badge/react-18-58c4dc?logo=react&logoColor=white)
 [![Built with Claude](https://img.shields.io/badge/built%20with-Claude-D97757?logo=claude&logoColor=white)](https://claude.com/claude-code)
+[![License: MIT](https://img.shields.io/badge/license-MIT-8b949e)](LICENSE)
 
 Lectern is a simple-to-install, self-hosted **web app for creating and managing modded Minecraft servers**.
 Your servers run in the background on your own hardware; everything — process control, live console, mods, backups, schedules, even a Velocity proxy in front of your instances — is managed from the browser. No accounts, no heavy auth: built for a trusted LAN.
@@ -144,3 +145,7 @@ npm run build                  # type-check + production build
 
 - **Backend:** Python + FastAPI (async, WebSockets), SQLModel/SQLite, APScheduler, httpx.
 - **Frontend:** React + TypeScript (Vite), Tailwind.
+
+## License
+
+[MIT](LICENSE)
