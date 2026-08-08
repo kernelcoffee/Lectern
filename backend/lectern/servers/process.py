@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+import signal
 import time
 from collections.abc import Awaitable, Callable
 
@@ -33,7 +34,33 @@ _TERMINATE_GRACE = 10
 # How often to announce the remaining time during a graceful stop.
 _COUNTDOWN_STEP = 10
 
-StateCallback = Callable[[str, str], Awaitable[None]]
+# (server_id, status, detail) — detail is a human-readable reason, only
+# non-empty for "crashed" (exit code / signal explanation).
+StateCallback = Callable[[str, str, str], Awaitable[None]]
+
+
+def describe_exit(code: int) -> str:
+    """Human-readable crash reason from a process exit code.
+
+    Negative codes are deaths by signal (asyncio convention); 128+N is the
+    same thing reported shell-style. SIGKILL gets the special mention because
+    its overwhelmingly common cause is the kernel's OOM killer."""
+    signum = -code if code < 0 else (code - 128 if code > 128 else None)
+    if signum is not None:
+        try:
+            name = signal.Signals(signum).name
+        except ValueError:
+            name = f"signal {signum}"
+        if signum == signal.SIGKILL:
+            return (
+                f"killed by the system ({name}) — usually the host ran out of "
+                "memory (OOM killer)"
+            )
+        if signum == signal.SIGTERM:
+            return f"terminated by the system ({name})"
+        return f"killed by {name}"
+    return f"exited with code {code}"
+
 
 
 class ServerProcess:
@@ -90,15 +117,18 @@ class ServerProcess:
                 self.hub.publish(self.server_id, line)
                 self.roster.feed(line)
                 if not self._stopping and self.ready_marker in line:
-                    await self.on_state(self.server_id, "running")
+                    await self.on_state(self.server_id, "running", "")
         finally:
             code = await self._proc.wait()
-            if self._stopping:
-                final = "stopped"
+            if self._stopping or code == 0:
+                final, detail = "stopped", ""
+                self.hub.publish(
+                    self.server_id, f"[lectern] process exited (code {code})"
+                )
             else:
-                final = "stopped" if code == 0 else "crashed"
-            self.hub.publish(self.server_id, f"[lectern] process exited (code {code})")
-            await self.on_state(self.server_id, final)
+                final, detail = "crashed", describe_exit(code)
+                self.hub.publish(self.server_id, f"[lectern] crashed: {detail}")
+            await self.on_state(self.server_id, final, detail)
 
     async def send(self, command: str) -> None:
         if self._proc is not None and self._proc.stdin is not None and self.running:
@@ -110,7 +140,7 @@ class ServerProcess:
         if not self.running or self._proc is None:
             return
         self._stopping = True
-        await self.on_state(self.server_id, "stopping")
+        await self.on_state(self.server_id, "stopping", "")
 
         await self.send(stop_command)
         if await self._wait_countdown(timeout):

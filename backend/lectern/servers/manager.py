@@ -96,7 +96,7 @@ class ServerManager:
                 session.refresh(server)
             return server
 
-    async def _on_state(self, server_id: str, status: str) -> None:
+    async def _on_state(self, server_id: str, status: str, detail: str = "") -> None:
         server = self._write_status(server_id, status)
         if status == ServerStatus.running.value:
             self._crash_counts.pop(server_id, None)
@@ -106,7 +106,9 @@ class ServerManager:
             if status == ServerStatus.stopped.value:
                 events.record(server_id, "stopped")
             if status == ServerStatus.crashed.value:
-                events.record(server_id, "crashed")
+                # The reason (exit code / signal) — so "why?" is answerable
+                # from the timeline instead of archaeology in kernel logs.
+                events.record(server_id, "crashed", detail)
             if status == ServerStatus.crashed.value and server is not None and server.crash_restart:
                 crashes = self._crash_counts.get(server_id, 0) + 1
                 self._crash_counts[server_id] = crashes

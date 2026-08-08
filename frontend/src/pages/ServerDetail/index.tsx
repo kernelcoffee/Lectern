@@ -22,6 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/client";
+import { getServerEvents } from "../../api/events";
 import { STATUS_CHIP } from "../../components/status";
 import { useToast } from "../../components/Toasts";
 import { useInstallProgress } from "../../hooks/useInstallProgress";
@@ -104,6 +105,27 @@ export default function ServerDetail({
   const installProgress = useInstallProgress(
     server?.status === "installing" ? serverId : null,
   );
+  // Why the server crashed (exit code / signal), from the event timeline.
+  const [crashReason, setCrashReason] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (server?.status !== "crashed") {
+      setCrashReason(null);
+      return;
+    }
+    let live = true;
+    getServerEvents(serverId, 10)
+      .then((events) => {
+        const crash = events.find((e) => e.kind === "crashed");
+        if (live) setCrashReason(crash?.message || null);
+      })
+      .catch(() => {
+        // The banner is best-effort — the console still has the story.
+      });
+    return () => {
+      live = false;
+    };
+  }, [server?.status, serverId]);
 
   const refresh = useCallback(async () => {
     try {
@@ -311,6 +333,14 @@ export default function ServerDetail({
           >
             {busy === "eula" ? "Accepting…" : "Accept EULA"}
           </button>
+        </div>
+      )}
+
+      {server.status === "crashed" && crashReason && (
+        <div className="rounded-lg border border-red-800/60 bg-red-950/30 p-3">
+          <p className="text-sm text-red-200">
+            <span className="font-medium">Crashed:</span> {crashReason}
+          </p>
         </div>
       )}
 

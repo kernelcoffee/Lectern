@@ -40,7 +40,7 @@ async def _wait_for(predicate, timeout=5.0):
 def test_process_lifecycle(tmp_path: Path):
     states: list[str] = []
 
-    async def on_state(_server_id: str, status: str) -> None:
+    async def on_state(_server_id: str, status: str, detail: str = "") -> None:
         states.append(status)
 
     hub = ConsoleHub()
@@ -68,10 +68,10 @@ def test_process_lifecycle(tmp_path: Path):
 
 
 def test_process_crash_is_reported(tmp_path: Path):
-    states: list[str] = []
+    states: list[tuple[str, str]] = []
 
-    async def on_state(_server_id: str, status: str) -> None:
-        states.append(status)
+    async def on_state(_server_id: str, status: str, detail: str = "") -> None:
+        states.append((status, detail))
 
     hub = ConsoleHub()
 
@@ -84,7 +84,48 @@ def test_process_crash_is_reported(tmp_path: Path):
         assert await _wait_for(lambda: bool(states))
 
     asyncio.run(run())
-    assert states[-1] == "crashed"
+    status, detail = states[-1]
+    assert status == "crashed"
+    assert detail == "exited with code 1"
+    assert any("crashed: exited with code 1" in line for line in hub.history("s2"))
+
+
+def test_process_sigkill_reports_oom_hint(tmp_path: Path):
+    states: list[tuple[str, str]] = []
+
+    async def on_state(_server_id: str, status: str, detail: str = "") -> None:
+        states.append((status, detail))
+
+    hub = ConsoleHub()
+
+    async def run() -> None:
+        # A process killed from outside (the OOM killer's signature).
+        proc = ServerProcess(
+            "s3",
+            [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"],
+            str(tmp_path),
+            hub,
+            on_state,
+        )
+        await proc.start()
+        assert await _wait_for(lambda: bool(states))
+
+    asyncio.run(run())
+    status, detail = states[-1]
+    assert status == "crashed"
+    assert "SIGKILL" in detail
+    assert "out of memory" in detail
+
+
+def test_describe_exit():
+    from lectern.servers.process import describe_exit
+
+    assert describe_exit(1) == "exited with code 1"
+    assert "SIGKILL" in describe_exit(-9)
+    assert "out of memory" in describe_exit(-9)
+    assert describe_exit(137) == describe_exit(-9)  # shell-style 128+9
+    assert "SIGTERM" in describe_exit(-15)
+    assert "SIGSEGV" in describe_exit(-11)
 
 
 def test_eula_helpers(tmp_path: Path):
