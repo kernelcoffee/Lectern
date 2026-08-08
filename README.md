@@ -5,16 +5,13 @@
 [![GHCR](https://img.shields.io/badge/ghcr.io-kernelcoffee%2Flectern-1f6feb?logo=docker&logoColor=white)](https://github.com/kernelcoffee/Lectern/pkgs/container/lectern)
 ![Python](https://img.shields.io/badge/python-3.14-3776ab?logo=python&logoColor=white)
 ![React](https://img.shields.io/badge/react-18-58c4dc?logo=react&logoColor=white)
-![Minecraft](https://img.shields.io/badge/minecraft-vanilla%20%2B%20fabric-62b47a)
 [![Built with Claude](https://img.shields.io/badge/built%20with-Claude-D97757?logo=claude&logoColor=white)](https://claude.com/claude-code)
 
-A self-hosted **web app for creating and managing modded Minecraft servers**. Think *Crafty's
-"servers run in the background, managed over the web" model* + *Prism's mod management*, minus the
-heavy auth, plus Vanilla Tweaks — designed for a trusted LAN.
+Lectern is a simple-to-install, self-hosted **web app for creating and managing modded Minecraft servers**.
+Your servers run in the background on your own hardware; everything — process control, live console, mods, backups, schedules, even a Velocity proxy in front of your instances — is managed from the browser. No accounts, no heavy auth: built for a trusted LAN.
 
-Create a server from a wizard, and Lectern downloads the jar and the **exact Java runtime that
-version needs**, then manages the process, console, config, content, backups and schedules from
-the browser.
+Choose a server and Lectern takes care of everything else — it downloads what that version
+needs (including the right Java) and runs it for you.
 
 ![Dashboard — servers, players, and the recent-events feed](docs/screenshots/dashboard.png)
 
@@ -28,30 +25,30 @@ the browser.
 
 ## Features
 
-- **Servers** — Vanilla, **Fabric**, **Quilt**, **NeoForge** and **Forge**, created from a wizard
-  (auto jar/installer + per-version JRE download), with start/stop/restart/kill, a live console
-  (WebSocket), CPU/memory/player stats, an online player roster (Carpet-bot aware) with kick, and
-  a typed `server.properties` editor. Clone a server, rename it, auto-start on boot (staggered).
-- **Content** — browse & install **Modrinth** mods (dependency resolution, update checks),
-  **Vanilla Tweaks** resource packs / datapacks / crafting tweaks, resource-pack serving,
-  datapacks, and **`.mrpack` modpack import**.
-- **Version change** — upgrade a server's Minecraft version: re-provisions jar + Java, migrates
-  compatible mods and disables the rest, with a pre-flight compatibility check and a backup.
-- **Import a world** at creation (upload a `.zip` or a URL), with mod-cache filtering.
-- **Backups** — create / restore / prune / download, with per-server retention & exclusions.
-- **Scheduling** — cron actions (start/stop/restart/backup/console command) via a friendly builder.
-- **Event timeline** — a persisted "Recent events" feed (starts/stops, crashes & auto-restarts,
-  backup and schedule outcomes) on the dashboard and per server, so overnight incidents are
-  still visible in the morning.
-- **File manager** — browse & edit files in a modal, upload (incl. drag-and-drop) / download,
-  unzip in place, with path-confinement guards.
-- **Settings** — a UI for app-level tunables (upload limits, default memory).
+- **Servers** — Vanilla, **Fabric**, **Quilt**, **NeoForge** and **Forge**, with a live
+  console, stats, an online player roster, and easy settings editing.
+- **Proxy** — put your servers behind **one address** with a **Velocity** proxy: players
+  connect once and hop between servers. Pick the servers to put behind it — Lectern does
+  all the wiring for you.
+- **Mods & packs** — search and install mods from **Modrinth** (dependencies come along
+  automatically, updates are one click), add **Vanilla Tweaks** packs, or import a whole
+  modpack (`.mrpack`).
+- **Version changes** — move a server to a new Minecraft version. Compatible mods get
+  updated, the rest are safely disabled — and you see what will happen before you commit.
+- **Worlds** — start a new server from an existing world: upload a zip or paste a link.
+- **Backups** — create, restore, download; old ones are cleaned up automatically.
+- **Scheduling** — nightly restarts, daily backups, timed commands — set up in plain
+  words, no cron knowledge needed.
+- **Event timeline** — what happened while you were away: crashes, restarts and backup
+  results, so a 3 a.m. incident is still visible in the morning.
+- **File manager** — browse, edit, upload and unzip server files right in the browser.
+- **Settings** — app-level limits and defaults, editable from the UI.
 
-Paper and Bedrock are designed for as pluggable providers and may come later.
+Paper and Bedrock support may come later.
 
-> **Why no CurseForge?** The official CurseForge API is key-gated per application. Launchers
-> like Prism embed an approved key in their compiled binaries, but Lectern is open source with a
-> public image — an embedded key would be public, which the key terms forbid — so every
+> **Why no CurseForge?** The official CurseForge API is key-gated per application. Desktop
+> launchers can embed an approved key in their compiled binaries, but Lectern is open source with
+> a public image — an embedded key would be public, which the key terms forbid — so every
 > deployment would need to apply for its own key just to search mods. Modrinth needs no key and
 > covers the actively-maintained modding ecosystem; for CurseForge-only mods, download the jar in
 > a browser and drop it onto the server with the file manager (mods land in `mods/`).
