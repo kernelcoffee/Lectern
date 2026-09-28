@@ -1,14 +1,20 @@
-// Change a server's Minecraft version (M9.5, F-SM-9).
+// Change a server's Minecraft version and/or loader build (M9.5, F-SM-9).
 //
 // Lives in the Properties tab. The server must be stopped. The user picks a
-// target version (catalog is newest-first) and, for loader server types, an
-// optional loader build ("auto" = newest for the target). A pre-change backup
-// is offered by default because Minecraft upgrades the world in place and
-// one-way at the next start. Selecting a version older than the current one is
-// a downgrade: Minecraft can't do it, so we demand an explicit checkbox
+// target version (catalog is newest-first) and, for loader server types, a
+// loader build ("auto" = newest for the target). A pre-change backup is
+// offered by default because Minecraft upgrades the world in place and one-way
+// at the next start. Selecting a version older than the current one is a
+// downgrade: Minecraft can't do it, so we demand an explicit checkbox
 // acknowledging the world may be unusable. On success we render the migration
 // report (what content was updated / disabled / regenerated / kept) and hand
 // the refreshed server up so the page header reflects the new version.
+//
+// Loader-only update: keeping the current Minecraft version and picking a
+// different loader build re-provisions just the loader (the fix when a mod
+// starts requiring a newer Fabric/Quilt/Forge). On the current version the
+// picker defaults to the installed build so nothing looks changed until the
+// user picks one; the backend skips content migration in that case.
 
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../../api/client";
@@ -62,19 +68,32 @@ export default function ChangeVersionCard({
     };
   }, [server.type]);
 
-  // Load loader builds for the chosen target (loader types only).
+  // Load loader builds for the chosen target (loader types only). On the
+  // current version the picker starts on the installed build (so the card
+  // reads "nothing to change" until the user picks another); on any other
+  // version it starts on auto = newest for that version.
   useEffect(() => {
     if (!hasLoader) return;
     let live = true;
     setLoaders(null);
-    setLoader(""); // reset to auto when the version changes
+    setLoader("");
     getLoaders(server.type, target)
-      .then((ls) => live && setLoaders(ls))
+      .then((ls) => {
+        if (!live) return;
+        setLoaders(ls);
+        if (
+          target === server.mc_version &&
+          server.loader_version &&
+          ls.includes(server.loader_version)
+        ) {
+          setLoader(server.loader_version);
+        }
+      })
       .catch(() => live && setLoaders([]));
     return () => {
       live = false;
     };
-  }, [hasLoader, target]);
+  }, [hasLoader, server.type, server.mc_version, server.loader_version, target]);
 
   // Check installed-content compatibility as soon as a target is picked, so
   // "these mods have no build for X and will be disabled" is visible before
@@ -101,7 +120,16 @@ export default function ChangeVersionCard({
     return cur !== -1 && tgt !== -1 && tgt > cur;
   }, [versions, server.mc_version, target]);
 
-  const unchanged = target === server.mc_version;
+  const sameVersion = target === server.mc_version;
+  // Loader-only update: same Minecraft version, a different loader build
+  // (or "auto" = newest, which only counts once we know the list).
+  const currentLoader = server.loader_version ?? "";
+  const loaderOnly =
+    sameVersion && hasLoader && loaders !== null && loader !== currentLoader;
+  const unchanged = sameVersion && !loaderOnly;
+  const newestLoader = loaders?.[0] ?? null;
+  const newerLoaderAvailable =
+    hasLoader && sameVersion && newestLoader !== null && newestLoader !== currentLoader;
   const blocked = busy || !stopped || unchanged || (isDowngrade && !ackDowngrade);
 
   async function submit() {
@@ -114,10 +142,14 @@ export default function ChangeVersionCard({
         allow_downgrade: isDowngrade,
         backup_first: backupFirst,
       });
-      setReport(res.report);
+      setReport(loaderOnly ? null : res.report);
       onServerUpdate(res.server);
       setAckDowngrade(false);
-      toast.success(`Version changed to ${res.server.mc_version}.`);
+      toast.success(
+        loaderOnly
+          ? `Loader updated to ${res.server.loader_version ?? "the newest build"}.`
+          : `Version changed to ${res.server.mc_version}.`,
+      );
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -128,12 +160,21 @@ export default function ChangeVersionCard({
   return (
     <section className="space-y-3 rounded-lg border border-slate-800 p-4">
       <div>
-        <h3 className="text-sm font-semibold text-slate-200">Minecraft version</h3>
+        <h3 className="text-sm font-semibold text-slate-200">
+          Minecraft version{hasLoader && " & loader"}
+        </h3>
         <p className="text-xs text-slate-500">
           Currently {server.type} · MC {server.mc_version}
           {server.loader_version && ` · ${server.loader_version}`}. The world is
           upgraded in place and one-way at the next start.
+          {hasLoader &&
+            " Keep the version and pick another loader build to update just the loader."}
         </p>
+        {newerLoaderAvailable && (
+          <p className="mt-1 text-xs text-sky-300">
+            A newer {server.type} loader build is available: {newestLoader}.
+          </p>
+        )}
       </div>
 
       {!stopped && (
@@ -173,10 +214,13 @@ export default function ChangeVersionCard({
               disabled={!loaders || busy}
               className="mt-1 block w-48 rounded bg-slate-800 px-2 py-1.5 text-sm text-slate-100 disabled:opacity-50"
             >
-              <option value="">Newest (auto)</option>
+              <option value="">
+                Newest (auto){newestLoader ? ` · ${newestLoader}` : ""}
+              </option>
               {(loaders ?? []).map((l) => (
                 <option key={l} value={l}>
                   {l}
+                  {sameVersion && l === currentLoader ? " (current)" : ""}
                 </option>
               ))}
             </select>
@@ -191,6 +235,11 @@ export default function ChangeVersionCard({
         </p>
       )}
       {!unchanged && preview && <PreviewView target={target} preview={preview} />}
+      {loaderOnly && (
+        <p className="text-xs text-slate-500">
+          Loader-only update: installed mods stay as they are.
+        </p>
+      )}
 
       <label className="flex items-center gap-2 text-xs text-slate-300">
         <input
@@ -227,8 +276,12 @@ export default function ChangeVersionCard({
         {busy
           ? "Changing…"
           : unchanged
-            ? "Pick a different version"
-            : `Change to ${target}`}
+            ? hasLoader
+              ? "Pick a different version or loader build"
+              : "Pick a different version"
+            : loaderOnly
+              ? `Update loader to ${loader || newestLoader || "newest"}`
+              : `Change to ${target}`}
       </button>
 
       {error && <p className="text-xs text-red-400">{error}</p>}

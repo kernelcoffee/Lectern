@@ -296,6 +296,10 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
 - `GET /servers/{id}/stats`
 - `GET/PATCH /servers/{id}/properties` (server.properties)
 - `POST /servers/{id}/eula` (accept)
+- `GET /servers/{id}/version/preview?mc_version=…` — dry-run content compatibility report
+- `POST /servers/{id}/version` — `{mc_version, loader_version?, allow_downgrade?, backup_first?}`;
+  re-provisions jar + Java and migrates content. Passing the **current** `mc_version` is a
+  loader-only update: the loader build is re-provisioned and content is left untouched.
 - `WS /ws/servers/{id}/console`
 
 ### Content (mods / plugins / resource packs)

@@ -18,6 +18,13 @@ The world itself is upgraded **by Minecraft, in place and one-way**, at the next
 start; the caller (endpoint) offers a pre-change backup. Downgrades are not
 supported by Minecraft — selecting an older version is refused unless the caller
 passes ``allow_downgrade`` (the supported path back is restoring a backup).
+
+**Loader-only update.** Requesting the server's *current* Minecraft version with
+a (different or newest) loader build re-provisions just the loader — the case
+where a mod starts demanding a newer Fabric/Quilt/Forge than the one installed.
+Installed content is scoped to the Minecraft version, not the loader build, so
+the content migration is skipped and the report comes back empty. Types without
+a loader (vanilla, Velocity) have nothing to update this way and are refused.
 """
 
 from __future__ import annotations
@@ -32,6 +39,7 @@ from ..providers import modrinth, mojang
 from ..providers.base import download_file
 from . import install
 from .manager import manager
+from .types import get_server_type
 
 
 class VersionChangeError(Exception):
@@ -74,22 +82,36 @@ async def change_version(
 ) -> MigrationReport:
     """Move ``server`` to ``mc_version``. The server must be stopped. Runs an
     optional pre-change backup, re-provisions jar + Java, migrates content, and
-    returns a report. Commits the record after provisioning."""
+    returns a report. Commits the record after provisioning.
+
+    When ``mc_version`` is the server's current version this is a **loader-only
+    update**: the loader build is re-provisioned (``loader_version``, or the
+    newest when omitted) and content is left untouched — the report is empty."""
     if not server.path:
         raise VersionChangeError("Server is not installed yet", 409)
     if manager.is_running(server.id):
         raise VersionChangeError("Stop the server before changing its version", 409)
 
-    # Downgrade guard — compare via the manifest's ordering, not string compare
-    # (Minecraft can't downgrade a world; only a backup restore gets you back).
-    releases = await mojang.list_release_versions()
-    if not allow_downgrade and is_downgrade(server.mc_version, mc_version, releases):
+    loader_only = mc_version == server.mc_version
+    if loader_only and not get_server_type(server.type).needs_loader:
         raise VersionChangeError(
-            f"{mc_version} is older than {server.mc_version}. Minecraft cannot "
-            "downgrade a world in place — pass allow_downgrade to proceed anyway "
-            "(restore a pre-upgrade backup for the supported path back).",
+            f"{server.type} servers have no loader build to update — pick a "
+            "different Minecraft version.",
             400,
         )
+
+    # Downgrade guard — compare via the manifest's ordering, not string compare
+    # (Minecraft can't downgrade a world; only a backup restore gets you back).
+    # A loader-only update stays on the same version, so there is nothing to check.
+    if not loader_only and not allow_downgrade:
+        releases = await mojang.list_release_versions()
+        if is_downgrade(server.mc_version, mc_version, releases):
+            raise VersionChangeError(
+                f"{mc_version} is older than {server.mc_version}. Minecraft cannot "
+                "downgrade a world in place — pass allow_downgrade to proceed anyway "
+                "(restore a pre-upgrade backup for the supported path back).",
+                400,
+            )
 
     if backup_first:
         from ..backups import create_backup
@@ -104,6 +126,10 @@ async def change_version(
     session.commit()
     session.refresh(server)
 
+    if loader_only:
+        # Mods are resolved per Minecraft version, not per loader build — a
+        # newer Fabric/Quilt/Forge runs the same jars. Nothing to migrate.
+        return MigrationReport()
     return await _migrate_content(session, server, mc_version)
 
 

@@ -199,6 +199,11 @@ which is why one content pipeline serves them all.
   next start — so the flow prominently offers a pre-change backup. **Downgrades are not
   supported by Minecraft**: selecting an older version requires an explicit "I understand my
   world may be unusable" override; the supported path back is restoring the pre-upgrade backup.
+  **Loader-only update:** keeping the current Minecraft version and picking a different loader
+  build (Fabric/Quilt/Forge/NeoForge) re-provisions just the loader — the fix when a mod starts
+  requiring a newer loader than the one installed. Installed mods are left untouched, the card
+  flags when a newer loader build exists, and the picker defaults to the installed build so
+  nothing is changed by accident.
 
 ### 4.2 Mods & Plugins (Content)
 

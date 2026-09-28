@@ -233,6 +233,61 @@ def test_downgrade_allowed_with_override(client, engine, changeable, tmp_path):
     assert resp.json()["server"]["mc_version"] == "1.19.4"
 
 
+def test_loader_only_update_leaves_content_alone(
+    client, engine, changeable, tmp_path, monkeypatch
+):
+    """Same Minecraft version + a new loader build = loader-only update: the
+    loader is re-provisioned, mods are neither re-resolved nor touched, and the
+    Mojang release order isn't even consulted."""
+    items = [
+        _item("P_up", "Upgradable", "P_up-1.0.0.jar"),
+        _item("P_bad", "NoBuild", "P_bad-1.0.0.jar"),
+    ]
+    server_id = _server_with_content(engine, tmp_path, items)
+    before = (tmp_path / ".lectern/manifest.json").read_text()
+
+    async def no_releases():
+        raise AssertionError("downgrade check must be skipped for a loader-only update")
+
+    monkeypatch.setattr(vc.mojang, "list_release_versions", no_releases)
+
+    resp = client.post(
+        f"/api/servers/{server_id}/version",
+        json={"mc_version": "1.20.1", "loader_version": "0.16.9", "backup_first": False},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["server"]["mc_version"] == "1.20.1"
+    assert body["server"]["loader_version"] == "0.16.9"
+    assert body["report"] == {"updated": [], "incompatible": [], "regenerated": [], "kept": []}
+
+    # Content untouched: same manifest, same files, still enabled.
+    assert (tmp_path / ".lectern/manifest.json").read_text() == before
+    assert (tmp_path / "mods/P_up-1.0.0.jar").exists()
+    assert (tmp_path / "mods/P_bad-1.0.0.jar").exists()
+    assert not (tmp_path / "mods/P_bad-1.0.0.jar.disabled").exists()
+    with Session(engine) as session:
+        assert session.get(Server, server_id).loader_version == "0.16.9"
+
+
+def test_loader_only_update_refused_without_loader(client, engine, changeable, tmp_path):
+    """Vanilla has no loader build — asking for the current version is a no-op
+    request and gets a clear 400 instead of a pointless re-download."""
+    with Session(engine) as session:
+        session.add(Server(
+            id="srv-vanilla", name="V", type="vanilla", mc_version="1.20.1",
+            path=str(tmp_path), server_jar="server.jar", java_path="/j",
+            status="stopped",
+        ))
+        session.commit()
+    resp = client.post(
+        "/api/servers/srv-vanilla/version",
+        json={"mc_version": "1.20.1", "backup_first": False},
+    )
+    assert resp.status_code == 400
+    assert "no loader" in resp.json()["detail"]
+
+
 def test_running_server_refused(client, engine, changeable, tmp_path, monkeypatch):
     server_id = _server_with_content(engine, tmp_path, [])
     monkeypatch.setattr(vc.manager, "is_running", lambda sid: True)

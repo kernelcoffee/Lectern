@@ -336,9 +336,11 @@ class ServerSettingsUpdate(SQLModel):
 class VersionChangeRequest(SQLModel):
     """POST payload to change a server's Minecraft version (M9.5, F-SM-9).
 
-    - ``mc_version`` — the target Minecraft version.
-    - ``loader_version`` — optional explicit loader build (Fabric/Quilt);
-      omitted → the newest for the target version is resolved.
+    - ``mc_version`` — the target Minecraft version. Passing the server's
+      *current* version makes this a loader-only update: the loader build is
+      re-provisioned and installed content is left untouched.
+    - ``loader_version`` — optional explicit loader build (Fabric/Quilt/Forge/
+      NeoForge); omitted → the newest for the target version is resolved.
     - ``allow_downgrade`` — required to select a version older than the current
       one (Minecraft can't downgrade a world in place; the world may be
       unusable — the supported path back is restoring a pre-upgrade backup).
