@@ -351,6 +351,45 @@ def test_vt_craftingtweaks_single_datapack(client, engine, tmp_path, fake_vt_typ
     assert kinds == ["datapack", "resourcepack"]
 
 
+def test_vt_categories_include_current_selection(
+    client, engine, tmp_path, fake_vt_typed, monkeypatch
+):
+    """The typed categories endpoint reports the selection behind the
+    installed set of that type — the picker seeds from it, because Generate
+    replaces the whole set (adding one tweak used to drop the rest)."""
+    from lectern.providers import vanillatweaks as vtmod
+
+    async def categories(mc_version, pack_type="resourcepacks"):
+        return {"categories": [{"category": "Survival", "packs": [
+            {"name": "graves", "display": "Graves"},
+        ]}]}
+
+    monkeypatch.setattr(vtmod, "categories", categories)
+    sid = _vanilla_server(client, engine, tmp_path)
+    url = f"/api/servers/{sid}/vanillatweaks/categories/datapacks"
+
+    # Nothing installed → empty selection alongside the catalog.
+    resp = client.get(url)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["selected"] == {}
+    assert resp.json()["categories"][0]["category"] == "Survival"
+
+    resp = client.post(
+        f"/api/servers/{sid}/vanillatweaks",
+        json={"packs": {"survival": ["graves", "more mob heads"]}, "pack_type": "datapacks"},
+    )
+    assert resp.status_code == 201, resp.text
+
+    assert client.get(url).json()["selected"] == {
+        "survival": ["graves", "more mob heads"]
+    }
+    # Each type keeps its own set; the resource-pack picker is unaffected.
+    assert (
+        client.get(f"/api/servers/{sid}/vanillatweaks/categories/resourcepacks")
+        .json()["selected"] == {}
+    )
+
+
 def test_upload_datapack_kind(client, engine, tmp_path):
     sid = _vanilla_server(client, engine, tmp_path)
     resp = client.post(

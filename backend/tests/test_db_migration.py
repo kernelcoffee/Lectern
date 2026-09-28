@@ -54,6 +54,7 @@ def test_old_table_gains_new_columns(tmp_path):
         assert row.name == "Old Mod"
         assert row.channel == "release"
         assert row.version_number is None
+        assert row.pinned is False
         # And new-model writes work.
         row.channel = "beta"
         row.version_number = "1.2.3"

@@ -304,17 +304,25 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
 
 ### Content (mods / plugins / resource packs)
 - `GET /content/search?server_id=…&query=…` — Modrinth search scoped to the server
-- `GET /content/projects/{id}/versions?server_id=…`
+- `GET /content/projects/{id}` — project details for the details view (title, summary, markdown
+  `body`, source/issues/wiki/discord links, stats, `page_url`)
+- `GET /content/projects/{id}/versions?loader=…&mc_version=…` — compatible builds, newest first
 - `GET /servers/{id}/content` — installed list (+ update flags)
-- `POST /servers/{id}/content` — install `{project_id, version_id}` (+ deps)
-- `PATCH /servers/{id}/content/{item_id}` — enable/disable/update
+- `POST /servers/{id}/content` — install `{project_id, version_id}` (+ deps); an explicit
+  `version_id` pins the requested project
+- `PATCH /servers/{id}/content/{item_id}` — `{enabled?, channel?, pinned?}`
+- `POST /servers/{id}/content/{item_id}/update` — newest allowed by channel (unpins), or
+  `{version_id}` to switch to that exact build, newer or older, which pins the item
 - `DELETE /servers/{id}/content/{item_id}`
-- `GET /servers/{id}/content/updates`
+- `GET /servers/{id}/content/updates` — skips pinned items
 - `POST /servers/{id}/modpack` — import `.mrpack`
 
 ### Resource packs / Vanilla Tweaks
 - `GET /servers/{id}/vanillatweaks/categories`
-- `POST /servers/{id}/vanillatweaks` — `{ packs: {category: [ids]} }` → generate + install
+- `GET /servers/{id}/vanillatweaks/categories/{pack_type}` — catalog for one type plus
+  `selected`, the selection behind the installed set of that type (the picker seeds from it)
+- `POST /servers/{id}/vanillatweaks` — `{ packs: {category: [ids]}, pack_type }` → generate +
+  install, replacing the server's previous set of that type
 
 ### Backups
 - `GET /servers/{id}/backups` · `POST /servers/{id}/backups` (create)

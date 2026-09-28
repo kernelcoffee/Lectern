@@ -18,6 +18,7 @@ import {
 import { getProperties, ServerDetail } from "../../api/servers";
 import { useToast } from "../../components/Toasts";
 import ContentBrowser from "./ContentBrowser";
+import ProjectDetailsPanel from "./ProjectDetailsPanel";
 
 export default function ResourcePacksTab({
   serverId,
@@ -32,7 +33,10 @@ export default function ResourcePacksTab({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  // Item whose project details popup is open (Modrinth packs only).
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const toast = useToast();
+  const detailsItem = items?.find((i) => i.id === detailsId) ?? null;
 
   const refresh = useCallback(async () => {
     try {
@@ -103,6 +107,10 @@ export default function ResourcePacksTab({
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
+      {/* List + details panel side by side from lg up; stacked (panel first)
+          on phones. */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+      <div className="min-w-0 flex-1 space-y-4">
       {!items ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : items.length === 0 ? (
@@ -113,16 +121,42 @@ export default function ResourcePacksTab({
       ) : (
         <ul className="divide-y divide-slate-800 rounded-lg border border-slate-800">
           {items.map((item) => (
-            <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
+            <li
+              key={item.id}
+              // The whole row opens details (Modrinth items only); the
+              // controls inside stop the click from bubbling.
+              onClick={
+                item.source === "modrinth" && item.project_id
+                  ? () => setDetailsId(item.id)
+                  : undefined
+              }
+              title={item.source === "modrinth" && item.project_id ? "Show details" : undefined}
+              className={
+                "flex flex-wrap items-center gap-x-3 gap-y-2 p-3 " +
+                (item.source === "modrinth" && item.project_id
+                  ? "cursor-pointer hover:bg-slate-800/40 "
+                  : "") +
+                (detailsId === item.id ? "bg-slate-800/60" : "")
+              }
+            >
               <div className="w-full sm:w-auto sm:flex-1 min-w-0">
-                <p className="text-sm truncate">
-                  {item.name}{" "}
-                  <span className="text-xs text-slate-500">
+                {/* The name truncates; source and badges never do. */}
+                <p className="flex min-w-0 items-baseline gap-2 text-sm">
+                  <span className="truncate">{item.name}</span>
+                  <span className="shrink-0 text-xs text-slate-500">
                     {SOURCE_LABEL[item.source] ?? item.source}
                     {item.version_number && ` · ${item.version_number}`}
                   </span>
+                  {item.pinned && (
+                    <span
+                      className="shrink-0 text-xs text-amber-300"
+                      title="Pinned to this version — update checks skip it"
+                    >
+                      pinned
+                    </span>
+                  )}
                   {servedId === item.id && (
-                    <span className="ml-2 text-xs text-emerald-400">
+                    <span className="shrink-0 text-xs text-emerald-400">
                       offered in game
                     </span>
                   )}
@@ -130,7 +164,10 @@ export default function ResourcePacksTab({
                 <p className="text-xs text-slate-500 truncate">{item.filename}</p>
               </div>
               <button
-                onClick={() => toggleServe(item)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleServe(item);
+                }}
                 disabled={busy !== null}
                 className={
                   "rounded-sm px-2.5 py-1 text-xs disabled:opacity-50 " +
@@ -142,7 +179,10 @@ export default function ResourcePacksTab({
                 {servedId === item.id ? "Stop offering" : "Use in game"}
               </button>
               <button
-                onClick={() => remove(item)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  remove(item);
+                }}
                 disabled={busy !== null}
                 className="bg-red-900/60 hover:bg-red-800 disabled:opacity-50 rounded-sm px-2.5 py-1 text-xs text-red-200"
               >
@@ -156,6 +196,20 @@ export default function ResourcePacksTab({
       <p className="text-xs text-slate-500">
         The in-game prompt takes effect the next time the server starts.
       </p>
+      </div>
+
+      {detailsItem?.project_id && (
+        <ProjectDetailsPanel
+          className="order-first lg:order-none lg:sticky lg:top-4 lg:w-[32.5rem] xl:w-[37.5rem] lg:shrink-0 lg:max-h-[calc(100dvh-2rem)]"
+          server={server}
+          projectId={detailsItem.project_id}
+          kind="resourcepack"
+          installed={detailsItem}
+          onChanged={refresh}
+          onClose={() => setDetailsId(null)}
+        />
+      )}
+      </div>
 
       {browsing && (
         <ContentBrowser

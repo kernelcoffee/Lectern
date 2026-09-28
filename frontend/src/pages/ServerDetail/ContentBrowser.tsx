@@ -9,10 +9,12 @@
 //   * Modrinth — search + sort + category chips (real Modrinth taxonomy) +
 //     paginated results. Datapacks search project_type=datapack and install
 //     with kind=datapack (Modrinth models them as mods with a "datapack"
-//     pseudo-loader).
+//     pseudo-loader). The search text lives on the browser, not the pane, so
+//     switching type or provider and back never loses the query.
 //   * Vanilla Tweaks — share-code input + category/checkbox picker for the
-//     selected VT type; Generate replaces the server's previous VT set of
-//     that type (unchanged selections are a backend fingerprint no-op).
+//     selected VT type. The picker starts from the server's installed set
+//     (Generate REPLACES that whole set, so adding one tweak must build on
+//     what is there); Generate is offered only once the selection differs.
 //   * Upload — a zip drop for resource packs / datapacks (pack.mcmeta
 //     validated server-side).
 //
@@ -38,6 +40,7 @@ import {
   VtPackType,
 } from "../../api/content";
 import { ServerDetail } from "../../api/servers";
+import ProjectDetailsPanel, { DetailsKind } from "./ProjectDetailsPanel";
 
 type Provider = "modrinth" | "vanillatweaks" | "upload";
 export type BrowserType = "mod" | "resourcepack" | "datapack" | "craftingtweak";
@@ -90,6 +93,9 @@ export default function ContentBrowser({
   );
   const [type, setType] = useState<BrowserType>(initialType);
   const [installed, setInstalled] = useState<ContentItem[]>([]);
+  // Modrinth search text — owned here so it survives the pane remounting on
+  // a type switch and a detour through another provider.
+  const [query, setQuery] = useState("");
 
   const refreshInstalled = useCallback(async () => {
     try {
@@ -118,7 +124,10 @@ export default function ContentBrowser({
     <Modal
       onClose={onClose}
       testId="content-browser"
-      panelClassName="max-w-5xl h-[95dvh] sm:h-[85vh]"
+      // Wide enough for results + the details panel side by side (96rem =
+      // the old 64rem plus half again); capped by the viewport on smaller
+      // screens.
+      panelClassName="max-w-[96rem] h-[95dvh] sm:h-[85vh]"
       title={
         <h3 className="text-sm font-medium truncate">
           Add content{" "}
@@ -168,6 +177,8 @@ export default function ContentBrowser({
                 key={type}
                 server={server}
                 type={type}
+                query={query}
+                onQueryChange={setQuery}
                 installed={installed}
                 onChanged={changed}
               />
@@ -237,15 +248,18 @@ function RailItem({
 function ModrinthPane({
   server,
   type,
+  query,
+  onQueryChange,
   installed,
   onChanged,
 }: {
   server: ServerDetail;
   type: BrowserType;
+  query: string;
+  onQueryChange: (q: string) => void;
   installed: ContentItem[];
   onChanged: () => Promise<void>;
 }) {
-  const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortIndex>("relevance");
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCats, setSelectedCats] = useState<string[]>([]);
@@ -257,12 +271,16 @@ function ModrinthPane({
   const [installing, setInstalling] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Hit whose details panel is open beside the results (click a title).
+  const [detailsFor, setDetailsFor] = useState<SearchHit | null>(null);
 
   // Modrinth's search project_type; the tag taxonomy files datapacks under
   // "mod" (they ARE mods with a pseudo-loader there).
   const projectType = type === "mod" ? "mod" : type;
   const tagType = type === "datapack" ? "mod" : projectType;
   const loader = type === "mod" ? server.type : undefined;
+  const detailsKind: DetailsKind =
+    type === "mod" ? "mod" : type === "datapack" ? "datapack" : "resourcepack";
 
   useEffect(() => {
     getModrinthCategories(tagType)
@@ -331,14 +349,17 @@ function ModrinthPane({
   }
 
   return (
-    <div className="space-y-3">
+    // Results + details panel side by side from lg up; stacked (panel
+    // first) below that.
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+    <div className="min-w-0 flex-1 space-y-3">
       <div className="flex gap-2">
         <input
           autoFocus
           value={query}
           onChange={(e) => {
             setPage(0);
-            setQuery(e.target.value);
+            onQueryChange(e.target.value);
           }}
           placeholder={`Search ${TYPE_LABEL[type].toLowerCase()}…`}
           className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-sm px-3 py-1.5 text-sm"
@@ -399,7 +420,15 @@ function ModrinthPane({
         {(hits ?? []).map((hit) => {
           const isInstalled = installedProjects.has(hit.project_id);
           return (
-            <li key={hit.project_id} className="flex items-center gap-3 py-2.5">
+            <li
+              key={hit.project_id}
+              onClick={() => setDetailsFor(hit)}
+              title="Show details"
+              className={
+                "-mx-2 flex cursor-pointer items-center gap-3 rounded-sm px-2 py-2.5 hover:bg-slate-800/40 " +
+                (detailsFor?.project_id === hit.project_id ? "bg-slate-800/60" : "")
+              }
+            >
               {hit.icon_url ? (
                 <img src={hit.icon_url} alt="" className="w-9 h-9 rounded-sm shrink-0" />
               ) : (
@@ -407,7 +436,7 @@ function ModrinthPane({
               )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm truncate">
-                  {hit.title}{" "}
+                  <span>{hit.title}</span>{" "}
                   <span className="text-xs text-slate-500">
                     {hit.downloads.toLocaleString()} downloads
                   </span>
@@ -415,7 +444,10 @@ function ModrinthPane({
                 <p className="text-xs text-slate-500 truncate">{hit.description}</p>
               </div>
               <button
-                onClick={() => install(hit)}
+                onClick={(e) => {
+                  e.stopPropagation(); // the row click opens details
+                  install(hit);
+                }}
                 disabled={installing !== null || isInstalled}
                 className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded-sm px-2.5 py-1 text-xs font-medium text-slate-900 shrink-0"
               >
@@ -455,6 +487,21 @@ function ModrinthPane({
         </div>
       )}
     </div>
+
+      {detailsFor && (
+        <ProjectDetailsPanel
+          className="order-first lg:order-none lg:sticky lg:top-0 lg:w-[30rem] xl:w-[35rem] lg:shrink-0 lg:max-h-[calc(85vh-6rem)]"
+          server={server}
+          projectId={detailsFor.project_id}
+          kind={detailsKind}
+          installed={
+            installed.find((i) => i.project_id === detailsFor.project_id) ?? null
+          }
+          onChanged={onChanged}
+          onClose={() => setDetailsFor(null)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -478,23 +525,43 @@ function VanillaTweaksPane({
   const [shareCode, setShareCode] = useState("");
   const [categories, setCategories] = useState<VtCategory[] | null>(null);
   const [selection, setSelection] = useState<Record<string, Set<string>>>({});
+  // Canonical form of the server's installed selection — the baseline the
+  // picker starts from and is compared against to decide whether Generate
+  // would change anything.
+  const [installedKey, setInstalledKey] = useState(canonicalSelection({}));
   const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     setCategories(null);
     setSelection({});
     setOpenCategory(null);
-    getVtCategories(server.id, vtType)
-      .then((d) => setCategories(d.categories))
-      .catch((e) =>
-        setError(errorMessage(e)),
-      );
+    try {
+      const d = await getVtCategories(server.id, vtType);
+      // Stored selections key categories lowercased; the picker keys them by
+      // the display name the catalog uses. Seed from what is installed.
+      const seeded: Record<string, Set<string>> = {};
+      for (const cat of d.categories) {
+        const packs = d.selected?.[cat.category.toLowerCase()];
+        if (packs?.length) seeded[cat.category] = new Set(packs);
+      }
+      setSelection(seeded);
+      setInstalledKey(canonicalSelection(seeded));
+      setCategories(d.categories);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
   }, [server.id, vtType]);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   const selectedCount = Object.values(selection).reduce((n, s) => n + s.size, 0);
+  const installedCount = installedKey === canonicalSelection({}) ? 0 : selectedCount;
+  const dirty = canonicalSelection(selection) !== installedKey;
 
   async function generate(body: {
     share_code?: string;
@@ -514,6 +581,9 @@ function VanillaTweaksPane({
           : `Generated ${items.length} datapacks.`,
       );
       await onChanged();
+      // Re-seed so the picker reflects the new installed set (a share code
+      // may have changed the selection entirely).
+      await load();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -536,7 +606,8 @@ function VanillaTweaksPane({
     <div className="space-y-3">
       <p className="text-xs text-slate-500">
         Generated by vanillatweaks.net — a server keeps one generated set per
-        type; generating again replaces it.
+        type; generating again replaces it, so your installed tweaks are
+        preselected below: add or remove, then generate.
         {vtType !== "resourcepacks" &&
           " Datapacks and crafting tweaks land in the world's datapacks folder."}
       </p>
@@ -639,23 +710,41 @@ function VanillaTweaksPane({
               )}
             </div>
           )}
-          {selectedCount > 0 && (
-            <button
-              onClick={() =>
-                generate({
-                  packs: Object.fromEntries(
-                    Object.entries(selection).map(([c, s]) => [
-                      c.toLowerCase(),
-                      [...s],
-                    ]),
-                  ),
-                })
-              }
-              disabled={busy}
-              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded-sm px-3 py-1.5 text-sm font-medium text-slate-900"
-            >
-              {busy ? "Generating…" : `Generate (${selectedCount} tweaks)`}
-            </button>
+          {(selectedCount > 0 || installedCount > 0) && (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={() =>
+                  generate({
+                    packs: Object.fromEntries(
+                      Object.entries(selection).map(([c, s]) => [
+                        c.toLowerCase(),
+                        [...s],
+                      ]),
+                    ),
+                  })
+                }
+                disabled={busy || !dirty || selectedCount === 0}
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded-sm px-3 py-1.5 text-sm font-medium text-slate-900"
+              >
+                {busy
+                  ? "Generating…"
+                  : !dirty
+                    ? `Installed (${selectedCount} tweaks)`
+                    : selectedCount === 0
+                      ? "Nothing selected"
+                      : `Generate (${selectedCount} tweaks)`}
+              </button>
+              {!dirty && selectedCount > 0 && (
+                <span className="text-xs text-slate-500">
+                  This is the installed set — change the selection to regenerate.
+                </span>
+              )}
+              {dirty && selectedCount === 0 && (
+                <span className="text-xs text-slate-500">
+                  To remove every tweak, remove the items from the tab instead.
+                </span>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -664,6 +753,17 @@ function VanillaTweaksPane({
       {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   );
+}
+
+/** Order-insensitive fingerprint of a selection (lowercased categories,
+ * sorted packs, empty categories dropped) — mirrors the backend's notion of
+ * "same selection", so unchanged pickers don't offer a no-op Generate. */
+function canonicalSelection(selection: Record<string, Iterable<string>>): string {
+  const entries = Object.entries(selection)
+    .map(([c, packs]) => [c.toLowerCase(), [...packs].sort()] as const)
+    .filter(([, packs]) => packs.length > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(entries);
 }
 
 /** Flatten a category's packs including one level of subcategories. */

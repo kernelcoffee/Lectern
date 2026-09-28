@@ -29,6 +29,7 @@ from ..models import (
     ContentItemRead,
     ContentItemUpdate,
     ContentUpdateRead,
+    ContentVersionRequest,
     ReleaseChannel,
     Server,
     ServerResourcePackUpdate,
@@ -113,6 +114,28 @@ async def content_categories(project_type: str = "mod") -> list[dict]:
         for t in tags
         if t.get("project_type") == project_type
     ]
+
+
+# Page-level project fields passed through to the details view. ``body`` is
+# the full Modrinth-flavoured markdown description.
+_PROJECT_FIELDS = (
+    "id", "slug", "title", "description", "body", "project_type", "icon_url",
+    "source_url", "issues_url", "wiki_url", "discord_url", "downloads",
+    "followers", "categories", "client_side", "server_side", "license",
+    "published", "updated", "game_versions", "loaders",
+)
+
+
+@router.get("/content/projects/{project_id}")
+async def project_details(project_id: str) -> dict:
+    """One project's details for the details view: title, summary, full
+    markdown ``body``, links (source / issues / wiki / discord), stats, plus
+    ``page_url`` — its page on modrinth.com. ``project_id`` may be a slug."""
+    project = await modrinth.get_project(project_id)
+    details = {field: project.get(field) for field in _PROJECT_FIELDS}
+    slug = project.get("slug") or project.get("id") or project_id
+    details["page_url"] = f"https://modrinth.com/project/{slug}"
+    return details
 
 
 @router.get("/content/projects/{project_id}/versions")
@@ -227,6 +250,7 @@ async def patch_content(
             item_id,
             enabled=body.enabled,
             channel=body.channel.value if isinstance(body.channel, ReleaseChannel) else body.channel,
+            pinned=body.pinned,
         )
     except ContentError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
@@ -239,9 +263,12 @@ async def patch_content(
 async def update_content(
     server_id: str,
     item_id: str,
+    body: ContentVersionRequest | None = None,
     session: Session = Depends(get_session),
 ) -> ContentItem:
-    """Swap the item's file for the newest version allowed by its channel."""
+    """Swap the item's file for the newest version allowed by its channel —
+    or, with ``body.version_id``, for that exact compatible build (newer or
+    older; a chosen build pins the item so update checks skip it)."""
     server = _get_server(server_id, session)
     _, server_dir = _content_context(server)
     try:
@@ -251,6 +278,7 @@ async def update_content(
             server_dir,
             item_id,
             mc_version=server.mc_version,
+            version_id=body.version_id if body else None,
         )
     except ContentError as exc:
         code = (
@@ -336,12 +364,19 @@ async def vanillatweaks_categories(
 async def vanillatweaks_typed_categories(
     server_id: str, pack_type: str, session: Session = Depends(get_session)
 ) -> dict:
-    """VT categories for one pack type (resourcepacks|datapacks|craftingtweaks)."""
+    """VT categories for one pack type (resourcepacks|datapacks|craftingtweaks),
+    plus ``selected`` — the packs behind the server's currently installed set
+    of that type, so the picker starts from them (generating replaces the
+    whole set; without this, adding one tweak silently dropped the rest)."""
     server = _get_server(server_id, session)
     try:
-        return await vt.categories(server.mc_version, pack_type)
+        payload = await vt.categories(server.mc_version, pack_type)
     except VanillaTweaksError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    selected = (
+        rp.current_vt_selection(Path(server.path), pack_type) if server.path else {}
+    )
+    return {**payload, "selected": selected}
 
 
 @router.post(

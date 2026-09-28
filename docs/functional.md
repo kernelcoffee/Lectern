@@ -81,16 +81,12 @@ have scheduled mod auto-updates and the newer-version indicators. Still open:
 | Server types | **Paper** (plugins), **Bedrock** |
 | Content sources | CurseForge was considered and **decided against** (key-gated API, see README); Modrinth stays the only source, with manual jar drop-in as the escape hatch |
 | Access | Optional single-password gate |
-| Mod versioning | Per-mod **version picker and rollback** within the server's MC version (auto-update on restart already exists as a schedule action) |
 | Command library | Saved admin commands, runnable manually and as schedule actions |
 | Managed Carpet bots | Spawn fake players at a position to keep chunks loaded, auto-respawned after every server restart via the console pipe |
 | Logs | Viewer for rotated (`*.log.gz`) logs of earlier runs |
 | Custom resource pack manager | Build and manage a server-side custom resource pack (custom models, sounds/music, textures…) that mods can hook into, from a dedicated UI rather than hand-editing the pack |
 | World pruning | Prune generated-but-unvisited or stale chunks with a proper interface, so a map explored on an older version regenerates with new resources/features after an update |
 | Performance & idle | Apply/enforce recommended server optimisations (JVM flags, config tweaks); **auto-shutdown when no players are online, auto-wake when a player tries to connect** |
-| Mods page revamp | Clicking a mod opens its **details / full description**, with a button to open the **source page** (Modrinth / repo) in a new tab |
-| Mods page search | The **search field must keep its text** when switching source or content type — no retyping the query on every filter change |
-| Vanilla Tweaks datapacks | The picker must **preselect the packs already installed**, so adding one more doesn't silently uninstall the others |
 
 **Design implication:** server types/editions and content sources are treated as **pluggable
 providers** from day one (see [`technical.md`](./technical.md) §§ 2, 6). Fabric and Modrinth are
@@ -220,6 +216,19 @@ which is why one content pipeline serves them all.
 - **F-C-6 — Remove.** Uninstall an item and clean up its file and metadata.
 - **F-C-7 — Dependencies.** When installing content with required dependencies, Lectern surfaces
   them and offers to install them too.
+- **F-C-8 — Project details.** Clicking a Modrinth item (installed, or a search result) opens its
+  details in a **side panel next to the list** (above it on phones), not a popup, so the list
+  stays usable: icon, summary, stats, categories, the **full description** (rendered markdown),
+  and links to its **Modrinth page, source repository, issues, wiki and Discord**, each opening
+  in a new tab.
+- **F-C-9 — Version picker, rollback and pinning.** The details view lists every build compatible
+  with the server's loader and Minecraft version. An installed item can be **switched to any of
+  them, newer or older** (rollback); a not-yet-installed project can be installed at a chosen
+  build. Choosing a build **pins** the item: update checks and the update-mods schedule skip it
+  until it is unpinned (or a plain Update moves it to the newest and unpins). Pinned items are
+  badged in the list.
+- **F-C-10 — Search keeps its text.** In the content browser the search query survives switching
+  content type or provider; no retyping on every filter change.
 
 ### 4.3 Modpacks
 
@@ -233,7 +242,10 @@ which is why one content pipeline serves them all.
   upload); Lectern reads each pack's metadata (`pack.mcmeta`) for name/format.
 - **F-RP-2 — Vanilla Tweaks.** The admin can browse Vanilla Tweaks resource-pack categories for
   the server's Minecraft version, select the tweaks they want, and have Lectern generate the
-  combined pack and install it. (This is the capability Prism lacks.)
+  combined pack and install it. (This is the capability Prism lacks.) The same picker serves
+  datapacks and crafting tweaks. Because generating **replaces** the server's set of that type,
+  the picker **starts from the installed selection** and only offers Generate once the selection
+  differs — adding one tweak never silently drops the others.
 - **F-RP-3 — Serve to clients (optional).** Lectern can set the server's `resource-pack` /
   `resource-pack-sha1` properties so players are prompted to download the pack.
 

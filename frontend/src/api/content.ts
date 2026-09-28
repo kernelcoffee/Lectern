@@ -50,7 +50,49 @@ export interface ContentItem {
   sha512: string | null;
   channel: ReleaseChannel;
   enabled: boolean;
+  /** Pinned to its current build (chosen explicitly, e.g. a rollback):
+   * update checks and the update_mods schedule skip it. */
+  pinned: boolean;
   installed_at: string;
+}
+
+/** Page-level project details for the details view (Modrinth fields). */
+export interface ProjectDetails {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  /** Full description, Modrinth-flavoured markdown. */
+  body: string | null;
+  project_type: string;
+  icon_url: string | null;
+  source_url: string | null;
+  issues_url: string | null;
+  wiki_url: string | null;
+  discord_url: string | null;
+  downloads: number;
+  followers: number;
+  categories: string[];
+  client_side: string;
+  server_side: string;
+  license: { id: string; name: string; url: string | null } | null;
+  published: string;
+  updated: string;
+  game_versions: string[];
+  loaders: string[];
+  /** The project's page on modrinth.com. */
+  page_url: string;
+}
+
+/** One project version compatible with a server (subset of Modrinth's). */
+export interface ProjectVersion {
+  id: string;
+  version_number: string;
+  version_type: "release" | "beta" | "alpha";
+  date_published: string;
+  downloads: number;
+  loaders: string[];
+  game_versions: string[];
 }
 
 export interface ContentInstallRequest {
@@ -110,14 +152,42 @@ export const installContent = (serverId: string, body: ContentInstallRequest) =>
 export const checkContentUpdates = (serverId: string) =>
   apiGet<ContentUpdate[]>(`/api/servers/${serverId}/content/updates`);
 
-export const applyContentUpdate = (serverId: string, itemId: string) =>
-  apiPost<ContentItem>(`/api/servers/${serverId}/content/${itemId}/update`, {});
+/** Move an item to the newest version its channel allows — or, given a
+ * `versionId`, to that exact compatible build (newer or older; a chosen
+ * build pins the item so update checks skip it). */
+export const applyContentUpdate = (
+  serverId: string,
+  itemId: string,
+  versionId?: string,
+) =>
+  apiPost<ContentItem>(`/api/servers/${serverId}/content/${itemId}/update`, {
+    version_id: versionId ?? null,
+  });
 
 export const patchContent = (
   serverId: string,
   itemId: string,
-  body: { enabled?: boolean; channel?: ReleaseChannel },
+  body: { enabled?: boolean; channel?: ReleaseChannel; pinned?: boolean },
 ) => apiPatch<ContentItem>(`/api/servers/${serverId}/content/${itemId}`, body);
+
+export const getProjectDetails = (projectId: string) =>
+  apiGet<ProjectDetails>(
+    `/api/content/projects/${encodeURIComponent(projectId)}`,
+  );
+
+/** Versions of a project compatible with a server, newest first. `loader`
+ * is a server type (expanded to its compatibility chain server-side) or
+ * "datapack" for datapack builds; omit it for resource packs. */
+export const getProjectVersions = (
+  projectId: string,
+  params: { loader?: string; mc_version: string },
+) => {
+  const qs = new URLSearchParams({ mc_version: params.mc_version });
+  if (params.loader) qs.set("loader", params.loader);
+  return apiGet<ProjectVersion[]>(
+    `/api/content/projects/${encodeURIComponent(projectId)}/versions?${qs}`,
+  );
+};
 
 export const removeContent = (serverId: string, itemId: string) =>
   apiDelete(`/api/servers/${serverId}/content/${itemId}`);
@@ -139,8 +209,11 @@ export interface VtCategory {
 
 export type VtPackType = "resourcepacks" | "datapacks" | "craftingtweaks";
 
+/** VT categories for one type plus `selected`: the packs behind the server's
+ * currently installed set of that type (category keys lowercased, as
+ * stored), so the picker can start from what is already there. */
 export const getVtCategories = (serverId: string, packType: VtPackType) =>
-  apiGet<{ categories: VtCategory[] }>(
+  apiGet<{ categories: VtCategory[]; selected: Record<string, string[]> }>(
     `/api/servers/${serverId}/vanillatweaks/categories/${packType}`,
   );
 

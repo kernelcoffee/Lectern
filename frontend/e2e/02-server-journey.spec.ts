@@ -74,8 +74,31 @@ test("full server journey: create → mods → properties → delete @full", asy
   const browser = page.getByTestId("content-browser");
   await expect(browser.getByRole("button", { name: "Modrinth" })).toBeVisible();
   await browser.getByPlaceholder("Search mods…").fill("fabric api");
+  // The query survives a type switch and the way back (F-C-10).
+  await browser.getByRole("button", { name: "Resource packs" }).click();
+  await expect(browser.getByPlaceholder("Search resource packs…")).toHaveValue(
+    "fabric api",
+  );
+  await browser.getByRole("button", { name: "Mods", exact: true }).click();
+  await expect(browser.getByPlaceholder("Search mods…")).toHaveValue("fabric api");
   const fabricApiRow = browser.locator("li", { hasText: "Fabric API" }).first();
   await expect(fabricApiRow).toBeVisible({ timeout: 20_000 });
+
+  // Clicking a result row opens the details panel beside the results
+  // (F-C-8/9): links, compatible versions with per-build Install; its ✕
+  // closes it and leaves the browser open.
+  await fabricApiRow.getByText("Fabric API", { exact: true }).click();
+  const details = browser.getByTestId("project-details");
+  await expect(details.getByRole("link", { name: /Modrinth page/ })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(details.getByRole("button", { name: "Install" }).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await details.getByRole("button", { name: "Close details" }).click();
+  await expect(details).toBeHidden();
+  await expect(browser).toBeVisible();
+
   await fabricApiRow.getByRole("button", { name: "Install" }).click();
 
   // Success is reported inside the popup, and the hit flips to "Installed".
@@ -85,11 +108,24 @@ test("full server journey: create → mods → properties → delete @full", asy
   await expect(
     fabricApiRow.getByRole("button", { name: "Installed" }),
   ).toBeVisible();
-  await browser.getByRole("button", { name: "Close" }).click();
+  await browser.getByRole("button", { name: "Close", exact: true }).click();
 
   // Installed list shows it; the mod row exposes disable/remove.
   const modRow = page.locator("li", { hasText: "Fabric API" });
   await expect(modRow).toBeVisible();
+
+  // Details from the installed list open in a side panel: the installed
+  // build is marked current and the item can be pinned; ✕ closes the panel.
+  await modRow.getByRole("button", { name: "Details" }).click();
+  const installedDetails = page.getByTestId("project-details");
+  await expect(installedDetails.getByText("current", { exact: true })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(
+    installedDetails.getByRole("button", { name: "Pin current version" }),
+  ).toBeVisible();
+  await installedDetails.getByRole("button", { name: "Close details" }).click();
+  await expect(installedDetails).toBeHidden();
 
   await modRow.getByRole("button", { name: "Disable" }).click();
   await expect(modRow.getByRole("button", { name: "Enable" })).toBeVisible();
