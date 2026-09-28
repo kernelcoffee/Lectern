@@ -73,11 +73,24 @@ end-to-end slice**:
 
 ### Roadmap (designed for, added later)
 
+Since the first version, **Quilt, Forge, NeoForge** and **Velocity proxies** have shipped, as
+have scheduled mod auto-updates and the newer-version indicators. Still open:
+
 | Area | Later additions |
 |------|-----------------|
-| Server types | **Quilt**, **Paper** (plugins), then **Forge/NeoForge**, **Bedrock** |
-| Content sources | **CurseForge** alongside Modrinth |
+| Server types | **Paper** (plugins), **Bedrock** |
+| Content sources | CurseForge was considered and **decided against** (key-gated API, see README); Modrinth stays the only source, with manual jar drop-in as the escape hatch |
 | Access | Optional single-password gate |
+| Mod versioning | Per-mod **version picker and rollback** within the server's MC version (auto-update on restart already exists as a schedule action) |
+| Command library | Saved admin commands, runnable manually and as schedule actions |
+| Managed Carpet bots | Spawn fake players at a position to keep chunks loaded, auto-respawned after every server restart via the console pipe |
+| Logs | Viewer for rotated (`*.log.gz`) logs of earlier runs |
+| Custom resource pack manager | Build and manage a server-side custom resource pack (custom models, sounds/music, textures…) that mods can hook into, from a dedicated UI rather than hand-editing the pack |
+| World pruning | Prune generated-but-unvisited or stale chunks with a proper interface, so a map explored on an older version regenerates with new resources/features after an update |
+| Performance & idle | Apply/enforce recommended server optimisations (JVM flags, config tweaks); **auto-shutdown when no players are online, auto-wake when a player tries to connect** |
+| Mods page revamp | Clicking a mod opens its **details / full description**, with a button to open the **source page** (Modrinth / repo) in a new tab |
+| Mods page search | The **search field must keep its text** when switching source or content type — no retyping the query on every filter change |
+| Vanilla Tweaks datapacks | The picker must **preselect the packs already installed**, so adding one more doesn't silently uninstall the others |
 
 **Design implication:** server types/editions and content sources are treated as **pluggable
 providers** from day one (see [`technical.md`](./technical.md) §§ 2, 6). Fabric and Modrinth are
