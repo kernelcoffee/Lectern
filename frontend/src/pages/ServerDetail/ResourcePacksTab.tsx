@@ -95,7 +95,7 @@ export default function ResourcePacksTab({
         </h3>
         <button
           onClick={() => setBrowsing(true)}
-          className="bg-emerald-600 hover:bg-emerald-500 rounded px-3 py-1.5 text-sm font-medium text-slate-900"
+          className="bg-emerald-600 hover:bg-emerald-500 rounded-sm px-3 py-1.5 text-sm font-medium text-slate-900"
         >
           Add packs
         </button>
@@ -133,7 +133,7 @@ export default function ResourcePacksTab({
                 onClick={() => toggleServe(item)}
                 disabled={busy !== null}
                 className={
-                  "rounded px-2.5 py-1 text-xs disabled:opacity-50 " +
+                  "rounded-sm px-2.5 py-1 text-xs disabled:opacity-50 " +
                   (servedId === item.id
                     ? "bg-slate-700 hover:bg-slate-600"
                     : "bg-sky-700 hover:bg-sky-600")
@@ -144,7 +144,7 @@ export default function ResourcePacksTab({
               <button
                 onClick={() => remove(item)}
                 disabled={busy !== null}
-                className="bg-red-900/60 hover:bg-red-800 disabled:opacity-50 rounded px-2.5 py-1 text-xs text-red-200"
+                className="bg-red-900/60 hover:bg-red-800 disabled:opacity-50 rounded-sm px-2.5 py-1 text-xs text-red-200"
               >
                 Remove
               </button>

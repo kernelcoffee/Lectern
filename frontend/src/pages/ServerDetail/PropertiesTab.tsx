@@ -155,7 +155,7 @@ function LecternSettingsForm({
                 onChange={(e) =>
                   setField(f.key, f.parse ? f.parse(e.target.value) : e.target.value)
                 }
-                className="w-full rounded bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200"
+                className="w-full rounded-sm bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200"
               />
             )}
           </label>
@@ -275,14 +275,14 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
             value={newKey}
             onChange={(e) => setNewKey(e.target.value)}
             placeholder="key"
-            className="w-28 sm:w-44 rounded bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200"
+            className="w-28 sm:w-44 rounded-sm bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200"
           />
         </label>
         <input
           value={newValue}
           onChange={(e) => setNewValue(e.target.value)}
           placeholder="value"
-          className="flex-1 min-w-0 rounded bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200"
+          className="flex-1 min-w-0 rounded-sm bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200"
         />
       </div>
 
@@ -306,7 +306,7 @@ function PropertyField({
   onChange: (value: string) => void;
 }) {
   const base =
-    "w-full rounded bg-slate-800 border px-2 py-1.5 text-sm text-slate-200 " +
+    "w-full rounded-sm bg-slate-800 border px-2 py-1.5 text-sm text-slate-200 " +
     // Amber border marks unsaved edits so users see what the save will send.
     (edited ? "border-amber-600" : "border-slate-700");
 
@@ -391,7 +391,7 @@ function BoolSelect({
       value={value ? "true" : "false"}
       onChange={(e) => onChange(e.target.value === "true")}
       className={
-        "w-full rounded bg-slate-800 border px-2 py-1.5 text-sm text-slate-200 " +
+        "w-full rounded-sm bg-slate-800 border px-2 py-1.5 text-sm text-slate-200 " +
         (highlight ? "border-amber-600" : "border-slate-700")
       }
     >
@@ -418,7 +418,7 @@ function SaveRow({
       <button
         onClick={onSave}
         disabled={!dirty || saving}
-        className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed rounded px-4 py-1.5 text-sm font-medium"
+        className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-sm px-4 py-1.5 text-sm font-medium"
       >
         {saving ? "Saving…" : "Save"}
       </button>

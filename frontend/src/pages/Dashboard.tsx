@@ -169,7 +169,7 @@ export default function Dashboard({
           <h3 className="text-sm font-medium text-slate-300">All servers</h3>
           <button
             onClick={() => onNavigate({ view: "create" })}
-            className="bg-emerald-600 hover:bg-emerald-500 rounded px-3 py-1.5 text-sm font-medium text-slate-900"
+            className="bg-emerald-600 hover:bg-emerald-500 rounded-sm px-3 py-1.5 text-sm font-medium text-slate-900"
           >
             New server
           </button>
@@ -249,7 +249,7 @@ export default function Dashboard({
                       <button
                         onClick={() => quickAction(s, "start")}
                         disabled={!canStart || busy !== null}
-                        className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-30 rounded px-2.5 py-1 text-xs"
+                        className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-30 rounded-sm px-2.5 py-1 text-xs"
                         title="Start"
                       >
                         Start
@@ -257,7 +257,7 @@ export default function Dashboard({
                       <button
                         onClick={() => quickAction(s, "stop")}
                         disabled={!canStop || busy !== null}
-                        className="bg-slate-700 hover:bg-slate-600 disabled:opacity-30 rounded px-2.5 py-1 text-xs"
+                        className="bg-slate-700 hover:bg-slate-600 disabled:opacity-30 rounded-sm px-2.5 py-1 text-xs"
                         title="Stop"
                       >
                         Stop

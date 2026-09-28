@@ -140,7 +140,7 @@ export default function ProxyTab({ serverId }: { serverId: string }) {
                         {c.type} · :{c.port}
                       </span>
                       {isDefault && (
-                        <span className="rounded bg-emerald-700/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-emerald-200">
+                        <span className="rounded-sm bg-emerald-700/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-emerald-200">
                           default
                         </span>
                       )}
@@ -159,7 +159,7 @@ export default function ProxyTab({ serverId }: { serverId: string }) {
                   <button
                     onClick={() => makeDefault(c.server_id)}
                     disabled={busy}
-                    className="rounded bg-slate-700 px-2.5 py-1 text-xs hover:bg-slate-600 disabled:opacity-50"
+                    className="rounded-sm bg-slate-700 px-2.5 py-1 text-xs hover:bg-slate-600 disabled:opacity-50"
                   >
                     Make default
                   </button>
@@ -174,7 +174,7 @@ export default function ProxyTab({ serverId }: { serverId: string }) {
         <button
           onClick={save}
           disabled={!dirty || busy}
-          className="rounded bg-emerald-600 px-4 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:opacity-40"
+          className="rounded-sm bg-emerald-600 px-4 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:opacity-40"
         >
           {busy ? "Saving…" : "Save links"}
         </button>

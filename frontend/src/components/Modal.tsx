@@ -51,7 +51,7 @@ export default function Modal({
           <button
             onClick={onClose}
             aria-label="Close"
-            className="rounded px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+            className="rounded-sm px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
           >
             ✕
           </button>

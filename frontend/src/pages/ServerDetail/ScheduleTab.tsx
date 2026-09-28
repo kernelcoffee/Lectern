@@ -157,7 +157,7 @@ export default function ScheduleTab({ serverId }: { serverId: string }) {
                     <code className="ml-2 text-xs text-slate-400">{s.command}</code>
                   )}
                   {s.one_time && (
-                    <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+                    <span className="ml-2 rounded-sm bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
                       once
                     </span>
                   )}
@@ -173,7 +173,7 @@ export default function ScheduleTab({ serverId }: { serverId: string }) {
               <button
                 onClick={() => setEditing(s)}
                 disabled={busy !== null}
-                className="rounded bg-slate-700 px-2.5 py-1 text-xs hover:bg-slate-600 disabled:opacity-50"
+                className="rounded-sm bg-slate-700 px-2.5 py-1 text-xs hover:bg-slate-600 disabled:opacity-50"
               >
                 Edit
               </button>
@@ -181,7 +181,7 @@ export default function ScheduleTab({ serverId }: { serverId: string }) {
                 onClick={() => toggle(s)}
                 disabled={busy !== null}
                 className={
-                  "rounded px-2.5 py-1 text-xs disabled:opacity-50 " +
+                  "rounded-sm px-2.5 py-1 text-xs disabled:opacity-50 " +
                   (s.enabled
                     ? "bg-slate-700 hover:bg-slate-600"
                     : "bg-emerald-700 hover:bg-emerald-600")
@@ -192,7 +192,7 @@ export default function ScheduleTab({ serverId }: { serverId: string }) {
               <button
                 onClick={() => remove(s)}
                 disabled={busy !== null}
-                className="rounded bg-red-900/60 px-2.5 py-1 text-xs text-red-200 hover:bg-red-800 disabled:opacity-50"
+                className="rounded-sm bg-red-900/60 px-2.5 py-1 text-xs text-red-200 hover:bg-red-800 disabled:opacity-50"
               >
                 Delete
               </button>
@@ -365,7 +365,7 @@ function ScheduleForm({
                   })
                 }
                 className={
-                  "rounded px-2.5 py-1 text-xs " +
+                  "rounded-sm px-2.5 py-1 text-xs " +
                   (on
                     ? "bg-emerald-600 text-slate-900"
                     : "bg-slate-800 text-slate-300 hover:bg-slate-700")
@@ -406,7 +406,7 @@ function ScheduleForm({
           <button
             onClick={onCancel}
             disabled={busy}
-            className="rounded bg-slate-700 px-3 py-1.5 text-sm hover:bg-slate-600 disabled:opacity-50"
+            className="rounded-sm bg-slate-700 px-3 py-1.5 text-sm hover:bg-slate-600 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -414,7 +414,7 @@ function ScheduleForm({
         <button
           onClick={submit}
           disabled={busy || !cron || commandMissing}
-          className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:opacity-50"
+          className="rounded-sm bg-emerald-600 px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:opacity-50"
         >
           {busy ? busyLabel : submitLabel}
         </button>
@@ -461,9 +461,9 @@ function EditModal({
 }
 
 const selectCls =
-  "mt-1 block w-44 rounded bg-slate-800 px-2 py-1.5 text-sm text-slate-100";
+  "mt-1 block w-44 rounded-sm bg-slate-800 px-2 py-1.5 text-sm text-slate-100";
 const inputCls =
-  "mt-1 block w-full min-w-[8rem] rounded bg-slate-800 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600";
+  "mt-1 block w-full min-w-32 rounded-sm bg-slate-800 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600";
 
 function Field({
   label,

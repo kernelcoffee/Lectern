@@ -365,7 +365,7 @@ export default function ServerDetail({
           <button
             onClick={doAcceptEula}
             disabled={busy === "eula"}
-            className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 rounded px-3 py-1.5 text-sm font-medium text-slate-900"
+            className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 rounded-sm px-3 py-1.5 text-sm font-medium text-slate-900"
           >
             {busy === "eula" ? "Accepting…" : "Accept EULA"}
           </button>
@@ -589,7 +589,7 @@ function EditableName({
           setEditing(false);
         }
       }}
-      className="flex-1 min-w-0 rounded bg-slate-800 px-2 py-1 text-xl font-semibold text-slate-100 outline-none ring-1 ring-slate-600 focus:ring-emerald-500 disabled:opacity-50"
+      className="flex-1 min-w-0 rounded-sm bg-slate-800 px-2 py-1 text-xl font-semibold text-slate-100 outline-hidden ring-1 ring-slate-600 focus:ring-emerald-500 disabled:opacity-50"
     />
   );
 }
@@ -638,7 +638,7 @@ function ControlButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`${styles[color]} disabled:opacity-40 disabled:cursor-not-allowed rounded px-4 py-1.5 text-sm font-medium`}
+      className={`${styles[color]} disabled:opacity-40 disabled:cursor-not-allowed rounded-sm px-4 py-1.5 text-sm font-medium`}
     >
       {label}
     </button>

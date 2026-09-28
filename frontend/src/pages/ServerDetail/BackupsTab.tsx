@@ -99,7 +99,7 @@ export default function BackupsTab({
         <button
           onClick={create}
           disabled={busy !== null}
-          className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded px-3 py-1.5 text-sm font-medium text-slate-900"
+          className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded-sm px-3 py-1.5 text-sm font-medium text-slate-900"
         >
           {busy === "create" ? "Backing up…" : "Create backup"}
         </button>
@@ -130,7 +130,7 @@ export default function BackupsTab({
               <a
                 href={backupDownloadUrl(serverId, b.id)}
                 download={b.filename}
-                className="bg-slate-700 hover:bg-slate-600 rounded px-2.5 py-1 text-xs"
+                className="bg-slate-700 hover:bg-slate-600 rounded-sm px-2.5 py-1 text-xs"
               >
                 Download
               </a>
@@ -138,14 +138,14 @@ export default function BackupsTab({
                 onClick={() => restore(b)}
                 disabled={busy !== null || server.running}
                 title={server.running ? "Stop the server first" : undefined}
-                className="bg-sky-700 hover:bg-sky-600 disabled:opacity-40 rounded px-2.5 py-1 text-xs"
+                className="bg-sky-700 hover:bg-sky-600 disabled:opacity-40 rounded-sm px-2.5 py-1 text-xs"
               >
                 {busy === b.id ? "Working…" : "Restore"}
               </button>
               <button
                 onClick={() => remove(b)}
                 disabled={busy !== null}
-                className="bg-red-900/60 hover:bg-red-800 disabled:opacity-50 rounded px-2.5 py-1 text-xs text-red-200"
+                className="bg-red-900/60 hover:bg-red-800 disabled:opacity-50 rounded-sm px-2.5 py-1 text-xs text-red-200"
               >
                 Delete
               </button>

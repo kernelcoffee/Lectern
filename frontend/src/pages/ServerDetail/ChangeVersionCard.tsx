@@ -190,7 +190,7 @@ export default function ChangeVersionCard({
             value={target}
             onChange={(e) => setTarget(e.target.value)}
             disabled={!versions || busy}
-            className="mt-1 block w-48 rounded bg-slate-800 px-2 py-1.5 text-sm text-slate-100 disabled:opacity-50"
+            className="mt-1 block w-48 rounded-sm bg-slate-800 px-2 py-1.5 text-sm text-slate-100 disabled:opacity-50"
           >
             {versions === null ? (
               <option>Loading…</option>
@@ -212,7 +212,7 @@ export default function ChangeVersionCard({
               value={loader}
               onChange={(e) => setLoader(e.target.value)}
               disabled={!loaders || busy}
-              className="mt-1 block w-48 rounded bg-slate-800 px-2 py-1.5 text-sm text-slate-100 disabled:opacity-50"
+              className="mt-1 block w-48 rounded-sm bg-slate-800 px-2 py-1.5 text-sm text-slate-100 disabled:opacity-50"
             >
               <option value="">
                 Newest (auto){newestLoader ? ` · ${newestLoader}` : ""}
@@ -252,7 +252,7 @@ export default function ChangeVersionCard({
       </label>
 
       {isDowngrade && (
-        <label className="flex items-start gap-2 rounded border border-red-800/70 bg-red-950/30 p-2 text-xs text-red-200">
+        <label className="flex items-start gap-2 rounded-sm border border-red-800/70 bg-red-950/30 p-2 text-xs text-red-200">
           <input
             type="checkbox"
             checked={ackDowngrade}
@@ -271,7 +271,7 @@ export default function ChangeVersionCard({
       <button
         onClick={submit}
         disabled={blocked}
-        className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+        className="rounded-sm bg-emerald-600 px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {busy
           ? "Changing…"
@@ -308,7 +308,7 @@ function PreviewView({
   if (total === 0) return null; // nothing installed — no need for a verdict
 
   return (
-    <div className="space-y-1.5 rounded border border-slate-800 bg-slate-900/60 p-3 text-xs">
+    <div className="space-y-1.5 rounded-sm border border-slate-800 bg-slate-900/60 p-3 text-xs">
       {preview.incompatible.length > 0 ? (
         <p className="font-medium text-amber-300">
           {preview.incompatible.length} of {total} installed item
@@ -360,7 +360,7 @@ function ReportView({ report }: { report: MigrationReport }) {
   ];
   const any = groups.some((g) => g.items.length > 0);
   return (
-    <div className="space-y-2 rounded border border-slate-800 bg-slate-900/60 p-3 text-xs">
+    <div className="space-y-2 rounded-sm border border-slate-800 bg-slate-900/60 p-3 text-xs">
       <p className="font-semibold text-slate-200">Version changed. Migration report:</p>
       {!any && <p className="text-slate-400">No installed content to migrate.</p>}
       {groups

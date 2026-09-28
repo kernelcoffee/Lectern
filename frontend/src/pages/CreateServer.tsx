@@ -336,7 +336,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="My new server"
-              className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5"
+              className="w-full bg-slate-800 border border-slate-700 rounded-sm px-2.5 py-1.5"
             />
           </label>
 
@@ -350,7 +350,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
                   if (t) chooseType(t);
                 }}
                 disabled={types.length === 0}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 disabled:opacity-50"
+                className="w-full bg-slate-800 border border-slate-700 rounded-sm px-2 py-1.5 disabled:opacity-50"
               >
                 {types.length === 0 && <option value="">Loading types…</option>}
                 {gameTypes.map((t) => (
@@ -364,7 +364,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
           ) : (
             <div className="text-sm space-y-1">
               <span className="text-slate-400">Proxy software</span>
-              <p className="rounded border border-slate-700 bg-slate-800/50 px-2.5 py-1.5 text-slate-300">
+              <p className="rounded-sm border border-slate-700 bg-slate-800/50 px-2.5 py-1.5 text-slate-300">
                 Velocity
               </p>
             </div>
@@ -381,7 +381,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
                 required
                 value={mcVersion}
                 onChange={(e) => chooseVersion(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5"
+                className="w-full bg-slate-800 border border-slate-700 rounded-sm px-2 py-1.5"
               >
                 <option value="" disabled>
                   Select a version…
@@ -407,7 +407,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
                   value={loader}
                   onChange={(e) => setLoader(e.target.value)}
                   disabled={loaders.length === 0}
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 disabled:opacity-50"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-sm px-2 py-1.5 disabled:opacity-50"
                 >
                   {loaders.length === 0 && (
                     <option value="">Pick a version first</option>
@@ -443,7 +443,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
                 max={65535}
                 value={port}
                 onChange={(e) => setPort(Number(e.target.value))}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5"
+                className="w-full bg-slate-800 border border-slate-700 rounded-sm px-2.5 py-1.5"
               />
               <span className="block text-xs text-slate-500">
                 Any port 1024–65535. Servers can share a port as long as only
@@ -458,7 +458,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
                 step={256}
                 value={memory}
                 onChange={(e) => setMemory(Number(e.target.value))}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5"
+                className="w-full bg-slate-800 border border-slate-700 rounded-sm px-2.5 py-1.5"
               />
             </label>
           </div>
@@ -474,7 +474,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
               disabled={worldMode !== "none"}
               onChange={(e) => setSeed(e.target.value)}
               placeholder="Leave empty for a random world"
-              className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 disabled:opacity-50"
+              className="w-full bg-slate-800 border border-slate-700 rounded-sm px-2.5 py-1.5 disabled:opacity-50"
             />
             <span className="block text-xs text-slate-500">
               {worldMode === "none"
@@ -535,7 +535,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
                   setWorldMode(e.target.value as WorldMode);
                   setError(null);
                 }}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5"
+                className="w-full bg-slate-800 border border-slate-700 rounded-sm px-2 py-1.5"
               >
                 <option value="none">Don't import — generate a new world</option>
                 <option value="upload">Upload a .zip</option>
@@ -550,7 +550,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
                   type="file"
                   accept=".zip,application/zip"
                   onChange={(e) => setWorldFile(e.target.files?.[0] ?? null)}
-                  className="w-full text-sm text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:text-slate-100 hover:file:bg-slate-600"
+                  className="w-full text-sm text-slate-300 file:mr-3 file:rounded-sm file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:text-slate-100 hover:file:bg-slate-600"
                 />
               </label>
             )}
@@ -563,7 +563,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
                   value={worldUrl}
                   onChange={(e) => setWorldUrl(e.target.value)}
                   placeholder="https://example.com/my-world.zip"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-sm px-2.5 py-1.5"
                 />
               </label>
             )}
@@ -581,7 +581,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
                     value={worldExclude}
                     onChange={(e) => setWorldExclude(e.target.value)}
                     placeholder="*DistantHorizons*, *.tmp"
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 font-mono text-xs"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-sm px-2.5 py-1.5 font-mono text-xs"
                   />
                 </label>
                 <p className="text-xs text-slate-500">
@@ -602,7 +602,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
           <button
             type="submit"
             disabled={!ready || submitting}
-            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded px-4 py-1.5 text-sm font-medium text-slate-900"
+            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded-sm px-4 py-1.5 text-sm font-medium text-slate-900"
           >
             {submitting
               ? statusMsg ?? "Creating…"
@@ -615,7 +615,7 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
           <button
             type="button"
             onClick={reset}
-            className="bg-slate-800 hover:bg-slate-700 rounded px-4 py-1.5 text-sm"
+            className="bg-slate-800 hover:bg-slate-700 rounded-sm px-4 py-1.5 text-sm"
           >
             Reset
           </button>
@@ -631,9 +631,9 @@ export default function CreateServer({ onCreated }: { onCreated: () => void }) {
               <span>{statusMsg ?? "Uploading world…"}</span>
               <span className="tabular-nums">{Math.round(uploadPct * 100)}%</span>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded bg-slate-800">
+            <div className="h-2 w-full overflow-hidden rounded-sm bg-slate-800">
               <div
-                className="h-full rounded bg-emerald-500 transition-[width] duration-150"
+                className="h-full rounded-sm bg-emerald-500 transition-[width] duration-150"
                 style={{ width: `${Math.max(2, uploadPct * 100)}%` }}
               />
             </div>

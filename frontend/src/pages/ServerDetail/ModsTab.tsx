@@ -147,7 +147,7 @@ export default function ModsTab({
           <button
             onClick={updateAll}
             disabled={busy !== null}
-            className="bg-sky-600 hover:bg-sky-500 disabled:opacity-50 rounded px-3 py-1.5 text-sm font-medium"
+            className="bg-sky-600 hover:bg-sky-500 disabled:opacity-50 rounded-sm px-3 py-1.5 text-sm font-medium"
           >
             Update all ({updates.length})
           </button>
@@ -155,14 +155,14 @@ export default function ModsTab({
         <button
           onClick={checkUpdates}
           disabled={busy !== null || !items || items.length === 0}
-          className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded px-3 py-1.5 text-sm"
+          className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-sm px-3 py-1.5 text-sm"
         >
           {busy === "check" ? "Checking…" : "Check updates"}
         </button>
         <button
           onClick={() => mrpackInput.current?.click()}
           disabled={busy !== null}
-          className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded px-3 py-1.5 text-sm"
+          className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-sm px-3 py-1.5 text-sm"
         >
           {busy === "mrpack" ? "Importing…" : "Import .mrpack"}
         </button>
@@ -179,7 +179,7 @@ export default function ModsTab({
         />
         <button
           onClick={() => setBrowsing(true)}
-          className="bg-emerald-600 hover:bg-emerald-500 rounded px-3 py-1.5 text-sm font-medium text-slate-900"
+          className="bg-emerald-600 hover:bg-emerald-500 rounded-sm px-3 py-1.5 text-sm font-medium text-slate-900"
         >
           Add mods
         </button>
@@ -218,7 +218,7 @@ export default function ModsTab({
                   onChange={(e) => setChannel(item, e.target.value as ReleaseChannel)}
                   disabled={busy !== null}
                   title="Least-stable release type allowed for updates"
-                  className="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-xs"
+                  className="bg-slate-800 border border-slate-700 rounded-sm px-1.5 py-1 text-xs"
                 >
                   {CHANNELS.map((c) => (
                     <option key={c} value={c}>
@@ -230,7 +230,7 @@ export default function ModsTab({
                   <button
                     onClick={() => updateOne(item.id)}
                     disabled={busy !== null}
-                    className="bg-sky-600 hover:bg-sky-500 disabled:opacity-50 rounded px-2.5 py-1 text-xs font-medium"
+                    className="bg-sky-600 hover:bg-sky-500 disabled:opacity-50 rounded-sm px-2.5 py-1 text-xs font-medium"
                   >
                     {busy === item.id ? "…" : "Update"}
                   </button>
@@ -238,14 +238,14 @@ export default function ModsTab({
                 <button
                   onClick={() => toggle(item)}
                   disabled={busy !== null}
-                  className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded px-2.5 py-1 text-xs"
+                  className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-sm px-2.5 py-1 text-xs"
                 >
                   {item.enabled ? "Disable" : "Enable"}
                 </button>
                 <button
                   onClick={() => remove(item)}
                   disabled={busy !== null}
-                  className="bg-red-900/60 hover:bg-red-800 disabled:opacity-50 rounded px-2.5 py-1 text-xs text-red-200"
+                  className="bg-red-900/60 hover:bg-red-800 disabled:opacity-50 rounded-sm px-2.5 py-1 text-xs text-red-200"
                 >
                   Remove
                 </button>

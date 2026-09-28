@@ -92,7 +92,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       <div
         aria-label="Notifications"
-        className="pointer-events-none fixed inset-x-3 bottom-3 z-[60] flex flex-col items-stretch gap-2 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-96 sm:items-end"
+        className="pointer-events-none fixed inset-x-3 bottom-3 z-60 flex flex-col items-stretch gap-2 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-96 sm:items-end"
       >
         {toasts.map((t) => (
           <div
@@ -111,13 +111,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${STYLES[t.kind].dot}`}
               aria-hidden
             />
-            <p className="min-w-0 flex-1 break-words text-sm text-slate-100">
+            <p className="min-w-0 flex-1 wrap-break-word text-sm text-slate-100">
               {t.message}
             </p>
             <button
               onClick={() => dismiss(t.id)}
               aria-label="Dismiss notification"
-              className="shrink-0 rounded px-1 text-slate-500 hover:text-slate-200"
+              className="shrink-0 rounded-sm px-1 text-slate-500 hover:text-slate-200"
             >
               ✕
             </button>

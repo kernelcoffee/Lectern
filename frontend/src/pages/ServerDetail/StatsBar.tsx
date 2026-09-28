@@ -57,7 +57,7 @@ export default function StatsBar({ serverId }: { serverId: string }) {
   const ping = stats.ping;
 
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 lg:min-w-[17rem]">
+    <div className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 lg:min-w-68">
       <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-slate-500">
         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
         Live

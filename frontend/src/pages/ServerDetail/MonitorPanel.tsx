@@ -98,7 +98,7 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
               key={r.minutes}
               onClick={() => setMinutes(r.minutes)}
               className={
-                "rounded px-2.5 py-1 text-xs " +
+                "rounded-sm px-2.5 py-1 text-xs " +
                 (minutes === r.minutes
                   ? "bg-slate-700 text-slate-100"
                   : "text-slate-400 hover:text-slate-200")
@@ -295,7 +295,7 @@ function MetricChart({
         )}
         {hover !== null && active && (
           <div
-            className="pointer-events-none absolute z-10 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-100 shadow"
+            className="pointer-events-none absolute z-10 rounded-sm border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-100 shadow-sm"
             style={{
               left: Math.min(Math.max(px(hover), padL + 24), width - 24),
               top: 2,

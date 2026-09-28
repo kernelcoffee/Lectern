@@ -20,7 +20,7 @@ export default function Avatar({
     return (
       <div
         style={{ width: size, height: size, fontSize: Math.round(size / 2.4) }}
-        className="flex shrink-0 items-center justify-center rounded-sm bg-slate-700 font-medium text-slate-300"
+        className="flex shrink-0 items-center justify-center rounded-xs bg-slate-700 font-medium text-slate-300"
       >
         {name.slice(0, 1).toUpperCase()}
       </div>
@@ -36,7 +36,7 @@ export default function Avatar({
       alt=""
       // Pixel skins look best crisp, not smoothed, when scaled up.
       style={{ imageRendering: "pixelated" }}
-      className="shrink-0 rounded-sm"
+      className="shrink-0 rounded-xs"
     />
   );
 }

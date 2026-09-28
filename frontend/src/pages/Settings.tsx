@@ -112,7 +112,7 @@ export default function Settings() {
                             return next;
                           });
                         }}
-                        className="w-32 rounded bg-slate-800 border border-slate-700 px-2.5 py-1.5 text-sm text-right tabular-nums"
+                        className="w-32 rounded-sm bg-slate-800 border border-slate-700 px-2.5 py-1.5 text-sm text-right tabular-nums"
                       />
                       <span className="w-8 text-xs text-slate-500">{s.unit}</span>
                     </div>
@@ -126,7 +126,7 @@ export default function Settings() {
             <button
               type="submit"
               disabled={!dirty || busy}
-              className="rounded bg-emerald-600 px-4 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:opacity-40"
+              className="rounded-sm bg-emerald-600 px-4 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:opacity-40"
             >
               {busy ? "Saving…" : "Save changes"}
             </button>
@@ -134,7 +134,7 @@ export default function Settings() {
               <button
                 type="button"
                 onClick={() => setEdits({})}
-                className="rounded bg-slate-800 px-4 py-1.5 text-sm hover:bg-slate-700"
+                className="rounded-sm bg-slate-800 px-4 py-1.5 text-sm hover:bg-slate-700"
               >
                 Discard
               </button>

@@ -166,7 +166,7 @@ function OnlineSection({ serverId }: { serverId: string }) {
                 disabled={busy}
                 title={p.bot ? "Kill bot" : "Kick"}
                 aria-label={`${p.bot ? "Kill bot" : "Kick"} ${p.name}`}
-                className="absolute right-1.5 top-1.5 rounded px-1 text-slate-600 opacity-0 transition hover:text-red-300 group-hover:opacity-100 disabled:opacity-50"
+                className="absolute right-1.5 top-1.5 rounded-sm px-1 text-slate-600 opacity-0 transition hover:text-red-300 group-hover:opacity-100 disabled:opacity-50"
               >
                 ✕
               </button>
@@ -175,7 +175,7 @@ function OnlineSection({ serverId }: { serverId: string }) {
                 {p.name}
               </div>
               {p.bot ? (
-                <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                <span className="rounded-sm bg-slate-700 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
                   bot
                 </span>
               ) : (
@@ -248,7 +248,7 @@ function ListSection({
           value={pick}
           onChange={(e) => setPick(e.target.value)}
           disabled={busy || addable.length === 0}
-          className="min-w-0 flex-1 rounded bg-slate-800 px-2 py-1 text-xs text-slate-200 disabled:opacity-50"
+          className="min-w-0 flex-1 rounded-sm bg-slate-800 px-2 py-1 text-xs text-slate-200 disabled:opacity-50"
         >
           <option value="">
             {addable.length === 0 ? "no more players to add" : "add a player…"}
@@ -267,7 +267,7 @@ function ListSection({
             }
           }}
           disabled={busy || !pick}
-          className="rounded bg-slate-700 px-2.5 py-1 text-xs hover:bg-slate-600 disabled:opacity-50"
+          className="rounded-sm bg-slate-700 px-2.5 py-1 text-xs hover:bg-slate-600 disabled:opacity-50"
         >
           Add
         </button>

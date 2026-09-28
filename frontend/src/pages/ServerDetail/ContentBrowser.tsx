@@ -341,7 +341,7 @@ function ModrinthPane({
             setQuery(e.target.value);
           }}
           placeholder={`Search ${TYPE_LABEL[type].toLowerCase()}…`}
-          className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm"
+          className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-sm px-3 py-1.5 text-sm"
         />
         <select
           value={sort}
@@ -349,7 +349,7 @@ function ModrinthPane({
             setPage(0);
             setSort(e.target.value as SortIndex);
           }}
-          className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm"
+          className="bg-slate-800 border border-slate-700 rounded-sm px-2 py-1.5 text-sm"
         >
           <option value="relevance">Relevance</option>
           <option value="downloads">Downloads</option>
@@ -401,9 +401,9 @@ function ModrinthPane({
           return (
             <li key={hit.project_id} className="flex items-center gap-3 py-2.5">
               {hit.icon_url ? (
-                <img src={hit.icon_url} alt="" className="w-9 h-9 rounded shrink-0" />
+                <img src={hit.icon_url} alt="" className="w-9 h-9 rounded-sm shrink-0" />
               ) : (
-                <div className="w-9 h-9 rounded bg-slate-800 shrink-0" />
+                <div className="w-9 h-9 rounded-sm bg-slate-800 shrink-0" />
               )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm truncate">
@@ -417,7 +417,7 @@ function ModrinthPane({
               <button
                 onClick={() => install(hit)}
                 disabled={installing !== null || isInstalled}
-                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded px-2.5 py-1 text-xs font-medium text-slate-900 shrink-0"
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded-sm px-2.5 py-1 text-xs font-medium text-slate-900 shrink-0"
               >
                 {isInstalled
                   ? "Installed"
@@ -438,7 +438,7 @@ function ModrinthPane({
           <button
             onClick={() => setPage((p) => Math.max(0, p - 1))}
             disabled={page === 0}
-            className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 rounded px-2.5 py-1"
+            className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 rounded-sm px-2.5 py-1"
           >
             ← Prev
           </button>
@@ -448,7 +448,7 @@ function ModrinthPane({
           <button
             onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
             disabled={page >= pages - 1}
-            className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 rounded px-2.5 py-1"
+            className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 rounded-sm px-2.5 py-1"
           >
             Next →
           </button>
@@ -546,12 +546,12 @@ function VanillaTweaksPane({
           value={shareCode}
           onChange={(e) => setShareCode(e.target.value)}
           placeholder="Share code from vanillatweaks.net"
-          className="flex-1 max-w-sm bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5 text-sm"
+          className="flex-1 max-w-sm bg-slate-800 border border-slate-700 rounded-sm px-2.5 py-1.5 text-sm"
         />
         <button
           onClick={() => generate({ share_code: shareCode.trim() })}
           disabled={busy || shareCode.trim() === ""}
-          className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded px-3 py-1.5 text-sm font-medium text-slate-900"
+          className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded-sm px-3 py-1.5 text-sm font-medium text-slate-900"
         >
           {busy ? "Generating…" : "Generate"}
         </button>
@@ -582,7 +582,7 @@ function VanillaTweaksPane({
             ))}
           </div>
           {openCategory && (
-            <div className="max-h-[48vh] overflow-y-auto rounded border border-slate-800 p-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="max-h-[48vh] overflow-y-auto rounded-sm border border-slate-800 p-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {flatPacks(categories.find((c) => c.category === openCategory)).map(
                 (pack) => {
                   const selected =
@@ -607,7 +607,7 @@ function VanillaTweaksPane({
                         // VT 403s foreign referers but allows referer-less
                         // requests — omit it instead of proxying the icons.
                         referrerPolicy="no-referrer"
-                        className="w-10 h-10 rounded shrink-0 bg-slate-800 object-cover"
+                        className="w-10 h-10 rounded-sm shrink-0 bg-slate-800 object-cover"
                         onError={(e) => {
                           // Icon missing upstream — keep the dark placeholder.
                           (e.target as HTMLImageElement).style.visibility = "hidden";
@@ -652,7 +652,7 @@ function VanillaTweaksPane({
                 })
               }
               disabled={busy}
-              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded px-3 py-1.5 text-sm font-medium text-slate-900"
+              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded-sm px-3 py-1.5 text-sm font-medium text-slate-900"
             >
               {busy ? "Generating…" : `Generate (${selectedCount} tweaks)`}
             </button>
@@ -721,7 +721,7 @@ function UploadPane({
       <button
         onClick={() => fileInput.current?.click()}
         disabled={busy}
-        className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded px-4 py-2 text-sm font-medium text-slate-900"
+        className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded-sm px-4 py-2 text-sm font-medium text-slate-900"
       >
         {busy ? "Uploading…" : "Choose zip file…"}
       </button>

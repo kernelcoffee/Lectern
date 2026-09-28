@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* Tailwind v4 defaults border/divide color to currentcolor (v3: gray-200).
+   Every border-* and divide-* element in src/ sets its own color, so no
+   compatibility override is needed — keep it that way. */
 
 /* Toast entrance (components/Toasts.tsx uses animate-[toast-in_…]). */
 @keyframes toast-in {

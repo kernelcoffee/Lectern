@@ -76,7 +76,7 @@ export default function Players() {
                 key={v}
                 onClick={() => setView(v)}
                 className={
-                  "rounded px-2.5 py-1 text-xs capitalize " +
+                  "rounded-sm px-2.5 py-1 text-xs capitalize " +
                   (view === v
                     ? "bg-slate-700 text-slate-100"
                     : "text-slate-400 hover:text-slate-200")
@@ -94,12 +94,12 @@ export default function Players() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Minecraft username or UUID"
-          className="flex-1 rounded border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-sm"
+          className="flex-1 rounded-sm border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-sm"
         />
         <button
           type="submit"
           disabled={busy || !query.trim()}
-          className="rounded bg-emerald-600 px-4 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:opacity-50"
+          className="rounded-sm bg-emerald-600 px-4 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:opacity-50"
         >
           {busy ? "Adding…" : "Add player"}
         </button>
@@ -124,7 +124,7 @@ export default function Players() {
                 onClick={() => remove(p)}
                 title="Remove"
                 aria-label={`Remove ${p.name}`}
-                className="absolute right-1.5 top-1.5 rounded px-1 text-slate-600 opacity-0 transition hover:text-red-300 group-hover:opacity-100"
+                className="absolute right-1.5 top-1.5 rounded-sm px-1 text-slate-600 opacity-0 transition hover:text-red-300 group-hover:opacity-100"
               >
                 ✕
               </button>

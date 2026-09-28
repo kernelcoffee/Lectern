@@ -253,14 +253,14 @@ export default function FilesTab({ serverId }: { serverId: string }) {
             <button
               onClick={removeSelected}
               disabled={busy}
-              className="rounded bg-red-900/70 px-2.5 py-1 text-xs text-red-200 hover:bg-red-800 disabled:opacity-50"
+              className="rounded-sm bg-red-900/70 px-2.5 py-1 text-xs text-red-200 hover:bg-red-800 disabled:opacity-50"
             >
               Delete {selected.size} selected
             </button>
           )}
           <ToolbarButton label="New file" onClick={newFile} disabled={busy} />
           <ToolbarButton label="New folder" onClick={newFolder} disabled={busy} />
-          <label className="cursor-pointer rounded bg-slate-800 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-700">
+          <label className="cursor-pointer rounded-sm bg-slate-800 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-700">
             Upload
             <input
               type="file"
@@ -441,7 +441,7 @@ function RowMenu({
       <button
         onClick={onToggle}
         aria-label="Actions"
-        className="rounded px-2 py-0.5 text-slate-400 hover:bg-slate-700 hover:text-slate-100"
+        className="rounded-sm px-2 py-0.5 text-slate-400 hover:bg-slate-700 hover:text-slate-100"
       >
         ⋯
       </button>
@@ -532,7 +532,7 @@ function EditorModal({
               onChange={(e) => onChange(e.target.value)}
               spellCheck={false}
               autoFocus
-              className="h-[55vh] w-full resize-none rounded border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-slate-100 outline-none focus:border-emerald-600"
+              className="h-[55vh] w-full resize-none rounded-sm border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-slate-100 outline-hidden focus:border-emerald-600"
             />
           ) : (
             <div className="space-y-3 py-6 text-center text-sm text-slate-400">
@@ -544,7 +544,7 @@ function EditorModal({
               <a
                 href={fileDownloadUrl(serverId, file.path)}
                 download
-                className="inline-block rounded bg-slate-700 px-3 py-1.5 text-xs text-slate-100 hover:bg-slate-600"
+                className="inline-block rounded-sm bg-slate-700 px-3 py-1.5 text-xs text-slate-100 hover:bg-slate-600"
               >
                 Download instead
               </a>
@@ -557,7 +557,7 @@ function EditorModal({
             <button
               onClick={onSave}
               disabled={busy || !dirty}
-              className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:opacity-40"
+              className="rounded-sm bg-emerald-600 px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-emerald-500 disabled:opacity-40"
             >
               {busy ? "Saving…" : "Save"}
             </button>
@@ -583,7 +583,7 @@ function ToolbarButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="rounded bg-slate-800 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+      className="rounded-sm bg-slate-800 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
     >
       {label}
     </button>

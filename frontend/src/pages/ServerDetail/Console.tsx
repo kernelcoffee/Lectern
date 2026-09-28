@@ -72,7 +72,7 @@ export default function Console({ serverId }: { serverId: string }) {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search output…"
           aria-label="Search console output"
-          className="ml-auto w-48 rounded bg-slate-800 px-2 py-1 text-slate-200 placeholder:text-slate-600"
+          className="ml-auto w-48 rounded-sm bg-slate-800 px-2 py-1 text-slate-200 placeholder:text-slate-600"
         />
         {search && (
           <span className="text-slate-500">
@@ -90,14 +90,14 @@ export default function Console({ serverId }: { serverId: string }) {
         <a
           href={fileDownloadUrl(serverId, "logs/latest.log")}
           download="latest.log"
-          className="rounded bg-slate-800 px-2 py-1 hover:bg-slate-700 hover:text-slate-200"
+          className="rounded-sm bg-slate-800 px-2 py-1 hover:bg-slate-700 hover:text-slate-200"
         >
           Download log
         </a>
       </div>
       <div
         ref={logRef}
-        className="h-[clamp(20rem,100dvh_-_24rem,64rem)] overflow-y-auto rounded-lg border border-slate-800 bg-black/40 p-3 font-mono text-xs leading-relaxed text-slate-200"
+        className="h-[clamp(20rem,100dvh-24rem,64rem)] overflow-y-auto rounded-lg border border-slate-800 bg-black/40 p-3 font-mono text-xs leading-relaxed text-slate-200"
       >
         {lines.length === 0 ? (
           <p className="text-slate-600">No output yet.</p>
@@ -105,7 +105,7 @@ export default function Console({ serverId }: { serverId: string }) {
           <p className="text-slate-600">No lines match “{search}”.</p>
         ) : (
           filtered.map((line, i) => (
-            <div key={i} className="whitespace-pre-wrap break-words">
+            <div key={i} className="whitespace-pre-wrap wrap-break-word">
               {line}
             </div>
           ))
@@ -118,11 +118,11 @@ export default function Console({ serverId }: { serverId: string }) {
           onChange={(e) => setCommand(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="type a server command (↑ for history) — e.g. say hello"
-          className="flex-1 bg-slate-800 rounded px-2 py-1 font-mono text-sm"
+          className="flex-1 bg-slate-800 rounded-sm px-2 py-1 font-mono text-sm"
         />
         <button
           type="submit"
-          className="bg-slate-700 hover:bg-slate-600 rounded px-3 py-1.5 text-sm"
+          className="bg-slate-700 hover:bg-slate-600 rounded-sm px-3 py-1.5 text-sm"
         >
           Send
         </button>
