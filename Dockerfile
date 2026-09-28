@@ -26,7 +26,6 @@ RUN apt-get update \
 
 # Install the backend. Copy just the packaging inputs first so the dependency
 # layer caches across source-only changes.
-COPY README.md /README.md
 COPY backend/pyproject.toml ./pyproject.toml
 COPY backend/lectern ./lectern
 RUN pip install --no-cache-dir .
