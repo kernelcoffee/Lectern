@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/tag/kernelcoffee/Lectern?label=release&color=2ea44f)](https://github.com/kernelcoffee/Lectern/tags)
 [![GHCR](https://img.shields.io/badge/ghcr.io-kernelcoffee%2Flectern-1f6feb?logo=docker&logoColor=white)](https://github.com/kernelcoffee/Lectern/pkgs/container/lectern)
 ![Python](https://img.shields.io/badge/python-3.14-3776ab?logo=python&logoColor=white)
-![React](https://img.shields.io/badge/react-18-58c4dc?logo=react&logoColor=white)
+![React](https://img.shields.io/badge/react-19-58c4dc?logo=react&logoColor=white)
 [![Built with Claude](https://img.shields.io/badge/built%20with-Claude-D97757?logo=claude&logoColor=white)](https://claude.com/claude-code)
 [![License: MIT](https://img.shields.io/badge/license-MIT-8b949e)](LICENSE)
 
