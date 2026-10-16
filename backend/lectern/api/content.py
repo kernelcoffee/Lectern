@@ -466,7 +466,10 @@ def download_content_file(
     item = session.get(ContentItem, item_id)
     if item is None or item.server_id != server_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Content item not found")
-    path = content.kind_dir(server_dir, item.kind) / item.filename
+    try:
+        path = content.item_file(server_dir, {"kind": item.kind, "filename": item.filename})
+    except ContentError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not on disk") from None
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not on disk")
     return FileResponse(path, filename=item.filename)
@@ -495,7 +498,12 @@ def set_server_pack(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Not a resource pack")
 
     if body.enabled:
-        path = content.kind_dir(server_dir, "resourcepack") / item.filename
+        try:
+            path = content.item_file(
+                server_dir, {"kind": "resourcepack", "filename": item.filename}
+            )
+        except ContentError:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "File not on disk") from None
         if not path.exists():
             raise HTTPException(status.HTTP_404_NOT_FOUND, "File not on disk")
         url = f"{str(request.base_url).rstrip('/')}/api/servers/{server_id}/content/{item_id}/file"

@@ -555,3 +555,56 @@ def test_apply_updates_all_swaps_and_reports(client, engine, tmp_path, catalog):
         assert asyncio.run(
             apply_updates_all(session, sid, tmp_path, mc_version="1.20.1")
         ) == []
+
+
+# --- untrusted manifest ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        {"kind": "mod", "filename": "../../outside.txt"},
+        {"kind": "OUTSIDE_ABS", "filename": "outside.txt"},
+        {"kind": "mod", "filename": ".."},
+    ],
+    ids=["dotdot-filename", "absolute-kind", "dotdot-name"],
+)
+def test_manifest_paths_confined_to_server(client, engine, tmp_path, hostile):
+    """A restored (possibly uploaded) backup can carry any manifest: entries
+    pointing outside the server dir must never be read, renamed or deleted."""
+    server_dir = tmp_path / "srv"
+    (server_dir / "mods").mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("precious")
+    sid = _fabric_server(client, engine, server_dir)
+    if hostile["kind"] == "OUTSIDE_ABS":
+        hostile = {**hostile, "kind": str(tmp_path)}
+    item = {
+        "id": "evil", "source": "modrinth", "name": "Evil", "enabled": True, **hostile,
+    }
+    (server_dir / ".lectern").mkdir()
+    (server_dir / ".lectern/manifest.json").write_text(json.dumps({"items": [item]}))
+    assert [i["id"] for i in client.get(f"/api/servers/{sid}/content").json()] == ["evil"]
+
+    resp = client.get(f"/api/servers/{sid}/content/evil/file")
+    assert resp.status_code == 404
+    resp = client.patch(f"/api/servers/{sid}/content/evil", json={"enabled": False})
+    assert resp.status_code in (400, 404)  # refused, whichever code the route maps
+    assert outside.read_text() == "precious"
+    assert client.delete(f"/api/servers/{sid}/content/evil").status_code == 204
+    assert outside.read_text() == "precious"
+    assert _manifest(server_dir) == []
+
+
+def test_confine_rejects_symlink_out(tmp_path):
+    server_dir = tmp_path / "srv"
+    (server_dir / "mods").mkdir(parents=True)
+    (tmp_path / "victim.jar").write_text("x")
+    (server_dir / "mods/link.jar").symlink_to(tmp_path / "victim.jar")
+    with pytest.raises(content.ContentError):
+        content.item_file(server_dir, {"kind": "mod", "filename": "link.jar"})
+    content._delete_item_file(server_dir, {"kind": "mod", "filename": "link.jar"})
+    assert (tmp_path / "victim.jar").exists()
+    assert content.item_file(server_dir, {"kind": "mod", "filename": "ok.jar"}) == (
+        server_dir / "mods/ok.jar"
+    )

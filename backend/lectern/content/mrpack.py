@@ -217,7 +217,12 @@ async def import_mrpack(
                 item["enabled"] = old.get("enabled", True)
                 items.remove(old)
         for gone in old_by_path.values():
-            (server_dir / gone["mrpack_path"]).unlink(missing_ok=True)
+            try:  # the stored path is manifest data — untrusted
+                manager.confine(server_dir, server_dir / str(gone["mrpack_path"])).unlink(
+                    missing_ok=True
+                )
+            except manager.ContentError:
+                pass
             items.remove(gone)
 
         # Bounded, verified downloads (skip files already present + matching

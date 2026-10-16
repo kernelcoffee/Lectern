@@ -91,17 +91,47 @@ def write_manifest(server_dir: Path, items: list[dict]) -> None:
     path.write_text(json.dumps({"items": items}, indent=2))
 
 
+def confine(server_dir: Path, path: Path) -> Path:
+    """Return ``path`` if it resolves (symlinks followed) strictly inside
+    ``server_dir``, else raise ``ContentError``. The manifest is untrusted
+    input: a restored (possibly uploaded) backup can carry any manifest, so
+    every path built from its ``kind``/``filename``/``mrpack_path`` goes
+    through here before it is read, written, renamed or deleted."""
+    root = server_dir.resolve()
+    if root not in path.resolve().parents:
+        raise ContentError(f"Content path is outside the server directory: {path}")
+    return path
+
+
+def _item_base(server_dir: Path, item: dict) -> Path:
+    name = item.get("filename") or ""
+    if name in {".", ".."} or not name or "/" in name or "\\" in name:
+        raise ContentError(f"Unsafe filename in manifest: {name!r}")
+    return confine(server_dir, kind_dir(server_dir, item["kind"]) / name)
+
+
 def item_file(server_dir: Path, item: dict) -> Path:
-    """On-disk path of an item's file, honouring the ``.disabled`` suffix."""
-    base = kind_dir(server_dir, item["kind"]) / item["filename"]
-    return base if item.get("enabled", True) else base.with_name(base.name + ".disabled")
+    """On-disk path of an item's file, honouring the ``.disabled`` suffix.
+    Raises ``ContentError`` when the manifest entry points outside the server."""
+    base = _item_base(server_dir, item)
+    if item.get("enabled", True):
+        return base
+    return confine(server_dir, base.with_name(base.name + ".disabled"))
 
 
 def _delete_item_file(server_dir: Path, item: dict) -> None:
-    """Remove an item's file whichever enabled-variant is on disk."""
-    base = kind_dir(server_dir, item["kind"]) / item["filename"]
-    base.unlink(missing_ok=True)
-    base.with_name(base.name + ".disabled").unlink(missing_ok=True)
+    """Remove an item's file whichever enabled-variant is on disk. An entry
+    that points outside the server dir deletes nothing (so it can still be
+    dropped from the manifest)."""
+    try:
+        base = _item_base(server_dir, item)
+    except ContentError:
+        return
+    for path in (base, base.with_name(base.name + ".disabled")):
+        try:
+            confine(server_dir, path).unlink(missing_ok=True)
+        except ContentError:
+            pass
 
 
 def _sync_rows(session: Session, server_id: str, items: list[dict]) -> None:
