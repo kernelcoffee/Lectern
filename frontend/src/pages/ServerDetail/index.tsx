@@ -7,8 +7,11 @@
 //
 // Data flow:
 //   * `server` (ServerDetail) is fetched once on mount and refreshed after
-//     every action; while status is a transition ("starting"/"stopping") we
-//     poll every 1.5 s so the chip follows the process without a WebSocket.
+//     every action. App's status feed (/ws/status) passes `liveStatus`; when
+//     it differs from the fetched row we refetch, so the chip and everything
+//     gated on `running` (Clone, Restore) follow within a second. While status
+//     is a transition ("starting"/"stopping") we also poll every 1.5 s as the
+//     fallback when the feed socket is down.
 //   * The Console tab has its own WebSocket (useConsoleSocket) — independent
 //     of this polling.
 //   * StatsBar polls GET /stats on its own 5 s timer; mounting it only when
@@ -86,8 +89,11 @@ export default function ServerDetail({
   onDeleted,
   onChanged,
   onOpen,
+  liveStatus,
 }: {
   serverId: string;
+  /** Live status from App's /ws/status feed; a change triggers a refetch. */
+  liveStatus?: ServerStatus;
   onBack: () => void;
   onDeleted: () => void;
   /** Called after a change other pages care about (rename) so the parent can
@@ -162,6 +168,14 @@ export default function ServerDetail({
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // The status feed moved: refetch (not patch) so derived fields like
+  // `running` — which Restore and Clone gate on — update too.
+  // Deps are `server?.status`, not `server`: a refetch that changes other
+  // fields must not re-run this and refetch again.
+  useEffect(() => {
+    if (liveStatus && server && liveStatus !== server.status) refresh();
+  }, [liveStatus, server?.status, refresh]);
 
   // The WS's terminal event is the moment the record flips (stopped or
   // install_failed) — refetch so the page swaps to the real controls.
@@ -265,6 +279,7 @@ export default function ServerDetail({
         <div className="space-y-2.5">
           <div className="flex flex-wrap items-center gap-3">
             <span
+              data-testid="status-chip"
               className={`text-xs px-2 py-0.5 rounded-full ${STATUS_CHIP[server.status]}`}
             >
               {server.status}

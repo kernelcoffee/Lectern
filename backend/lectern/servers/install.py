@@ -27,6 +27,7 @@ from ..providers import adoptium, mojang
 from ..providers.base import download_file
 from ..ws import progress_hub
 from . import velocity
+from .status import set_status
 from .types import JarSpec, get_server_type
 
 # --- progress registry -----------------------------------------------------
@@ -272,9 +273,7 @@ async def install_server(server_id: str) -> None:
                 if _record_deleted(server_id):
                     _discard_install(server_id)
                     return
-                server.status = ServerStatus.install_failed.value
-                session.add(server)
-                session.commit()
+                set_status(session, server, ServerStatus.install_failed.value)
                 _set(server_id, "error", "Install failed", done=True, error=str(exc))
     except Exception as exc:  # noqa: BLE001 — a background task must never raise
         _set(server_id, "error", "Install failed", done=True, error=str(exc))
@@ -312,6 +311,7 @@ async def _run(session: Session, server: Server) -> None:
         _discard_install(server.id)
         return
 
-    server.status = ServerStatus.stopped.value
-    session.add(server)
-    session.commit()
+    # set_status's commit also persists path/java_path set by provision.
+    if not set_status(session, server, ServerStatus.stopped.value):
+        session.add(server)
+        session.commit()

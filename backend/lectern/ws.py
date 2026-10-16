@@ -1,4 +1,9 @@
-"""Console fan-out.
+"""In-process fan-out hubs for the WebSocket routes.
+
+- ``ConsoleHub`` (per server): console output with scrollback.
+- ``ProgressHub`` (per server): install-progress updates, no history.
+- ``StatusHub`` (app-wide): ``Server.status`` transitions, published by
+  ``servers.status.set_status`` and streamed by ``/ws/status``.
 
 ``ConsoleHub`` keeps, per server, a bounded ring buffer of recent output lines
 and a set of live subscriber queues. ``ServerProcess`` publishes each stdout
@@ -74,3 +79,28 @@ class ProgressHub:
 
 
 progress_hub = ProgressHub()
+
+
+class StatusHub:
+    """App-wide status fan-out: every subscriber receives every
+    ``{"server_id": ..., "status": ...}`` transition. No history — the
+    ``/ws/status`` route sends a DB snapshot on connect instead."""
+
+    def __init__(self) -> None:
+        self._subs: set[asyncio.Queue[dict]] = set()
+
+    def publish(self, event: dict) -> None:
+        for queue in list(self._subs):
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait(event)
+
+    def subscribe(self) -> asyncio.Queue[dict]:
+        queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
+        self._subs.add(queue)
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue[dict]) -> None:
+        self._subs.discard(queue)
+
+
+status_hub = StatusHub()

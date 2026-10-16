@@ -1,11 +1,14 @@
 // @full — the real end-to-end journey, from the docs/functional.md §5.1 happy
-// path (minus starting Minecraft, which backend tests cover): create a Fabric
-// server on the New-server page, watch the dashboard follow the install,
-// manage mods against real Modrinth, edit a property, delete the server.
+// path: create a Fabric server on the New-server page, watch the dashboard
+// follow the install, manage mods against real Modrinth, accept the EULA,
+// start the server and stop it from the console (live status feed), restore
+// a backup, edit a property, delete the server.
 //
 // Run with:  E2E_FULL=1 npx playwright test
 // Network: Fabric server jar (~1 MB), Temurin JRE (~45 MB, cached in
 // .e2e-data/java after the first run), Modrinth API + one mod jar.
+// Port: the server really binds 25565 on the host, so nothing else (e.g. a
+// local Minecraft server) may be listening there during the run.
 
 import { crc32 } from "node:zlib";
 import { test, expect } from "@playwright/test";
@@ -50,7 +53,7 @@ function makeZip(entries: Record<string, string>): Buffer {
   return Buffer.concat([...locals, centralDir, end]);
 }
 
-test("full server journey: create → mods → properties → delete @full", async ({
+test("full server journey: create → mods → start/stop → backups → properties → delete @full", async ({
   page,
 }) => {
   test.setTimeout(600_000);
@@ -104,6 +107,9 @@ test("full server journey: create → mods → properties → delete @full", asy
     .getByRole("button", { name: "e2e-journey" })
     .click();
   await expect(page.getByText(/accept the/i)).toBeVisible();
+  // Accept it — the live-status leg below starts the server for real.
+  await page.getByRole("button", { name: "Accept EULA" }).click();
+  await expect(page.getByText(/accept the/i)).toBeHidden();
 
   // --- Mods tab: browse real Modrinth, install Fabric API -----------------
   await page.getByRole("button", { name: "Mods", exact: true }).click();
@@ -238,6 +244,24 @@ test("full server journey: create → mods → properties → delete @full", asy
   await expect(page.getByText(/^Backup created/)).toBeVisible({ timeout: 30_000 });
   const backupRow = page.locator("li").filter({ hasText: ".zip" }).first();
   await expect(backupRow).toBeVisible();
+
+  // --- live status (F-SM-12): start for real, stop from the console --------
+  // The chip, the Restore gate and the header Clone gate all follow the
+  // /ws/status feed — no navigation or reload in between.
+  const statusChip = page.getByTestId("status-chip");
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(statusChip).toHaveText("running", { timeout: 300_000 });
+  await expect(backupRow.getByRole("button", { name: "Restore" })).toBeDisabled();
+  await page.getByRole("button", { name: "Console", exact: true }).click();
+  // Commands typed before the console socket opens are dropped — wait for it.
+  await expect(page.getByText("console connected")).toBeVisible();
+  const consoleInput = page.getByPlaceholder(/type a server command/);
+  await consoleInput.fill("stop");
+  await consoleInput.press("Enter");
+  await expect(statusChip).toHaveText("stopped", { timeout: 120_000 });
+  await expect(page.getByRole("button", { name: "Clone", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Backups", exact: true }).click();
+  await expect(backupRow.getByRole("button", { name: "Restore" })).toBeEnabled();
   page.once("dialog", (d) => d.accept());
   await backupRow.getByRole("button", { name: "Restore" }).click();
   await expect(page.getByText("Backup restored")).toBeVisible({ timeout: 30_000 });

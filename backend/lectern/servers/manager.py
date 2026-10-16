@@ -1,13 +1,16 @@
 """Server process registry + lifecycle.
 
 Owns the ``{server_id: ServerProcess}`` map and the single ``ConsoleHub``, and is
-the one place that writes ``Server.status`` as processes come and go. Endpoints
+the one place that drives ``Server.status`` as processes come and go. Every
+status write goes through ``servers/status.set_status``, which also publishes
+the transition to ``StatusHub`` (and so to the ``/ws/status`` feed). Endpoints
 call ``start``/``stop``/``restart``/``kill``/``send``; the process layer calls
 back into ``_on_state`` when a server changes state or exits.
 
 Stop and restart are scheduled (fire-and-forget) so the HTTP request returns
-immediately — the graceful-shutdown wait happens in the background and the UI
-follows the status field.
+immediately — ``stopping`` is written synchronously first (so the action
+response already carries it), the graceful-shutdown wait happens in the
+background and the UI follows the status feed.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from ..servers.install import build_launch_command, eula_accepted
 from ..servers.types import is_proxy_type
 from ..ws import ConsoleHub
 from .process import ServerProcess
+from .status import set_status
 
 _RESTART_DELAY = 3  # seconds before a crash-restart
 # Give up after this many consecutive crashes (counter resets when a start
@@ -90,9 +94,7 @@ class ServerManager:
         with Session(engine) as session:
             server = session.get(Server, server_id)
             if server is not None:
-                server.status = status
-                session.add(server)
-                session.commit()
+                set_status(session, server, status)
                 session.refresh(server)
             return server
 
@@ -192,9 +194,7 @@ class ServerManager:
             from . import logs as server_logs
 
             server_logs.prune_logs(Path(server.path), server.log_retention_days)
-            server.status = ServerStatus.starting.value
-            session.add(server)
-            session.commit()
+            set_status(session, server, ServerStatus.starting.value)
 
         self.hub.clear(server_id)
         # Proxies signal readiness differently (Velocity: "Listening on …").
@@ -211,12 +211,17 @@ class ServerManager:
         if proc is None or not proc.running:
             raise NotRunning("Server is not running")
         stop_command, timeout = self._stop_params(server_id)
+        # Report `stopping` before returning so the action response (and the
+        # status feed) carry it; the process's own "stopping" callback then
+        # dedupes to a no-op.
+        self._write_status(server_id, ServerStatus.stopping.value)
         # Graceful shutdown can take up to `timeout`; don't block the request.
         asyncio.create_task(proc.stop(stop_command, timeout))
 
     async def restart(self, server_id: str) -> None:
         proc = self._procs.get(server_id)
         if proc is not None and proc.running:
+            self._write_status(server_id, ServerStatus.stopping.value)
             asyncio.create_task(self._restart_flow(server_id, proc))
         else:
             await self.start(server_id)
@@ -261,15 +266,12 @@ class ServerManager:
         with Session(engine) as session:
             rows = session.exec(select(Server).where(Server.status.in_(stale))).all()
             for server in rows:
-                server.status = ServerStatus.stopped.value
-                session.add(server)
+                set_status(session, server, ServerStatus.stopped.value)
             installing = session.exec(
                 select(Server).where(Server.status == ServerStatus.installing.value)
             ).all()
             for server in installing:
-                server.status = ServerStatus.install_failed.value
-                session.add(server)
-            session.commit()
+                set_status(session, server, ServerStatus.install_failed.value)
 
     def autostart(self) -> None:
         """Schedule a delayed start for every ``auto_start`` server (called from

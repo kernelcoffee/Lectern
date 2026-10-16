@@ -67,7 +67,7 @@ from ..servers.install import eula_accepted, get_progress, install_server, set_e
 from ..servers.manager import ManagerError, manager
 from ..servers.stats_sampler import stats_sampler
 from ..servers.types import is_proxy_type
-from ..ws import progress_hub
+from ..ws import progress_hub, status_hub
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
 
@@ -726,6 +726,37 @@ async def console_ws(websocket: WebSocket, server_id: str) -> None:
     finally:
         forward_task.cancel()
         hub.unsubscribe(server_id, queue)
+
+
+@console_router.websocket("/ws/status")
+async def status_ws(websocket: WebSocket, session: Session = Depends(get_session)) -> None:
+    """App-wide status feed: a ``snapshot`` of every server's status, then a
+    ``status`` message per transition (see ``servers/status.set_status``).
+    The client sends nothing; reading is only how the close is noticed."""
+    await websocket.accept()
+    # Subscribe BEFORE reading the snapshot so no transition falls in between.
+    queue = status_hub.subscribe()
+    try:
+        rows = session.exec(select(Server)).all()
+        servers = [{"server_id": s.id, "status": s.status} for s in rows]
+        # Idle sockets must not pin a pooled SQLite connection.
+        session.close()
+        await websocket.send_json({"type": "snapshot", "servers": servers})
+
+        async def forward() -> None:
+            while True:
+                await websocket.send_json({"type": "status", **(await queue.get())})
+
+        forward_task = asyncio.create_task(forward())
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            forward_task.cancel()
+    finally:
+        status_hub.unsubscribe(queue)
 
 
 @console_router.websocket("/ws/servers/{server_id}/install")

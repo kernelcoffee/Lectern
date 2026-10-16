@@ -168,6 +168,10 @@ which is why one content pipeline serves them all.
   reserve, and the create-form default memory — that would otherwise be env vars / config file.
   Overrides persist server-side (the `Setting` table, layered over the env defaults) and take
   effect immediately. Deployment settings (data dir, host, port) stay env-only by design.
+- **F-SM-12 — Live status.** Status changes (stop from the UI or the console, a scheduled stop, a
+  crash, an auto-restart) are reflected within a second on the dashboard, the sidebar and an open
+  server page, without navigating or reloading; features gated on a stopped server (Clone,
+  backup Restore) unlock immediately.
 - **F-SM-11 — File manager.** *(M12)* Browse and edit a server's files from the UI — the escape
   hatch for config Lectern doesn't model (`config/`, `ops.json`, reading `logs/`). A table
   (Name · Type · Modified · Size · Permissions) with multi-select; navigate the tree, edit text

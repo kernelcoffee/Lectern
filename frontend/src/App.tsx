@@ -3,14 +3,20 @@
 //
 // Routing stays state-based (no router dep): `route` picks the page. The
 // server list lives here because the sidebar and every page share it —
-// children mutate through `reload` and navigate through `go`. While any
-// server is installing we poll the list so sidebar + dashboard follow the
-// install without a manual refresh.
+// children mutate through `reload` and navigate through `go`.
+//
+// Status is live: App owns the one /ws/status socket (useStatusSocket) and
+// overlays its map onto the list, so the sidebar dot, the dashboard chip and
+// an open server page follow every transition without polling. A (re)connect
+// refetches the list so servers created/deleted while it was down show up.
+// While any server is installing we still poll the list so the install's
+// other fields (path, version) follow without a manual refresh.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet } from "./api/client";
 import { listServers, Server } from "./api/servers";
 import Sidebar from "./components/Sidebar";
+import { patchServerStatuses, useStatusSocket } from "./hooks/useStatusSocket";
 import CreateServer from "./pages/CreateServer";
 import Dashboard from "./pages/Dashboard";
 import Players from "./pages/Players";
@@ -40,9 +46,17 @@ export default function App() {
       .catch(() => setHealthError(true));
   }, []);
 
+  const { statuses, connected: statusLive } = useStatusSocket();
+  // Latest feed map for reload: a list fetched before a transition but
+  // answered after it must not revert the newer live status. The hook empties
+  // the map while the socket is down, so then the REST list wins.
+  const statusesRef = useRef(statuses);
+  statusesRef.current = statuses;
+
   const reload = useCallback(async () => {
     try {
-      setServers(await listServers());
+      const list = await listServers();
+      setServers(patchServerStatuses(list, statusesRef.current));
     } catch {
       // Backend unreachable — the header badge already says so.
     }
@@ -51,6 +65,15 @@ export default function App() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  useEffect(() => {
+    setServers((prev) => patchServerStatuses(prev, statuses));
+  }, [statuses]);
+  // A (re)connect may have missed creates/deletes — refetch the list. The
+  // first connect simply duplicates the mount reload.
+  useEffect(() => {
+    if (statusLive) reload();
+  }, [statusLive, reload]);
 
   // Follow installs live: poll while any server is still provisioning.
   const anyInstalling = servers.some((s) => s.status === "installing");
@@ -117,6 +140,7 @@ export default function App() {
           <ServerDetail
             key={route.id}
             serverId={route.id}
+            liveStatus={statuses[route.id]}
             onBack={() => go({ view: "dashboard" })}
             onDeleted={async () => {
               await reload();
