@@ -210,39 +210,66 @@ def _has_root_marker(names: list[str], prefix: str = "") -> bool:
     )
 
 
-def _validate_upload(path: Path) -> None:
+def _validate_upload(path: Path) -> str:
     """Restore's structural definition of a safe archive, plus: it must hold
-    files, and it must be shaped like a whole-server archive (a marker such as
-    ``server.properties`` at the root, not wrapped in one folder). No disk-space
-    check: uploading never unpacks, and restore runs the zip-bomb guard against
-    the server's disk when it does."""
+    files and be shaped like a whole-server archive (a marker such as
+    ``server.properties`` at the root). Returns the folder prefix to strip:
+    ``""`` when the files already sit at the root, ``"name/"`` when the whole
+    server is wrapped in one folder, as most desktop zip tools produce when
+    an unpacked backup is zipped again. No disk-space check: uploading never
+    unpacks, and restore runs the zip-bomb guard against the server's disk."""
     _validate_archive(path)
     with zipfile.ZipFile(path) as zf:
         files = [info.filename for info in zf.infolist() if not info.is_dir()]
     if not files:
         raise BackupError("Backup archive is empty")
     if _has_root_marker(files):
-        return
-    # macOS "Compress" adds a __MACOSX/ resource-fork tree beside the folder;
-    # ignore it so a Finder-zipped folder still gets the wrapped diagnosis.
+        return ""
+    # macOS "Compress" adds a __MACOSX/ resource-fork tree beside the folder.
     tops = {name.split("/", 1)[0] for name in files} - {"__MACOSX"}
-    if len(tops) == 1 and _has_root_marker(files, f"{next(iter(tops))}/"):
-        raise BackupError(
-            f"Backup archive is wrapped in a single folder ({next(iter(tops))}/); "
-            "zip the server files themselves so they sit at the archive root"
-        )
+    if len(tops) == 1:
+        prefix = f"{next(iter(tops))}/"
+        if _has_root_marker(files, prefix):
+            return prefix
     raise BackupError(
         "Backup archive is not a whole-server archive: no server.properties, eula.txt, "
         "velocity.toml or .lectern/ at its root (restore would replace the whole server)"
     )
 
 
+def _unwrap_archive(src: Path, dest: Path, prefix: str, *, compress: bool) -> int:
+    """Re-pack ``src`` into ``dest`` with ``prefix`` stripped from every entry
+    and any ``__MACOSX/`` tree dropped, so the stored backup has the server
+    files at its root like every other one (blocking — run in a thread).
+    Entries are streamed one at a time; multi-GB archives never sit in memory.
+    Returns the new archive's size in bytes."""
+    method = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
+    tmp = dest.with_suffix(".part")
+    try:
+        with zipfile.ZipFile(src) as zin, zipfile.ZipFile(tmp, "w", method) as zout:
+            for info in zin.infolist():
+                if info.is_dir() or info.filename.startswith("__MACOSX/"):
+                    continue
+                if not info.filename.startswith(prefix):
+                    raise BackupError(f"Entry outside the wrapping folder: {info.filename!r}")
+                out = zipfile.ZipInfo(info.filename[len(prefix):], date_time=info.date_time)
+                out.compress_type = method
+                with zin.open(info) as fin, zout.open(out, "w") as fout:
+                    shutil.copyfileobj(fin, fout, 1 << 20)
+        tmp.replace(dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return dest.stat().st_size
+
+
 async def import_backup(
     session: Session, server: Server, tmp_path: Path, *, size: int
 ) -> Backup:
     """Adopt an uploaded archive (already streamed to ``tmp_path`` inside this
-    server's backups dir) as a backup: validate it, give it a timestamped
-    name, record it and prune. The temp file is removed on any failure."""
+    server's backups dir) as a backup: validate it, unwrap it if the server
+    files sit in one top-level folder, give it a timestamped name, record it
+    and prune. ``size`` is the uploaded byte count; a re-packed archive is
+    recorded with its own size. The temp file is always removed."""
     try:
         if not server.path:
             raise BackupError("Server is not installed yet")
@@ -251,13 +278,23 @@ async def import_backup(
             raise BackupError("Uploaded archive must be staged in the backups directory")
         if dest_dir.resolve().is_relative_to(Path(server.path).resolve()):
             raise BackupError("Backup destination must be outside the server directory")
-        await asyncio.to_thread(_validate_upload, tmp_path)
+        prefix = await asyncio.to_thread(_validate_upload, tmp_path)
         filename = _new_filename()
-        tmp_path.replace(dest_dir / filename)
+        if prefix:
+            size = await asyncio.to_thread(
+                _unwrap_archive,
+                tmp_path,
+                dest_dir / filename,
+                prefix,
+                compress=server.backup_compress,
+            )
+        else:
+            tmp_path.replace(dest_dir / filename)
     except Exception as exc:
-        tmp_path.unlink(missing_ok=True)
         events.record(server.id, "backup_failed", f"upload: {exc}")
         raise
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
     backup = Backup(
         server_id=server.id, filename=filename, size_bytes=size, trigger="uploaded"
@@ -266,7 +303,8 @@ async def import_backup(
     session.commit()
     session.refresh(backup)
     _prune(session, server)
-    events.record(server.id, "backup_created", f"{filename} (uploaded)")
+    how = f"uploaded, unwrapped from {prefix}" if prefix else "uploaded"
+    events.record(server.id, "backup_created", f"{filename} ({how})")
     return backup
 
 

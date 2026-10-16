@@ -268,10 +268,11 @@ which is why one content pipeline serves them all.
 - **F-B-5 — Upload backup.** Upload a whole-server zip on the Backups tab and it joins the list
   as an `uploaded` backup, restorable like any other. The use case is offline editing: download
   a backup, change it (e.g. prune region files so chunks regenerate with new biomes/features),
-  and upload it back. The archive must have the same shape as the ones Lectern downloads (server
-  files at the root, not just a world folder, not wrapped in one folder): an archive without
-  `server.properties`, `eula.txt`, `velocity.toml` or `.lectern/` at its root is refused, since
-  restoring it would replace the whole server. It is also validated with the same rules as
+  and upload it back. The archive must be a whole server, not just a world folder: an archive
+  without `server.properties`, `eula.txt`, `velocity.toml` or `.lectern/` at its root (or inside
+  a single wrapping folder) is refused, since restoring it would replace the whole server. Zipping
+  the unpacked backup folder, as desktop tools do, is fine: the wrapping folder is stripped on
+  upload so the stored backup looks like any other. It is also validated with the same rules as
   restore (real zip, CRC check, no absolute or `..` entries) plus at least one file; whether it
   fits on the disk once unpacked is checked when it is restored, not when it is uploaded. It
   counts toward retention and is capped by the *Backup upload limit* app setting (default
