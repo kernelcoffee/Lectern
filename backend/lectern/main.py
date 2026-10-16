@@ -7,13 +7,15 @@ milestones (see docs/implementation.md).
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlmodel import Session
 
-from . import __version__
+from . import __version__, backups
 from .api import backups as backups_api
 from .api import catalog as catalog_api
 from .api import content as content_api
@@ -25,10 +27,22 @@ from .api import schedules as schedules_api
 from .api import servers as servers_api
 from .api import settings as settings_api
 from .config import get_settings
-from .db import init_db
+from .db import engine, init_db
 from .scheduler import scheduler_service
 from .servers.manager import manager
 from .servers.stats_sampler import stats_sampler
+
+logger = logging.getLogger(__name__)
+
+
+def _sweep_stale_parts() -> None:
+    """Remove ``.part`` files orphaned by a killed upload or backup. Best effort:
+    a failure here must never block startup."""
+    try:
+        with Session(engine) as session:
+            backups.sweep_stale_parts(session)
+    except Exception:
+        logger.exception("Could not sweep stale .part files")
 
 
 @asynccontextmanager
@@ -38,6 +52,7 @@ async def lifespan(app: FastAPI):
     get_settings().ensure_dirs()
     init_db()
     manager.reconcile()
+    _sweep_stale_parts()
     # Auto-start flagged servers (each after its own stagger delay).
     manager.autostart()
     # Cron schedules tick for the whole app lifetime (M10).

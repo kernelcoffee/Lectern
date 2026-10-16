@@ -1,5 +1,11 @@
 """Backup endpoints (M9): list/create/restore/delete per server.
 
+Upload streams a whole-server archive (e.g. one downloaded, edited offline,
+and sent back) into the server's backups dir, then validates it with the same
+rules restore uses before adopting it as a ``trigger="uploaded"`` backup.
+The body is streamed by ``api/upload.py`` (see there for why not Starlette's spooling)
+into the backups dir itself, so adopting it is an atomic rename.
+
 Create runs inline (zipping is threaded off the event loop; worlds at LAN
 scale take seconds). Restore requires a stopped server and is atomic-ish:
 the old directory comes back if extraction fails (see backups.py).
@@ -7,20 +13,24 @@ the old directory comes back if extraction fails (see backups.py).
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
+from .. import app_settings
 from ..backups import (
     BackupError,
     backup_path,
     create_backup,
     delete_backup,
+    import_backup,
     list_backups,
     restore_backup,
+    upload_staging_dir,
 )
 from ..db import get_session
 from ..models import Backup, BackupRead, Server
+from .upload import multipart_body, receive_upload
 
 router = APIRouter(prefix="/api/servers/{server_id}/backups", tags=["backups"])
 
@@ -52,6 +62,34 @@ async def create(server_id: str, session: Session = Depends(get_session)) -> Bac
         return await create_backup(session, server)
     except BackupError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+@router.post(
+    "/upload",
+    response_model=BackupRead,
+    status_code=status.HTTP_201_CREATED,
+    openapi_extra=multipart_body(),
+)
+async def upload(
+    server_id: str, request: Request, session: Session = Depends(get_session)
+) -> Backup:
+    """Upload a whole-server zip (multipart field ``file``) as a new backup,
+    restorable like any other."""
+    server = _get_server(server_id, session)
+    if not server.path:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Server is not installed yet")
+
+    max_bytes = app_settings.get_int(session, "max_backup_upload_mb") * 1024 * 1024
+    async with receive_upload(
+        request,
+        upload_staging_dir(server_id),
+        max_bytes=max_bytes,
+        too_large_detail="Backup archive is too large",
+    ) as up:
+        try:
+            return await import_backup(session, server, up.path, size=up.size)
+        except BackupError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.get("/{backup_id}/download")

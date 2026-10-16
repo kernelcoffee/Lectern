@@ -81,16 +81,12 @@ have scheduled mod auto-updates and the newer-version indicators. Still open:
 | Server types | **Paper** (plugins), **Bedrock** |
 | Content sources | CurseForge was considered and **decided against** (key-gated API, see README); Modrinth stays the only source, with manual jar drop-in as the escape hatch |
 | Access | Optional single-password gate |
-| Mod versioning | Per-mod **version picker and rollback** within the server's MC version (auto-update on restart already exists as a schedule action) |
 | Command library | Saved admin commands, runnable manually and as schedule actions |
 | Managed Carpet bots | Spawn fake players at a position to keep chunks loaded, auto-respawned after every server restart via the console pipe |
 | Logs | Viewer for rotated (`*.log.gz`) logs of earlier runs |
 | Custom resource pack manager | Build and manage a server-side custom resource pack (custom models, sounds/music, textures…) that mods can hook into, from a dedicated UI rather than hand-editing the pack |
-| World pruning | Prune generated-but-unvisited or stale chunks with a proper interface, so a map explored on an older version regenerates with new resources/features after an update |
+| World pruning | Prune generated-but-unvisited or stale chunks with a proper interface, so a map explored on an older version regenerates with new resources/features after an update. Meanwhile the manual path is F-B-5: download a backup, prune it offline, upload and restore it |
 | Performance & idle | Apply/enforce recommended server optimisations (JVM flags, config tweaks); **auto-shutdown when no players are online, auto-wake when a player tries to connect** |
-| Mods page revamp | Clicking a mod opens its **details / full description**, with a button to open the **source page** (Modrinth / repo) in a new tab |
-| Mods page search | The **search field must keep its text** when switching source or content type — no retyping the query on every filter change |
-| Vanilla Tweaks datapacks | The picker must **preselect the packs already installed**, so adding one more doesn't silently uninstall the others |
 
 **Design implication:** server types/editions and content sources are treated as **pluggable
 providers** from day one (see [`technical.md`](./technical.md) §§ 2, 6). Fabric and Modrinth are
@@ -168,10 +164,10 @@ which is why one content pipeline serves them all.
   with names) and in a server's Metrics tab (that server only). Kept to the newest ~300 events
   per server; recording failures never break the action being recorded.
 - **F-APP-1 — App settings.** *(post-M12)* A Settings page edits app-level tunables — the file-
-  manager upload limit, the world-import upload limit, and the create-form default memory — that
-  would otherwise be env vars / config file. Overrides persist server-side (the `Setting` table,
-  layered over the env defaults) and take effect immediately. Deployment settings (data dir, host,
-  port) stay env-only by design.
+  manager upload limit, the world-import upload limit, the backup upload limit, the restore disk
+  reserve, and the create-form default memory — that would otherwise be env vars / config file.
+  Overrides persist server-side (the `Setting` table, layered over the env defaults) and take
+  effect immediately. Deployment settings (data dir, host, port) stay env-only by design.
 - **F-SM-11 — File manager.** *(M12)* Browse and edit a server's files from the UI — the escape
   hatch for config Lectern doesn't model (`config/`, `ops.json`, reading `logs/`). A table
   (Name · Type · Modified · Size · Permissions) with multi-select; navigate the tree, edit text
@@ -220,6 +216,19 @@ which is why one content pipeline serves them all.
 - **F-C-6 — Remove.** Uninstall an item and clean up its file and metadata.
 - **F-C-7 — Dependencies.** When installing content with required dependencies, Lectern surfaces
   them and offers to install them too.
+- **F-C-8 — Project details.** Clicking a Modrinth item (installed, or a search result) opens its
+  details in a **side panel next to the list** (above it on phones), not a popup, so the list
+  stays usable: icon, summary, stats, categories, the **full description** (rendered markdown),
+  and links to its **Modrinth page, source repository, issues, wiki and Discord**, each opening
+  in a new tab.
+- **F-C-9 — Version picker, rollback and pinning.** The details view lists every build compatible
+  with the server's loader and Minecraft version. An installed item can be **switched to any of
+  them, newer or older** (rollback); a not-yet-installed project can be installed at a chosen
+  build. Choosing a build **pins** the item: update checks and the update-mods schedule skip it
+  until it is unpinned (or a plain Update moves it to the newest and unpins). Pinned items are
+  badged in the list.
+- **F-C-10 — Search keeps its text.** In the content browser the search query survives switching
+  content type or provider; no retyping on every filter change.
 
 ### 4.3 Modpacks
 
@@ -233,7 +242,10 @@ which is why one content pipeline serves them all.
   upload); Lectern reads each pack's metadata (`pack.mcmeta`) for name/format.
 - **F-RP-2 — Vanilla Tweaks.** The admin can browse Vanilla Tweaks resource-pack categories for
   the server's Minecraft version, select the tweaks they want, and have Lectern generate the
-  combined pack and install it. (This is the capability Prism lacks.)
+  combined pack and install it. (This is the capability Prism lacks.) The same picker serves
+  datapacks and crafting tweaks. Because generating **replaces** the server's set of that type,
+  the picker **starts from the installed selection** and only offers Generate once the selection
+  differs — adding one tweak never silently drops the others.
 - **F-RP-3 — Serve to clients (optional).** Lectern can set the server's `resource-pack` /
   `resource-pack-sha1` properties so players are prompted to download the pack.
 
@@ -250,8 +262,20 @@ which is why one content pipeline serves them all.
   stored outside the server directory.
 - **F-B-2 — List backups.** Show existing backups per server with timestamp and size.
 - **F-B-3 — Restore.** Restore a chosen backup; the server is stopped first, the archive is
-  validated, and the data is replaced.
+  validated (including that it fits on the disk once unpacked while leaving a free-space margin,
+  the *Restore disk reserve* app setting, default 1024 MB), and the data is replaced.
 - **F-B-4 — Retention.** Optionally prune old backups automatically (e.g. keep the last N).
+- **F-B-5 — Upload backup.** Upload a whole-server zip on the Backups tab and it joins the list
+  as an `uploaded` backup, restorable like any other. The use case is offline editing: download
+  a backup, change it (e.g. prune region files so chunks regenerate with new biomes/features),
+  and upload it back. The archive must have the same shape as the ones Lectern downloads (server
+  files at the root, not just a world folder, not wrapped in one folder): an archive without
+  `server.properties`, `eula.txt`, `velocity.toml` or `.lectern/` at its root is refused, since
+  restoring it would replace the whole server. It is also validated with the same rules as
+  restore (real zip, CRC check, no absolute or `..` entries) plus at least one file; whether it
+  fits on the disk once unpacked is checked when it is restored, not when it is uploaded. It
+  counts toward retention and is capped by the *Backup upload limit* app setting (default
+  16384 MB).
 
 ### 4.7 Scheduling
 

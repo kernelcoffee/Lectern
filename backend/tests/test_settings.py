@@ -18,7 +18,13 @@ def test_list_settings_defaults(client):
     items = _by_key(client.get("/api/settings").json())
     assert items["max_file_upload_mb"]["value"] == 2048
     assert items["max_world_upload_mb"]["value"] == 20480
+    assert items["max_backup_upload_mb"]["value"] == 16384
+    assert items["max_backup_upload_mb"]["category"] == "Uploads"
     assert items["default_memory_mb"]["value"] == 2048
+    reserve = items["restore_disk_reserve_mb"]
+    assert reserve["value"] == 1024
+    assert reserve["min"] == 0 and reserve["max"] == 1048576
+    assert reserve["unit"] == "MB" and reserve["category"] == "Backups"
     # metadata present for the UI.
     assert items["max_file_upload_mb"]["unit"] == "MB"
     assert items["max_file_upload_mb"]["min"] >= 1
@@ -30,6 +36,12 @@ def test_patch_persists_and_reflects(client):
     assert _by_key(resp.json())["max_file_upload_mb"]["value"] == 512
     # A fresh GET still shows the override.
     assert _by_key(client.get("/api/settings").json())["max_file_upload_mb"]["value"] == 512
+
+
+def test_restore_reserve_accepts_zero(client):
+    resp = client.patch("/api/settings", json={"restore_disk_reserve_mb": 0})
+    assert resp.status_code == 200
+    assert _by_key(client.get("/api/settings").json())["restore_disk_reserve_mb"]["value"] == 0
 
 
 def test_patch_out_of_bounds_422(client):
@@ -73,3 +85,19 @@ def test_file_upload_cap_honours_setting(client, engine, tmp_path):
     )
     assert resp.status_code == 413
     assert not (Path(tmp_path) / "big.bin").exists()  # partial cleaned up
+    assert list((Path(tmp_path) / ".lectern").glob("*.part")) == []
+
+
+def test_restore_reserve_default_from_env(client, monkeypatch):
+    # LECTERN_RESTORE_DISK_RESERVE_MB changes the default when nothing is stored.
+    from lectern import config
+
+    monkeypatch.setenv("LECTERN_RESTORE_DISK_RESERVE_MB", "5")
+    config.get_settings.cache_clear()
+    try:
+        items = _by_key(client.get("/api/settings").json())
+        assert items["restore_disk_reserve_mb"]["value"] == 5
+        assert items["restore_disk_reserve_mb"]["category"] == "Backups"
+    finally:
+        monkeypatch.delenv("LECTERN_RESTORE_DISK_RESERVE_MB")
+        config.get_settings.cache_clear()

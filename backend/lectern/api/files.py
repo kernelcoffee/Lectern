@@ -10,10 +10,9 @@ root and ``.lectern/`` restrict what can change.
 from __future__ import annotations
 
 import asyncio
-import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
@@ -30,6 +29,7 @@ from ..models import (
     WriteFileRequest,
 )
 from ..servers import files as fm
+from .upload import multipart_body, receive_upload
 
 router = APIRouter(prefix="/api/servers/{server_id}/files", tags=["files"])
 
@@ -149,33 +149,34 @@ def download(
     return FileResponse(target, filename=target.name)
 
 
-@router.post("/upload", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/upload", status_code=status.HTTP_201_CREATED, openapi_extra=multipart_body(["path"])
+)
 async def upload(
-    server_id: str,
-    file: UploadFile = File(...),
-    path: str = Form(""),
-    session: Session = Depends(get_session),
+    server_id: str, request: Request, session: Session = Depends(get_session)
 ) -> dict:
-    """Upload a file into directory ``path`` (default the server root)."""
+    """Upload a file (multipart ``file``) into directory ``path`` (text field,
+    default the server root).
+
+    Staged under the server's ``.lectern/`` — same filesystem as every
+    destination, hidden from listings and guarded against delete/rename — since
+    ``path`` may arrive after the file bytes, so the destination is only known
+    once the body has been read. Then renamed into place."""
     server_dir = _server_dir(server_id, session)
     try:
-        dest = fm.upload_dest(server_dir, path, file.filename or "upload")
+        staging = fm.safe_path(server_dir, fm.PROTECTED)  # confined, even if a symlink
     except fm.FileManagerError as exc:
         raise _handle(exc)
-
     max_bytes = app_settings.get_int(session, "max_file_upload_mb") * 1024 * 1024
-    received = 0
-    with tempfile.NamedTemporaryFile(
-        dir=dest.parent, delete=False, suffix=".part"
-    ) as tmp:
-        tmp_path = Path(tmp.name)
-        while chunk := await file.read(1 << 20):
-            received += len(chunk)
-            if received > max_bytes:
-                tmp_path.unlink(missing_ok=True)
-                raise HTTPException(
-                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File is too large"
-                )
-            tmp.write(chunk)
-    tmp_path.replace(dest)
-    return {"name": dest.name, "size": received}
+    async with receive_upload(
+        request,
+        staging,
+        max_bytes=max_bytes,
+        too_large_detail="File is too large",
+    ) as up:
+        try:
+            dest = fm.upload_dest(server_dir, up.fields.get("path", ""), up.filename or "upload")
+        except fm.FileManagerError as exc:
+            raise _handle(exc)
+        up.path.replace(dest)
+        return {"name": dest.name, "size": up.size}

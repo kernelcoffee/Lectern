@@ -37,7 +37,8 @@ needs (including the right Java) and runs it for you.
 - **Version changes** — move a server to a new Minecraft version. Compatible mods get
   updated, the rest are safely disabled — and you see what will happen before you commit.
 - **Worlds** — start a new server from an existing world: upload a zip or paste a link.
-- **Backups** — create, restore, download; old ones are cleaned up automatically.
+- **Backups** — create, restore, download, or upload one back (e.g. after editing it offline);
+  old ones are cleaned up automatically.
 - **Scheduling** — nightly restarts, daily backups, timed commands — set up in plain
   words, no cron knowledge needed.
 - **Event timeline** — what happened while you were away: crashes, restarts and backup
@@ -92,14 +93,30 @@ docker compose pull && docker compose up -d     # upgrade in place
 
 ## Configuration
 
-Everything is optional. Deployment settings are environment variables; the operational tunables
-below them are also editable at runtime from the in-app **Settings** page (stored in the database).
+Everything is optional. Deployment settings are environment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `LECTERN_DATA` | `/data` (image) | Directory for the DB, JREs, caches, backups, and server files. |
 | `LECTERN_HOST` | `0.0.0.0` | API/web bind address. |
 | `LECTERN_PORT` | `8000` | API/web port. |
+
+### App settings
+
+These are editable at runtime from the in-app **Settings** page and persisted in the database.
+The environment variables only set their defaults (a value saved on the Settings page wins).
+
+| Variable | Default | Settings label |
+|---|---|---|
+| `LECTERN_DEFAULT_MEMORY_MB` | `2048` | Default server memory |
+| `LECTERN_DEFAULT_PROXY_MEMORY_MB` | `512` | Default proxy memory |
+| `LECTERN_MAX_FILE_UPLOAD_MB` | `2048` | File manager upload limit |
+| `LECTERN_MAX_WORLD_UPLOAD_MB` | `20480` | World import upload limit |
+| `LECTERN_MAX_BACKUP_UPLOAD_MB` | `16384` | Backup upload limit |
+| `LECTERN_RESTORE_DISK_RESERVE_MB` | `1024` | Restore disk reserve |
+
+The restore disk reserve is the free space a restore must leave on the disk once the backup is
+unpacked; `0` keeps only the check that the backup fits.
 
 Lectern is built for a **trusted LAN** — there is no user auth. Don't expose it directly to the
 internet; put it behind a VPN or a reverse proxy with access control if you need remote access.

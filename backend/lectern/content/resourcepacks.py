@@ -110,6 +110,20 @@ def _vt_items(items: list[dict], pack_type: str) -> list[dict]:
     ]
 
 
+def current_vt_selection(server_dir: Path, pack_type: str) -> dict[str, list[str]]:
+    """The pack selection behind the server's installed VT set of one type
+    (``{category: [pack, …]}``, categories lowercased as stored), or ``{}``
+    when none is installed. Every item of a set carries the same selection,
+    so the first one is enough. Feeds the picker's preselection: a user
+    adding one tweak must start from what is already there, because
+    generating replaces the whole set."""
+    for item in _vt_items(manager.read_manifest(server_dir), pack_type):
+        packs = item.get("vt_packs")
+        if isinstance(packs, dict):
+            return {c: list(names) for c, names in packs.items() if names}
+    return {}
+
+
 def _vt_base_item(
     *, pack_type: str, packs: dict[str, list[str]], fingerprint: str,
     mc_version: str, name: str, filename: str,

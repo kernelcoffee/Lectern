@@ -65,8 +65,14 @@ def catalog(monkeypatch):
         "P_dep": _project("P_dep", "dep", "Dep"),
         "P_opt": _project("P_opt", "opt", "Opt"),
         "P_beta": _project("P_beta", "beta-mod", "Beta Mod"),
+        "P_multi": _project("P_multi", "multi", "Multi"),
     }
     versions = {
+        # Two releases — for switching between builds (rollback) tests.
+        "P_multi": [
+            _version("V_multi_2", "P_multi", "2.0.0"),
+            _version("V_multi_1", "P_multi", "1.0.0"),
+        ],
         "P_fapi": [
             _version(
                 "V_fapi_1", "P_fapi", "1.0.0",
@@ -323,6 +329,93 @@ def test_update_disabled_item_keeps_disabled(client, engine, tmp_path, catalog):
 # dead-ends. Native quilt builds win over newer fabric ones.
 
 
+def test_switch_version_pins_and_hides_updates(client, engine, tmp_path, catalog):
+    """Picking a specific (older) build swaps the file, pins the item so
+    update checks skip it; unpinning or a plain update moves forward again."""
+    sid = _fabric_server(client, engine, tmp_path)
+    [item] = client.post(
+        f"/api/servers/{sid}/content", json={"project_id": "P_multi"}
+    ).json()
+    assert item["version_id"] == "V_multi_2" and item["pinned"] is False
+
+    resp = client.post(
+        f"/api/servers/{sid}/content/{item['id']}/update",
+        json={"version_id": "V_multi_1"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["version_id"] == "V_multi_1"
+    assert resp.json()["version_number"] == "1.0.0"
+    assert resp.json()["pinned"] is True
+    assert (tmp_path / "mods/P_multi-1.0.0.jar").exists()
+    assert not (tmp_path / "mods/P_multi-2.0.0.jar").exists()
+    [entry] = _manifest(tmp_path)
+    assert entry["pinned"] is True
+
+    # Pinned → no update offered, and the bulk updater leaves it alone.
+    assert client.get(f"/api/servers/{sid}/content/updates").json() == []
+
+    # Unpin → the newer release shows up again.
+    resp = client.patch(
+        f"/api/servers/{sid}/content/{item['id']}", json={"pinned": False}
+    )
+    assert resp.json()["pinned"] is False
+    [upd] = client.get(f"/api/servers/{sid}/content/updates").json()
+    assert upd["new_version_id"] == "V_multi_2"
+
+    # Re-pin by choosing the same build again: no download, just the flag.
+    downloads_before = len(catalog["downloads"])
+    resp = client.post(
+        f"/api/servers/{sid}/content/{item['id']}/update",
+        json={"version_id": "V_multi_1"},
+    )
+    assert resp.json()["pinned"] is True
+    assert len(catalog["downloads"]) == downloads_before
+
+    # A plain update (no version) moves to the newest and unpins.
+    resp = client.post(f"/api/servers/{sid}/content/{item['id']}/update", json={})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["version_id"] == "V_multi_2"
+    assert resp.json()["pinned"] is False
+
+
+def test_switch_to_unavailable_version_400(client, engine, tmp_path, catalog):
+    sid = _fabric_server(client, engine, tmp_path)
+    [item] = client.post(
+        f"/api/servers/{sid}/content", json={"project_id": "P_multi"}
+    ).json()
+    resp = client.post(
+        f"/api/servers/{sid}/content/{item['id']}/update",
+        json={"version_id": "V_nope"},
+    )
+    assert resp.status_code == 400
+    assert "not available" in resp.json()["detail"]
+    # Untouched.
+    assert (tmp_path / "mods/P_multi-2.0.0.jar").exists()
+
+
+def test_install_chosen_version_pins_root_only(client, engine, tmp_path, catalog):
+    """Installing at an explicit build pins that project; dependencies pulled
+    in alongside are resolved by channel and stay unpinned."""
+    sid = _fabric_server(client, engine, tmp_path)
+    items = client.post(
+        f"/api/servers/{sid}/content",
+        json={"project_id": "P_fapi", "version_id": "V_fapi_1"},
+    ).json()
+    by_project = {i["project_id"]: i for i in items}
+    assert by_project["P_fapi"]["pinned"] is True
+    assert by_project["P_dep"]["pinned"] is False
+
+
+def test_project_details_endpoint(client, catalog):
+    resp = client.get("/api/content/projects/fabric-api")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["title"] == "Fabric API"
+    assert body["page_url"] == "https://modrinth.com/project/fabric-api"
+    # Fields the fake project lacks come back as null rather than erroring.
+    assert body["body"] is None and body["source_url"] is None
+
+
 def _quilt_server(client, engine, tmp_path: Path) -> str:
     server_id = client.post(
         "/api/servers",
@@ -462,3 +555,56 @@ def test_apply_updates_all_swaps_and_reports(client, engine, tmp_path, catalog):
         assert asyncio.run(
             apply_updates_all(session, sid, tmp_path, mc_version="1.20.1")
         ) == []
+
+
+# --- untrusted manifest ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        {"kind": "mod", "filename": "../../outside.txt"},
+        {"kind": "OUTSIDE_ABS", "filename": "outside.txt"},
+        {"kind": "mod", "filename": ".."},
+    ],
+    ids=["dotdot-filename", "absolute-kind", "dotdot-name"],
+)
+def test_manifest_paths_confined_to_server(client, engine, tmp_path, hostile):
+    """A restored (possibly uploaded) backup can carry any manifest: entries
+    pointing outside the server dir must never be read, renamed or deleted."""
+    server_dir = tmp_path / "srv"
+    (server_dir / "mods").mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("precious")
+    sid = _fabric_server(client, engine, server_dir)
+    if hostile["kind"] == "OUTSIDE_ABS":
+        hostile = {**hostile, "kind": str(tmp_path)}
+    item = {
+        "id": "evil", "source": "modrinth", "name": "Evil", "enabled": True, **hostile,
+    }
+    (server_dir / ".lectern").mkdir()
+    (server_dir / ".lectern/manifest.json").write_text(json.dumps({"items": [item]}))
+    assert [i["id"] for i in client.get(f"/api/servers/{sid}/content").json()] == ["evil"]
+
+    resp = client.get(f"/api/servers/{sid}/content/evil/file")
+    assert resp.status_code == 404
+    resp = client.patch(f"/api/servers/{sid}/content/evil", json={"enabled": False})
+    assert resp.status_code in (400, 404)  # refused, whichever code the route maps
+    assert outside.read_text() == "precious"
+    assert client.delete(f"/api/servers/{sid}/content/evil").status_code == 204
+    assert outside.read_text() == "precious"
+    assert _manifest(server_dir) == []
+
+
+def test_confine_rejects_symlink_out(tmp_path):
+    server_dir = tmp_path / "srv"
+    (server_dir / "mods").mkdir(parents=True)
+    (tmp_path / "victim.jar").write_text("x")
+    (server_dir / "mods/link.jar").symlink_to(tmp_path / "victim.jar")
+    with pytest.raises(content.ContentError):
+        content.item_file(server_dir, {"kind": "mod", "filename": "link.jar"})
+    content._delete_item_file(server_dir, {"kind": "mod", "filename": "link.jar"})
+    assert (tmp_path / "victim.jar").exists()
+    assert content.item_file(server_dir, {"kind": "mod", "filename": "ok.jar"}) == (
+        server_dir / "mods/ok.jar"
+    )

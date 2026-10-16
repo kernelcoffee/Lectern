@@ -7,7 +7,48 @@
 // Network: Fabric server jar (~1 MB), Temurin JRE (~45 MB, cached in
 // .e2e-data/java after the first run), Modrinth API + one mod jar.
 
+import { crc32 } from "node:zlib";
 import { test, expect } from "@playwright/test";
+
+/** Minimal stored (uncompressed) zip writer — enough for a tiny test archive. */
+function makeZip(entries: Record<string, string>): Buffer {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const [name, text] of Object.entries(entries)) {
+    const nameBuf = Buffer.from(name, "utf8");
+    const data = Buffer.from(text, "utf8");
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4); // version needed
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4); // version made by
+    central.writeUInt16LE(20, 6); // version needed
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBuf.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, nameBuf, data);
+    centrals.push(central, nameBuf);
+    offset += local.length + nameBuf.length + data.length;
+  }
+  const centralDir = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  const count = Object.keys(entries).length;
+  end.writeUInt16LE(count, 8);
+  end.writeUInt16LE(count, 10);
+  end.writeUInt32LE(centralDir.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, centralDir, end]);
+}
 
 test("full server journey: create → mods → properties → delete @full", async ({
   page,
@@ -74,8 +115,31 @@ test("full server journey: create → mods → properties → delete @full", asy
   const browser = page.getByTestId("content-browser");
   await expect(browser.getByRole("button", { name: "Modrinth" })).toBeVisible();
   await browser.getByPlaceholder("Search mods…").fill("fabric api");
+  // The query survives a type switch and the way back (F-C-10).
+  await browser.getByRole("button", { name: "Resource packs" }).click();
+  await expect(browser.getByPlaceholder("Search resource packs…")).toHaveValue(
+    "fabric api",
+  );
+  await browser.getByRole("button", { name: "Mods", exact: true }).click();
+  await expect(browser.getByPlaceholder("Search mods…")).toHaveValue("fabric api");
   const fabricApiRow = browser.locator("li", { hasText: "Fabric API" }).first();
   await expect(fabricApiRow).toBeVisible({ timeout: 20_000 });
+
+  // Clicking a result row opens the details panel beside the results
+  // (F-C-8/9): links, compatible versions with per-build Install; its ✕
+  // closes it and leaves the browser open.
+  await fabricApiRow.getByText("Fabric API", { exact: true }).click();
+  const details = browser.getByTestId("project-details");
+  await expect(details.getByRole("link", { name: /Modrinth page/ })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(details.getByRole("button", { name: "Install" }).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await details.getByRole("button", { name: "Close details" }).click();
+  await expect(details).toBeHidden();
+  await expect(browser).toBeVisible();
+
   await fabricApiRow.getByRole("button", { name: "Install" }).click();
 
   // Success is reported inside the popup, and the hit flips to "Installed".
@@ -85,11 +149,24 @@ test("full server journey: create → mods → properties → delete @full", asy
   await expect(
     fabricApiRow.getByRole("button", { name: "Installed" }),
   ).toBeVisible();
-  await browser.getByRole("button", { name: "Close" }).click();
+  await browser.getByRole("button", { name: "Close", exact: true }).click();
 
   // Installed list shows it; the mod row exposes disable/remove.
   const modRow = page.locator("li", { hasText: "Fabric API" });
   await expect(modRow).toBeVisible();
+
+  // Details from the installed list open in a side panel: the installed
+  // build is marked current and the item can be pinned; ✕ closes the panel.
+  await modRow.getByRole("button", { name: "Details" }).click();
+  const installedDetails = page.getByTestId("project-details");
+  await expect(installedDetails.getByText("current", { exact: true })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(
+    installedDetails.getByRole("button", { name: "Pin current version" }),
+  ).toBeVisible();
+  await installedDetails.getByRole("button", { name: "Close details" }).click();
+  await expect(installedDetails).toBeHidden();
 
   await modRow.getByRole("button", { name: "Disable" }).click();
   await expect(modRow.getByRole("button", { name: "Enable" })).toBeVisible();
@@ -154,7 +231,7 @@ test("full server journey: create → mods → properties → delete @full", asy
   await dpRow.getByRole("button", { name: "Remove" }).click();
   await expect(page.getByText("No datapacks yet")).toBeVisible();
 
-  // --- Backups tab: create, restore (confirm), delete ----------------------
+  // --- Backups tab: create, restore (confirm), delete, upload --------------
   await page.getByRole("button", { name: "Backups", exact: true }).click();
   await expect(page.getByText("No backups yet")).toBeVisible();
   await page.getByRole("button", { name: "Create backup" }).click();
@@ -165,6 +242,21 @@ test("full server journey: create → mods → properties → delete @full", asy
   await backupRow.getByRole("button", { name: "Restore" }).click();
   await expect(page.getByText("Backup restored")).toBeVisible({ timeout: 30_000 });
   await backupRow.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("No backups yet")).toBeVisible();
+
+  // Upload a whole-server archive (as if downloaded and edited offline).
+  await page.getByTestId("backup-upload-input").setInputFiles({
+    name: "edited-backup.zip",
+    mimeType: "application/zip",
+    buffer: makeZip({
+      "server.properties": "motd=uploaded\n",
+      "world/level.dat": "WORLD",
+    }),
+  });
+  await expect(page.getByText(/^Backup uploaded/)).toBeVisible({ timeout: 30_000 });
+  const uploadedRow = page.locator("li").filter({ hasText: "uploaded" }).first();
+  await expect(uploadedRow).toBeVisible();
+  await uploadedRow.getByRole("button", { name: "Delete" }).click();
   await expect(page.getByText("No backups yet")).toBeVisible();
 
   // --- Schedule tab: friendly builder ↔ APScheduler round-trip -------------

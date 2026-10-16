@@ -260,6 +260,69 @@ def test_endpoint_upload_and_download(client, engine, tmp_path):
     assert dl.status_code == 200 and dl.content == b"UPLOADED"
 
 
+def _parts(sid_dir: Path) -> list[Path]:
+    return list((sid_dir / ".lectern").glob("*.part"))
+
+
+def _multipart(parts: list[tuple[str, str | None, bytes]]) -> tuple[bytes, str]:
+    """Hand-built multipart body, parts in the given order (name, filename, data)."""
+    boundary = "lecterntestboundary"
+    out = b""
+    for name, filename, data in parts:
+        disp = f'form-data; name="{name}"' + (f'; filename="{filename}"' if filename else "")
+        out += f"--{boundary}\r\nContent-Disposition: {disp}\r\n\r\n".encode() + data + b"\r\n"
+    out += f"--{boundary}--\r\n".encode()
+    return out, f"multipart/form-data; boundary={boundary}"
+
+
+def test_endpoint_upload_path_after_file(client, engine, tmp_path):
+    """Browsers append ``file`` before ``path``: the destination is resolved
+    once the whole body is read, and the staged .part is renamed into place."""
+    sid, sdir = _installed(client, engine, tmp_path)
+    body, ctype = _multipart([("file", "late.txt", b"LATE"), ("path", None, b"config")])
+    resp = client.post(
+        f"/api/servers/{sid}/files/upload", content=body, headers={"content-type": ctype}
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json() == {"name": "late.txt", "size": 4}
+    assert (sdir / "config" / "late.txt").read_bytes() == b"LATE"
+    assert _parts(sdir) == []
+
+
+def test_endpoint_upload_bad_path_leaves_nothing(client, engine, tmp_path):
+    sid, sdir = _installed(client, engine, tmp_path)
+    resp = client.post(
+        f"/api/servers/{sid}/files/upload",
+        files={"file": ("x.txt", b"X", "text/plain")},
+        data={"path": "../x"},
+    )
+    assert resp.status_code == 400
+    assert "outside the server" in resp.json()["detail"]
+    assert _parts(sdir) == []
+    assert not (tmp_path / "x.txt").exists()
+
+
+def test_endpoint_upload_missing_file_is_400(client, engine, tmp_path):
+    sid, sdir = _installed(client, engine, tmp_path)
+    resp = client.post(f"/api/servers/{sid}/files/upload", data={"path": ""})
+    assert resp.status_code == 400
+    assert _parts(sdir) == []
+
+
+def test_endpoint_upload_over_cap_streamed_leaves_nothing(client, engine, tmp_path):
+    # Under cap + slack by Content-Length, over the cap once counted.
+    sid, sdir = _installed(client, engine, tmp_path)
+    assert client.patch("/api/settings", json={"max_file_upload_mb": 1}).status_code == 200
+    resp = client.post(
+        f"/api/servers/{sid}/files/upload",
+        files={"file": ("big.bin", b"x" * (1024 * 1024 + 1024), "application/octet-stream")},
+    )
+    assert resp.status_code == 413
+    assert resp.json()["detail"] == "File is too large"
+    assert _parts(sdir) == []
+    assert not (sdir / "big.bin").exists()
+
+
 def test_endpoint_unzip(client, engine, tmp_path):
     sid, sdir = _installed(client, engine, tmp_path)
     (sdir / "bundle.zip").write_bytes(_zip_bytes({"a.txt": b"A", "sub/b.txt": b"B"}))

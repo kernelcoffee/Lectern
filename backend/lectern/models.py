@@ -127,6 +127,10 @@ class ContentItem(SQLModel, table=True):
     # "beta" also accepts releases; the default only ever takes releases.
     channel: str = ReleaseChannel.release.value
     enabled: bool = True
+    # Pinned to its current version: the admin picked this build explicitly
+    # (a rollback, say), so update checks and the update_mods schedule skip
+    # it until unpinned.
+    pinned: bool = False
     installed_at: datetime = Field(default_factory=_now)
 
 
@@ -136,7 +140,7 @@ class Backup(SQLModel, table=True):
     filename: str
     size_bytes: int = 0
     created_at: datetime = Field(default_factory=_now)
-    trigger: str = "manual"  # manual | scheduled
+    trigger: str = "manual"  # manual | scheduled | uploaded
 
 
 class ServerStat(SQLModel, table=True):
@@ -593,6 +597,7 @@ class ContentItemRead(SQLModel):
     sha512: str | None
     channel: str
     enabled: bool
+    pinned: bool
     installed_at: datetime
 
 
@@ -619,10 +624,20 @@ class ContentInstallRequest(SQLModel):
 
 
 class ContentItemUpdate(SQLModel):
-    """PATCH payload for an installed item — toggle and/or channel change."""
+    """PATCH payload for an installed item — toggle, channel and/or pin."""
 
     enabled: bool | None = None
     channel: ReleaseChannel | None = None
+    pinned: bool | None = None
+
+
+class ContentVersionRequest(SQLModel):
+    """Optional body of ``POST …/content/{item}/update``: omit (or send no
+    ``version_id``) for the newest version the item's channel allows; give a
+    ``version_id`` to switch to that exact build — newer or older (rollback)
+    — which pins the item so update checks leave it alone."""
+
+    version_id: str | None = None
 
 
 class VanillaTweaksInstallRequest(SQLModel):

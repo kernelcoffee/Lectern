@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     # LECTERN_MAX_FILE_UPLOAD_MB.
     max_file_upload_mb: int = 2048  # 2 GiB
 
+    # Max size of a backup archive uploaded back through the Backups tab (a
+    # whole-server zip, often edited offline). Override with
+    # LECTERN_MAX_BACKUP_UPLOAD_MB.
+    max_backup_upload_mb: int = 16384  # 16 GiB
+
+    # Free space a restore must leave on the server filesystem (which also holds
+    # the DB, the other servers and the backups); an archive that would unpack
+    # into it is refused. 0 disables the margin (the archive must still fit).
+    # Override with LECTERN_RESTORE_DISK_RESERVE_MB.
+    restore_disk_reserve_mb: int = 1024  # 1 GiB
+
     # These are the app-level tunables editable at runtime from the Settings UI
     # (stored in the ``Setting`` table, layered over the env defaults above).
     # Deployment settings (data dir, host, port) stay env-only.

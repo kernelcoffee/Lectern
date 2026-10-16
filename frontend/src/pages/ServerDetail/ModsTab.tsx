@@ -11,7 +11,11 @@
 //      ones via the checkbox), which we surface in a one-line notice.
 //   4. Per row: enable/disable (renames the file server-side so the loader
 //      skips it), release-channel select (governs which versions qualify as
-//      updates), remove.
+//      updates), remove. Clicking a Modrinth mod's name (or Details) opens
+//      ProjectDetailsPanel beside the list (above it on phones): description,
+//      links, and the version picker — switching to a build (rollback
+//      included) pins the item, shown as a "pinned" badge here; pinned items
+//      are skipped by update checks.
 //
 // Mod changes apply at the next server start; the tab shows a static hint
 // rather than tracking dirtiness — the backend is always the source of truth.
@@ -32,6 +36,7 @@ import {
 import { ServerDetail } from "../../api/servers";
 import { useToast } from "../../components/Toasts";
 import ContentBrowser from "./ContentBrowser";
+import ProjectDetailsPanel from "./ProjectDetailsPanel";
 
 const CHANNELS: ReleaseChannel[] = ["release", "beta", "alpha"];
 
@@ -48,6 +53,8 @@ export default function ModsTab({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // item id or "check"/"install"
   const [browsing, setBrowsing] = useState(false);
+  // Item whose project details popup is open (Modrinth items only).
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const mrpackInput = useRef<HTMLInputElement>(null);
   const toast = useToast();
 
@@ -136,6 +143,9 @@ export default function ModsTab({
     });
 
   const updateFor = (id: string) => updates?.find((u) => u.item_id === id);
+  const hasProject = (item: ContentItem) =>
+    item.source === "modrinth" && item.project_id !== null;
+  const detailsItem = items?.find((i) => i.id === detailsId) ?? null;
 
   return (
     <section className="space-y-3">
@@ -187,6 +197,10 @@ export default function ModsTab({
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
+      {/* List + details panel side by side from lg up; on phones the panel
+          stacks above the list so opening it is immediately visible. */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+      <div className="min-w-0 flex-1 space-y-3">
       {!items ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : items.length === 0 ? (
@@ -198,15 +212,39 @@ export default function ModsTab({
           {items.map((item) => {
             const upd = updateFor(item.id);
             return (
-              <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
+              <li
+                key={item.id}
+                // The whole row opens details (Modrinth items only); the
+                // controls inside stop the click from bubbling.
+                onClick={hasProject(item) ? () => setDetailsId(item.id) : undefined}
+                title={hasProject(item) ? "Show details" : undefined}
+                className={
+                  "flex flex-wrap items-center gap-x-3 gap-y-2 p-3 " +
+                  (hasProject(item) ? "cursor-pointer hover:bg-slate-800/40 " : "") +
+                  (detailsId === item.id ? "bg-slate-800/60" : "")
+                }
+              >
                 <div className="w-full sm:w-auto sm:flex-1 min-w-0">
-                  <p className="text-sm truncate">
-                    <span className={item.enabled ? "" : "text-slate-500 line-through"}>
+                  {/* The name truncates; version and badges never do. */}
+                  <p className="flex min-w-0 items-baseline gap-2 text-sm">
+                    <span
+                      className={
+                        "truncate " + (item.enabled ? "" : "text-slate-500 line-through")
+                      }
+                    >
                       {item.name}
-                    </span>{" "}
-                    <span className="text-slate-500">{item.version_number}</span>
+                    </span>
+                    <span className="shrink-0 text-slate-500">{item.version_number}</span>
+                    {item.pinned && (
+                      <span
+                        className="shrink-0 text-xs text-amber-300"
+                        title="Pinned to this version — update checks skip it"
+                      >
+                        pinned
+                      </span>
+                    )}
                     {upd && (
-                      <span className="ml-2 text-xs text-sky-400">
+                      <span className="shrink-0 text-xs text-sky-400">
                         → {upd.new_version_number} available
                       </span>
                     )}
@@ -215,6 +253,7 @@ export default function ModsTab({
                 </div>
                 <select
                   value={item.channel}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={(e) => setChannel(item, e.target.value as ReleaseChannel)}
                   disabled={busy !== null}
                   title="Least-stable release type allowed for updates"
@@ -228,22 +267,43 @@ export default function ModsTab({
                 </select>
                 {upd && (
                   <button
-                    onClick={() => updateOne(item.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateOne(item.id);
+                    }}
                     disabled={busy !== null}
                     className="bg-sky-600 hover:bg-sky-500 disabled:opacity-50 rounded-sm px-2.5 py-1 text-xs font-medium"
                   >
                     {busy === item.id ? "…" : "Update"}
                   </button>
                 )}
+                {hasProject(item) && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDetailsId(item.id);
+                    }}
+                    disabled={busy !== null}
+                    className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-sm px-2.5 py-1 text-xs"
+                  >
+                    Details
+                  </button>
+                )}
                 <button
-                  onClick={() => toggle(item)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggle(item);
+                  }}
                   disabled={busy !== null}
                   className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-sm px-2.5 py-1 text-xs"
                 >
                   {item.enabled ? "Disable" : "Enable"}
                 </button>
                 <button
-                  onClick={() => remove(item)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    remove(item);
+                  }}
                   disabled={busy !== null}
                   className="bg-red-900/60 hover:bg-red-800 disabled:opacity-50 rounded-sm px-2.5 py-1 text-xs text-red-200"
                 >
@@ -258,6 +318,20 @@ export default function ModsTab({
       <p className="text-xs text-slate-500">
         Mod changes take effect the next time the server starts.
       </p>
+      </div>
+
+      {detailsItem?.project_id && (
+        <ProjectDetailsPanel
+          className="order-first lg:order-none lg:sticky lg:top-4 lg:w-[32.5rem] xl:w-[37.5rem] lg:shrink-0 lg:max-h-[calc(100dvh-2rem)]"
+          server={server}
+          projectId={detailsItem.project_id}
+          kind="mod"
+          installed={detailsItem}
+          onChanged={refresh}
+          onClose={() => setDetailsId(null)}
+        />
+      )}
+      </div>
 
       {browsing && (
         <ContentBrowser

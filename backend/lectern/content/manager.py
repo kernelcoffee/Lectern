@@ -91,17 +91,47 @@ def write_manifest(server_dir: Path, items: list[dict]) -> None:
     path.write_text(json.dumps({"items": items}, indent=2))
 
 
+def confine(server_dir: Path, path: Path) -> Path:
+    """Return ``path`` if it resolves (symlinks followed) strictly inside
+    ``server_dir``, else raise ``ContentError``. The manifest is untrusted
+    input: a restored (possibly uploaded) backup can carry any manifest, so
+    every path built from its ``kind``/``filename``/``mrpack_path`` goes
+    through here before it is read, written, renamed or deleted."""
+    root = server_dir.resolve()
+    if root not in path.resolve().parents:
+        raise ContentError(f"Content path is outside the server directory: {path}")
+    return path
+
+
+def _item_base(server_dir: Path, item: dict) -> Path:
+    name = item.get("filename") or ""
+    if name in {".", ".."} or not name or "/" in name or "\\" in name:
+        raise ContentError(f"Unsafe filename in manifest: {name!r}")
+    return confine(server_dir, kind_dir(server_dir, item["kind"]) / name)
+
+
 def item_file(server_dir: Path, item: dict) -> Path:
-    """On-disk path of an item's file, honouring the ``.disabled`` suffix."""
-    base = kind_dir(server_dir, item["kind"]) / item["filename"]
-    return base if item.get("enabled", True) else base.with_name(base.name + ".disabled")
+    """On-disk path of an item's file, honouring the ``.disabled`` suffix.
+    Raises ``ContentError`` when the manifest entry points outside the server."""
+    base = _item_base(server_dir, item)
+    if item.get("enabled", True):
+        return base
+    return confine(server_dir, base.with_name(base.name + ".disabled"))
 
 
 def _delete_item_file(server_dir: Path, item: dict) -> None:
-    """Remove an item's file whichever enabled-variant is on disk."""
-    base = kind_dir(server_dir, item["kind"]) / item["filename"]
-    base.unlink(missing_ok=True)
-    base.with_name(base.name + ".disabled").unlink(missing_ok=True)
+    """Remove an item's file whichever enabled-variant is on disk. An entry
+    that points outside the server dir deletes nothing (so it can still be
+    dropped from the manifest)."""
+    try:
+        base = _item_base(server_dir, item)
+    except ContentError:
+        return
+    for path in (base, base.with_name(base.name + ".disabled")):
+        try:
+            confine(server_dir, path).unlink(missing_ok=True)
+        except ContentError:
+            pass
 
 
 def _sync_rows(session: Session, server_id: str, items: list[dict]) -> None:
@@ -133,6 +163,7 @@ def _sync_rows(session: Session, server_id: str, items: list[dict]) -> None:
         row.sha512 = item.get("sha512")
         row.channel = item.get("channel", "release")
         row.enabled = item.get("enabled", True)
+        row.pinned = item.get("pinned", False)
         session.add(row)
     for row in rows:
         if row.id not in seen:
@@ -158,12 +189,13 @@ def ensure_synced(session: Session, server_id: str, server_dir: Path) -> None:
             i.get("version_id"),
             i.get("channel", "release"),
             i.get("enabled", True),
+            i.get("pinned", False),
             i["filename"],
         )
         for i in items
     }
     row_state = {
-        (r.id, r.version_id, r.channel, r.enabled, r.filename) for r in rows
+        (r.id, r.version_id, r.channel, r.enabled, r.pinned, r.filename) for r in rows
     }
     if manifest_state != row_state:
         _sync_rows(session, server_id, items)
@@ -228,6 +260,7 @@ def _build_item(
         "loader": loader,
         "channel": channel,
         "enabled": True,
+        "pinned": False,
     }
 
 
@@ -387,6 +420,9 @@ async def install(
                 loader=item_loader, mc_version=mc_version, channel=channel,
                 kind=kind,
             )
+            # An explicitly chosen build for the requested project is pinned;
+            # dependencies and channel-resolved installs follow updates.
+            new_item["pinned"] = version_id is not None and project is resolved[0][0]
             old_item = by_project.get(new_item["project_id"])
             if old_item is not None:
                 # Replace in place: keep identity + enabled state, drop old file.
@@ -426,8 +462,10 @@ async def patch_item(
     *,
     enabled: bool | None = None,
     channel: str | None = None,
+    pinned: bool | None = None,
 ) -> ContentItem:
-    """Enable/disable (rename on disk) and/or change the release channel."""
+    """Enable/disable (rename on disk), change the release channel, and/or
+    pin/unpin the current version."""
     async with _lock(server_id):
         items = read_manifest(server_dir)
         item = _find(items, item_id)
@@ -439,6 +477,8 @@ async def patch_item(
                 old_path.rename(new_path)
         if channel is not None:
             item["channel"] = channel
+        if pinned is not None:
+            item["pinned"] = pinned
         write_manifest(server_dir, items)
         _sync_rows(session, server_id, items)
     row = session.get(ContentItem, item_id)
@@ -468,6 +508,8 @@ async def check_updates(server_dir: Path, *, mc_version: str) -> list[dict]:
     for item in read_manifest(server_dir):
         if not item.get("project_id") or not item.get("version_id"):
             continue  # generated/uploaded file — nothing to check against
+        if item.get("pinned"):
+            continue  # the admin chose this exact build — leave it alone
         source = get_source(item["source"])
         if not hasattr(source, "check_update"):
             continue  # e.g. vanillatweaks — regenerate instead of update
@@ -513,9 +555,13 @@ async def apply_update(
     item_id: str,
     *,
     mc_version: str,
+    version_id: str | None = None,
 ) -> ContentItem:
     """Swap an installed item's file for the newest qualifying version
-    (checked under the loader the item was installed with)."""
+    (checked under the loader the item was installed with) — or, with
+    ``version_id``, for that exact build among the ones compatible with the
+    server, newer or older (rollback). Choosing a build **pins** the item so
+    update checks skip it; a plain update unpins."""
     async with _lock(server_id):
         items = read_manifest(server_dir)
         item = _find(items, item_id)
@@ -524,28 +570,41 @@ async def apply_update(
         source = get_source(item["source"])
         if not hasattr(source, "check_update"):
             raise ContentError("This item is regenerated, not updated")
-        newest = await source.check_update(
-            item["project_id"],
-            item["version_id"] or "",
-            loader=item.get("loader"),
-            mc_version=mc_version,
-            channel=item.get("channel", "release"),
-        )
-        if newest is None:
-            raise ContentError("Already up to date")
-        file = modrinth.primary_file(newest)
-        if file is None:
-            raise ContentError("New version has no files")
-        _delete_item_file(server_dir, item)
-        item.update(
-            version_id=newest["id"],
-            version_number=newest.get("version_number"),
-            filename=file["filename"],
-            sha512=(file.get("hashes") or {}).get("sha512"),
-        )
-        await download_file(
-            file["url"], item_file(server_dir, item), expected_hash=item["sha512"]
-        )
+        if version_id is not None:
+            versions = await source.list_versions(
+                item["project_id"], loader=item.get("loader"), mc_version=mc_version
+            )
+            target = next((v for v in versions if v.get("id") == version_id), None)
+            if target is None:
+                raise ContentError(
+                    f"Version {version_id} is not available for {item['name']} "
+                    f"on Minecraft {mc_version}"
+                )
+        else:
+            target = await source.check_update(
+                item["project_id"],
+                item["version_id"] or "",
+                loader=item.get("loader"),
+                mc_version=mc_version,
+                channel=item.get("channel", "release"),
+            )
+            if target is None:
+                raise ContentError("Already up to date")
+        item["pinned"] = version_id is not None
+        if target["id"] != item.get("version_id"):
+            file = modrinth.primary_file(target)
+            if file is None:
+                raise ContentError("New version has no files")
+            _delete_item_file(server_dir, item)
+            item.update(
+                version_id=target["id"],
+                version_number=target.get("version_number"),
+                filename=file["filename"],
+                sha512=(file.get("hashes") or {}).get("sha512"),
+            )
+            await download_file(
+                file["url"], item_file(server_dir, item), expected_hash=item["sha512"]
+            )
         write_manifest(server_dir, items)
         _sync_rows(session, server_id, items)
     row = session.get(ContentItem, item_id)
