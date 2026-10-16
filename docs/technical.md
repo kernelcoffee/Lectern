@@ -57,10 +57,12 @@ config.py          Settings: LECTERN_DATA dir, host/port, and the env defaults o
                    runtime tunables (app_settings.py layers DB overrides on top).
 db.py              SQLModel engine + session dependency.
 models.py          ORM tables (see §4).
-ws.py              ConsoleHub: per-server subscriber sets + broadcast.
+ws.py              ConsoleHub / ProgressHub / StatusHub: in-process fan-out hubs
+                   (per-server console + install progress, app-wide status).
 servers/
   process.py       ServerProcess: asyncio subprocess, stdout pump, stdin.
   manager.py       Registry {server_id: ServerProcess}; lifecycle ops.
+  status.py        set_status: the one Server.status writer (persist + publish).
   install.py       Create-server pipeline (jar + Java + files + command).
 content/
   manager.py       Install/remove/toggle/update; manifest; .mrpack import.
@@ -78,6 +80,11 @@ api/               Routers: servers, content, catalog, backups, schedules.
 
 - Typed API client (`fetch` wrapper) + shared model types.
 - `useConsoleSocket(serverId)` hook for the live console WebSocket.
+- `useStatusSocket()` hook for the app-wide status feed (`/ws/status`): App owns the one socket
+  (reconnecting with backoff, 1 s doubling to 10 s) and overlays its status map on the server
+  list; the sidebar, dashboard and an open server page follow it. The map is emptied when the
+  socket closes, so REST data is shown as-is until a reconnect's snapshot refills it; each
+  (re)connect also refetches the list.
 - Pages: **Server list**, **Create wizard**, **Server detail** with tabs — Console, Properties,
   Mods/Plugins, Resource Packs, Backups, Schedule.
 
@@ -198,6 +205,12 @@ version no longer ships.
   reaches `running`) so a boot-looping server doesn't restart forever (Crafty's lesson).
 - **WebSocket endpoint** `GET /ws/servers/{id}/console`: on connect, replay ring-buffer history,
   then stream live lines; inbound text messages are treated as console commands.
+- **Status feed:** every change of an existing server's status goes through
+  `servers/status.set_status`, which commits and then publishes to `StatusHub` (a no-op when the
+  status is unchanged, so double writes never duplicate an event). `GET /ws/status` sends a
+  `{"type": "snapshot", "servers": [{server_id, status}…]}` of all servers, then a
+  `{"type": "status", server_id, status}` message per transition. Stop/restart write `stopping`
+  before scheduling the shutdown, so the action response already carries it.
 - **Stats:** `psutil` on the process for CPU/memory; a Minecraft **Server List Ping** to
   `127.0.0.1:{port}` for online/max players and MOTD. **Pull-based only**: computed on
   `GET /servers/{id}/stats`, driven by frontend polling — no background stats loop in v1. The
@@ -306,6 +319,7 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
   re-provisions jar + Java and migrates content. Passing the **current** `mc_version` is a
   loader-only update: the loader build is re-provisioned and content is left untouched.
 - `WS /ws/servers/{id}/console`
+- `WS /ws/status` — app-wide status feed (snapshot, then one message per transition; see §5)
 
 ### Content (mods / plugins / resource packs)
 - `GET /content/search?server_id=…&query=…` — Modrinth search scoped to the server

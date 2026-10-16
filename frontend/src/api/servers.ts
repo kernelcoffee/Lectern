@@ -24,6 +24,16 @@ export type ServerStatus =
   | "stopping"
   | "crashed";
 
+// Messages on the app-wide status feed (WS /ws/status): one snapshot of every
+// server on connect, then one message per status transition.
+export interface ServerStatusEvent {
+  server_id: string;
+  status: ServerStatus;
+}
+export type StatusFeedMessage =
+  | { type: "snapshot"; servers: ServerStatusEvent[] }
+  | { type: "status"; server_id: string; status: ServerStatus };
+
 export interface InstallProgress {
   server_id: string;
   step: string;

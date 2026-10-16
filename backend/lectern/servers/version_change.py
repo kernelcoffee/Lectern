@@ -39,6 +39,7 @@ from ..providers import modrinth, mojang
 from ..providers.base import download_file
 from . import install
 from .manager import manager
+from .status import set_status
 from .types import get_server_type
 
 
@@ -121,9 +122,10 @@ async def change_version(
     await install.provision(
         server, mc_version=mc_version, loader_version=loader_version
     )
-    server.status = ServerStatus.stopped.value
-    session.add(server)
-    session.commit()
+    if not set_status(session, server, ServerStatus.stopped.value):
+        # Unchanged status: still persist what provision updated.
+        session.add(server)
+        session.commit()
     session.refresh(server)
 
     if loader_only:
