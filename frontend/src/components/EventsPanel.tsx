@@ -10,6 +10,7 @@ import {
   getServerEvents,
   ServerEventWithName,
 } from "../api/events";
+import { parseUtc } from "../lib/format";
 
 const POLL_MS = 10000;
 
@@ -27,13 +28,13 @@ const KIND: Record<string, { label: string; dot: string }> = {
 };
 
 function timeAgo(iso: string): string {
-  const then = new Date(iso + "Z").getTime();
+  const then = parseUtc(iso).getTime();
   const mins = Math.round((Date.now() - then) / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   if (mins < 60 * 24) return `${Math.round(mins / 60)}h ago`;
   if (mins < 60 * 24 * 7) return `${Math.round(mins / (60 * 24))}d ago`;
-  return new Date(iso + "Z").toLocaleDateString();
+  return parseUtc(iso).toLocaleDateString();
 }
 
 export default function EventsPanel({ serverId }: { serverId?: string }) {
@@ -98,7 +99,7 @@ export default function EventsPanel({ serverId }: { serverId?: string }) {
                 )}
                 <span
                   className="ml-auto shrink-0 text-xs text-slate-500"
-                  title={new Date(e.created_at + "Z").toLocaleString()}
+                  title={parseUtc(e.created_at).toLocaleString()}
                 >
                   {timeAgo(e.created_at)}
                 </span>

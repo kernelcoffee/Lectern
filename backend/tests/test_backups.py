@@ -238,21 +238,13 @@ def test_upload_downloaded_backup_round_trips(client, engine, tmp_path):
         (_zip_bytes({"world/level.dat": b"W", "world/region/r.0.0.mca": b"R"}), "whole-server"),
         (_zip_bytes({"level.dat": b"W", "region/r.0.0.mca": b"R"}), "whole-server"),
         (
-            _zip_bytes({"myserver/server.properties": b"", "myserver/world/level.dat": b"W"}),
-            "wrapped in a single folder (myserver/)",
-        ),
-        (_zip_bytes({"world/server.properties": b""}), "wrapped in a single folder (world/)"),
-        (
-            _zip_bytes({
-                "myserver/server.properties": b"",
-                "__MACOSX/myserver/._server.properties": b"",
-            }),
-            "wrapped in a single folder (myserver/)",
+            _zip_bytes({"a/server.properties": b"", "b/server.properties": b""}),
+            "whole-server",
         ),
     ],
     ids=[
         "not-zip", "traversal", "empty", "dirs-only", "world-only", "world-contents",
-        "wrapped", "nested-marker", "macos-compress",
+        "two-folders",
     ],
 )
 def test_upload_rejects_bad_archive(client, engine, tmp_path, monkeypatch, body, match):
@@ -268,6 +260,54 @@ def test_upload_rejects_bad_archive(client, engine, tmp_path, monkeypatch, body,
     assert _backup_files(sid) == []
     assert client.get(f"/api/servers/{sid}/backups").json() == []
     assert not (tmp_path / "evil").exists()
+
+
+@pytest.mark.parametrize(
+    ("entries", "prefix"),
+    [
+        (
+            {
+                "20261016-142828-065463/server.properties": b"motd=edited\n",
+                "20261016-142828-065463/world/level.dat": b"WORLD-PRUNED",
+            },
+            "20261016-142828-065463/",
+        ),
+        (
+            {
+                "myserver/server.properties": b"motd=edited\n",
+                "myserver/world/level.dat": b"WORLD-PRUNED",
+                "__MACOSX/myserver/._server.properties": b"junk",
+                "__MACOSX/._myserver": b"junk",
+            },
+            "myserver/",
+        ),
+    ],
+    ids=["zipped-folder", "macos-compress"],
+)
+def test_upload_unwraps_single_folder(client, engine, tmp_path, monkeypatch, entries, prefix):
+    """Zipping the unpacked backup folder (what desktop tools do) is accepted:
+    the stored archive has the server files at its root, like any backup."""
+    sid = _installed_server(client, engine, tmp_path)
+    recorded: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        bk.events, "record", lambda _sid, kind, msg="": recorded.append((kind, msg))
+    )
+    resp = _upload(client, sid, _zip_bytes(entries))
+    assert resp.status_code == 201, resp.text
+    row = resp.json()
+    files = _backup_files(sid)
+    assert [f.suffix for f in files] == [".zip"]
+    assert row["size_bytes"] == files[0].stat().st_size
+    with zipfile.ZipFile(files[0]) as zf:
+        assert sorted(zf.namelist()) == ["server.properties", "world/level.dat"]
+    assert recorded == [("backup_created", f"{row['filename']} (uploaded, unwrapped from {prefix})")]
+
+    assert client.post(f"/api/servers/{sid}/backups/{row['id']}/restore").status_code == 204
+    server_dir = tmp_path / "srv"
+    assert (server_dir / "world/level.dat").read_bytes() == b"WORLD-PRUNED"
+    assert (server_dir / "server.properties").read_text() == "motd=edited\n"
+    assert not (server_dir / prefix.rstrip("/")).exists()
+    assert not (server_dir / "__MACOSX").exists()
 
 
 @pytest.mark.parametrize(

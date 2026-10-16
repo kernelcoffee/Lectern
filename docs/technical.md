@@ -379,8 +379,11 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
     uses (zip, CRC, no absolute/`..` entries; the zip-bomb/disk-space guard runs only at restore,
     since upload never unpacks). Because restore replaces the entire server dir, upload also
     requires at least one file and a whole-server shape: `server.properties`, `eula.txt`,
-    `velocity.toml` or `.lectern/` at the archive root. A zip wrapped in one folder (ignoring a
-    macOS `__MACOSX/` tree) gets its own message.
+    `velocity.toml` or `.lectern/` at the archive root, or inside exactly one top-level folder.
+    In the wrapped case (what desktop zip tools produce from an unpacked backup; a macOS
+    `__MACOSX/` tree is ignored) the archive is re-packed in a thread with the folder stripped
+    and `__MACOSX/` dropped, using the server's `backup_compress` setting, so stored backups
+    always have the server files at the root and restore needs no special case.
   - A valid archive is renamed to the usual `{timestamp}.zip` (microsecond UTC timestamp, same as
     create), recorded with `trigger="uploaded"`, and retention is applied. Any failure deletes
     the temp file and records a `backup_failed` event; success records `backup_created`
