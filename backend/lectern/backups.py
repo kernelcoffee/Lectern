@@ -21,7 +21,8 @@ Restore is the dangerous direction, so it is deliberately conservative:
 the server must be stopped; the archive is validated first; the current
 directory is moved aside and only deleted after a fully successful extract
 (on any failure the original directory is put back). Extraction is
-zip-slip guarded.
+zip-slip guarded, and an archive whose uncompressed total would not fit on
+the disk (zip bomb, or simply too big) is refused before anything moves.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
-from . import events
+from . import app_settings, events
 from .config import get_settings
 from .models import Backup, Server
 
@@ -56,6 +57,31 @@ def _is_excluded(rel: Path, prefixes: list[str]) -> bool:
     return any(text == p or text.startswith(p + "/") for p in prefixes)
 
 
+def _is_upload_part(rel: Path) -> bool:
+    """A staged file-manager upload: ``.lectern/<tmp>.part`` (see api/upload.py)."""
+    return len(rel.parts) == 2 and rel.parts[0] == ".lectern" and rel.suffix == ".part"
+
+
+def sweep_stale_parts(session: Session) -> int:
+    """Startup only (no request can be streaming yet): delete ``.part`` files a
+    killed process left behind — staged uploads in each server's ``.lectern/``
+    (hidden from and undeletable via the file manager) and unfinished archives
+    or uploads in the backups dirs. Returns how many were removed."""
+    dirs = [d for d in get_settings().backups_dir.glob("*") if d.is_dir()]
+    for server in session.exec(select(Server)).all():
+        if server.path:
+            dirs.append(Path(server.path) / ".lectern")
+    removed = 0
+    for d in dirs:
+        if d.is_symlink() or not d.is_dir():
+            continue
+        for part in d.glob("*.part"):
+            if part.is_file() and not part.is_symlink():
+                part.unlink(missing_ok=True)
+                removed += 1
+    return removed
+
+
 # --- create -------------------------------------------------------------------
 
 
@@ -75,6 +101,8 @@ def _write_archive(server_dir: Path, dest: Path, *, prefixes: list[str], compres
                 rel = path.relative_to(server_dir)
                 if _is_excluded(rel, prefixes) or rel.name == "session.lock":
                     continue
+                if _is_upload_part(rel):
+                    continue  # a file-manager upload in flight (or orphaned)
                 try:
                     zf.write(path, rel.as_posix())
                 except OSError:
@@ -111,10 +139,7 @@ async def create_backup(
             )
             raise BackupError(f"Could not stop server for backup: {exc}") from exc
 
-    # Microseconds keep filenames unique even for back-to-back backups —
-    # a same-second collision would silently overwrite the previous archive.
-    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
-    filename = f"{timestamp}.zip"
+    filename = _new_filename()
     dest = _backups_dir(server.id) / filename
     try:
         size = await asyncio.to_thread(
@@ -157,6 +182,94 @@ def _prune(session: Session, server: Server) -> None:
     session.commit()
 
 
+# --- upload ---------------------------------------------------------------------
+
+
+def _new_filename() -> str:
+    # Microseconds keep filenames unique even for back-to-back backups —
+    # a same-second collision would silently overwrite the previous archive.
+    return datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f") + ".zip"
+
+
+def upload_staging_dir(server_id: str) -> Path:
+    """Where an upload is streamed before validation: the server's own backups
+    dir (same filesystem, so adopting it is an atomic rename)."""
+    return _backups_dir(server_id)  # created by the upload helper once headers pass
+
+
+# Root-level entries that mark a whole-server archive. Restore replaces the
+# entire server dir, so a world-only or folder-wrapped zip would wipe the jar,
+# mods, configs and manifest; upload refuses those shapes up front.
+SERVER_ROOT_MARKERS = frozenset({"server.properties", "eula.txt", "velocity.toml", ".lectern"})
+
+
+def _has_root_marker(names: list[str], prefix: str = "") -> bool:
+    return any(
+        name.startswith(prefix) and name[len(prefix):].split("/", 1)[0] in SERVER_ROOT_MARKERS
+        for name in names
+    )
+
+
+def _validate_upload(path: Path) -> None:
+    """Restore's structural definition of a safe archive, plus: it must hold
+    files, and it must be shaped like a whole-server archive (a marker such as
+    ``server.properties`` at the root, not wrapped in one folder). No disk-space
+    check: uploading never unpacks, and restore runs the zip-bomb guard against
+    the server's disk when it does."""
+    _validate_archive(path)
+    with zipfile.ZipFile(path) as zf:
+        files = [info.filename for info in zf.infolist() if not info.is_dir()]
+    if not files:
+        raise BackupError("Backup archive is empty")
+    if _has_root_marker(files):
+        return
+    # macOS "Compress" adds a __MACOSX/ resource-fork tree beside the folder;
+    # ignore it so a Finder-zipped folder still gets the wrapped diagnosis.
+    tops = {name.split("/", 1)[0] for name in files} - {"__MACOSX"}
+    if len(tops) == 1 and _has_root_marker(files, f"{next(iter(tops))}/"):
+        raise BackupError(
+            f"Backup archive is wrapped in a single folder ({next(iter(tops))}/); "
+            "zip the server files themselves so they sit at the archive root"
+        )
+    raise BackupError(
+        "Backup archive is not a whole-server archive: no server.properties, eula.txt, "
+        "velocity.toml or .lectern/ at its root (restore would replace the whole server)"
+    )
+
+
+async def import_backup(
+    session: Session, server: Server, tmp_path: Path, *, size: int
+) -> Backup:
+    """Adopt an uploaded archive (already streamed to ``tmp_path`` inside this
+    server's backups dir) as a backup: validate it, give it a timestamped
+    name, record it and prune. The temp file is removed on any failure."""
+    try:
+        if not server.path:
+            raise BackupError("Server is not installed yet")
+        dest_dir = _backups_dir(server.id)
+        if not tmp_path.resolve().is_relative_to(dest_dir.resolve()):
+            raise BackupError("Uploaded archive must be staged in the backups directory")
+        if dest_dir.resolve().is_relative_to(Path(server.path).resolve()):
+            raise BackupError("Backup destination must be outside the server directory")
+        await asyncio.to_thread(_validate_upload, tmp_path)
+        filename = _new_filename()
+        tmp_path.replace(dest_dir / filename)
+    except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
+        events.record(server.id, "backup_failed", f"upload: {exc}")
+        raise
+
+    backup = Backup(
+        server_id=server.id, filename=filename, size_bytes=size, trigger="uploaded"
+    )
+    session.add(backup)
+    session.commit()
+    session.refresh(backup)
+    _prune(session, server)
+    events.record(server.id, "backup_created", f"{filename} (uploaded)")
+    return backup
+
+
 # --- list / delete ---------------------------------------------------------------
 
 
@@ -184,7 +297,15 @@ def delete_backup(session: Session, backup: Backup) -> None:
 # --- restore ---------------------------------------------------------------------
 
 
-def _validate_archive(path: Path) -> None:
+def _validate_archive(
+    path: Path, extract_to: Path | None = None, *, reserve: int = 0
+) -> None:
+    """One definition of a safe archive, shared by restore and upload.
+
+    With ``extract_to``, also the zip-bomb guard: the total uncompressed size
+    must fit in that filesystem's free space minus ``reserve`` bytes (the
+    ``restore_disk_reserve_mb`` app setting, passed by ``restore_backup``).
+    ``testzip`` has already proven the declared sizes honest by then."""
     if not path.exists():
         raise BackupError("Backup archive is missing on disk")
     if not zipfile.is_zipfile(path):
@@ -196,6 +317,14 @@ def _validate_archive(path: Path) -> None:
             rel = Path(name)
             if rel.is_absolute() or ".." in rel.parts:
                 raise BackupError(f"Backup contains an unsafe path: {name!r}")
+        if extract_to is not None:
+            total = sum(info.file_size for info in zf.infolist())
+            free = shutil.disk_usage(extract_to).free
+            if total > free - reserve:
+                raise BackupError(
+                    f"Backup unpacks to {total} bytes, more than the disk can hold "
+                    f"({free} bytes free, {reserve} kept in reserve)"
+                )
 
 
 def _swap_restore(archive: Path, server_dir: Path) -> None:
@@ -225,7 +354,9 @@ async def restore_backup(session: Session, server: Server, backup: Backup) -> No
     if not server.path:
         raise BackupError("Server is not installed yet")
     archive = _backups_dir(server.id) / backup.filename
-    _validate_archive(archive)
+    reserve = app_settings.get_int(session, "restore_disk_reserve_mb") * 1024 * 1024
+    # testzip() reads every byte: keep multi-GB archives off the event loop.
+    await asyncio.to_thread(_validate_archive, archive, Path(server.path), reserve=reserve)
     try:
         await asyncio.to_thread(_swap_restore, archive, Path(server.path))
     except Exception as exc:

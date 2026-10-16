@@ -53,7 +53,8 @@ WebSocket subscribers. This is the natural fit for FastAPI and keeps concurrency
 ```
 main.py            App factory; lifespan: init DB, start scheduler,
                    reconcile statuses, auto-start flagged servers.
-config.py          Settings: LECTERN_DATA dir, host/port, defaults.
+config.py          Settings: LECTERN_DATA dir, host/port, and the env defaults of the
+                   runtime tunables (app_settings.py layers DB overrides on top).
 db.py              SQLModel engine + session dependency.
 models.py          ORM tables (see §4).
 ws.py              ConsoleHub: per-server subscriber sets + broadcast.
@@ -69,6 +70,8 @@ scheduler.py       APScheduler wiring from Schedule rows.
 providers/         httpx clients (see §6): mojang, fabric, quilt, paper,
                    modrinth, vanillatweaks, adoptium.
 api/               Routers: servers, content, catalog, backups, schedules.
+  upload.py        Streaming multipart helper (not a router) shared by the
+                   backups and file-manager uploads.
 ```
 
 ### Frontend layout (`frontend/`)
@@ -110,7 +113,8 @@ LECTERN_DATA/
 │   └── temurin-{8,16,17,21}/      # shared JREs, keyed by Java major version
 ├── cache/                         # provider catalogs, downloaded jars/mod files
 ├── backups/
-│   └── {server_id}/{timestamp}.zip   # OUTSIDE server dirs (see backup guard, §7)
+│   └── {server_id}/{timestamp}.zip   # OUTSIDE server dirs (see backup guard, §8)
+│                                     # (+ transient *.part while an upload streams in)
 └── servers/
     └── {server_id}/
         ├── server.jar | paper-*.jar | fabric-server-launch.jar
@@ -121,7 +125,8 @@ LECTERN_DATA/
         ├── resourcepacks/
         ├── world/ ...
         └── .lectern/
-            └── manifest.json   # per-server content manifest (see below)
+            ├── manifest.json   # per-server content manifest (see below)
+            └── *.part          # transient file-manager upload staging
 ```
 
 ### Content manifest (`.lectern/manifest.json`)
@@ -326,8 +331,24 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
 
 ### Backups
 - `GET /servers/{id}/backups` · `POST /servers/{id}/backups` (create)
-- `POST /servers/{id}/backups/{backup_id}/restore`
+- `POST /servers/{id}/backups/upload` — multipart `file`: adopt a whole-server zip as a backup
+  (`trigger: "uploaded"`) → 201 `BackupRead`; 400 for an invalid archive or an uninstalled
+  server, 404 unknown server, 413 over the `max_backup_upload_mb` tunable
+- `GET /servers/{id}/backups/{backup_id}/download`
+- `POST /servers/{id}/backups/{backup_id}/restore` → 204; 409 for an invalid archive or one that
+  would not fit in free space minus the `restore_disk_reserve_mb` tunable
 - `DELETE /servers/{id}/backups/{backup_id}`
+
+### Files (excerpt)
+- `POST /servers/{id}/files/upload` — multipart `file` + text field `path` (target directory,
+  default the server root; may come before or after `file`) → 201 `{name, size}`; 400 for a bad
+  `path`, a missing `file` part or a malformed body, 409 for an uninstalled server, 413 over the
+  `max_file_upload_mb` tunable
+
+### Settings
+- `GET /settings` → `SettingRead[]` (key, label, help, unit, value, min, max, category)
+- `PATCH /settings` — `{key: value}` → updated `SettingRead[]`; 422 for an unknown key or an
+  out-of-range value
 
 ### Schedules
 - `GET /servers/{id}/schedules` · `POST …` · `PATCH …/{sid}` · `DELETE …/{sid}`
@@ -341,9 +362,40 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
 - **Path-traversal guard:** the backup destination is validated to be **outside** the server
   directory before writing/restoring (borrowed from Crafty's approach) to avoid recursive or
   destructive archives.
-- **Restore:** stop the server → validate the archive (name/format) → replace server data →
-  report success/failure.
+- **Restore:** stop the server → validate the archive (name/format, no absolute/`..` entries,
+  and a zip-bomb guard: the total uncompressed size must fit in the server filesystem's free
+  space minus a reserve — the `restore_disk_reserve_mb` tunable, Settings → Backups, default
+  1024 MB, env `LECTERN_RESTORE_DISK_RESERVE_MB`, 0 allowed; validation runs in a thread, off
+  the event loop) → replace server data → report success/failure.
 - **Retention:** optional prune to keep the last N backups.
+- **Upload:** the multipart body is parsed straight off the request stream by `api/upload.py`
+  (`receive_upload`, python-multipart, not `UploadFile`, which would first spool the whole file
+  to the system temp dir — the container's writable layer, not the data volume). The `file` part
+  is written once, to a `.part` temp file inside `LECTERN_DATA/backups/{server_id}/` (never the
+  server dir). The `max_backup_upload_mb` tunable (Settings → Uploads, default 16384 MB, env
+  `LECTERN_MAX_BACKUP_UPLOAD_MB`) is enforced twice: a `Content-Length` over the cap is refused
+  with 413 before anything is stored, and the streamed byte count aborts with 413 as well.
+  - The archive is then validated off the event loop with the same `_validate_archive` restore
+    uses (zip, CRC, no absolute/`..` entries; the zip-bomb/disk-space guard runs only at restore,
+    since upload never unpacks). Because restore replaces the entire server dir, upload also
+    requires at least one file and a whole-server shape: `server.properties`, `eula.txt`,
+    `velocity.toml` or `.lectern/` at the archive root. A zip wrapped in one folder (ignoring a
+    macOS `__MACOSX/` tree) gets its own message.
+  - A valid archive is renamed to the usual `{timestamp}.zip` (microsecond UTC timestamp, same as
+    create), recorded with `trigger="uploaded"`, and retention is applied. Any failure deletes
+    the temp file and records a `backup_failed` event; success records `backup_created`
+    (`… (uploaded)`).
+  - An uploaded archive can carry any `.lectern/manifest.json`, so the content manager treats the
+    manifest as untrusted: every path built from an item's `kind`, `filename` or `mrpack_path`
+    goes through `content.manager.confine` (must resolve inside the server dir, symlinks
+    followed). Entries that escape are refused for toggle/download and delete nothing on remove.
+  - The file-manager upload uses the same helper. The file is staged as a `.part` under the
+    server's `.lectern/` (same filesystem as any destination, hidden and protected), because the
+    `path` field may arrive after the file bytes; it is then renamed into place. Text fields are
+    capped at 1 MiB each; a missing `file` part is a 400, an over-cap body a 413, and no `.part`
+    survives a failure.
+  - Backups skip `.lectern/*.part`, and startup (`backups.sweep_stale_parts`, after reconcile)
+    deletes `.part` files a killed process left in `.lectern/` or the backups dirs.
 
 ---
 

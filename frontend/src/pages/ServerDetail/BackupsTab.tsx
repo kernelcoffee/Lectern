@@ -1,11 +1,11 @@
-// Backups tab (M9) — list/create/restore/delete archives of this server.
+// Backups tab (M9) — list/create/upload/restore/delete archives of this server.
 //
 // Restore is destructive (full directory replace) and needs a stopped
 // server, so it double-confirms and surfaces the backend's 409s verbatim.
 // Backup settings (retention, exclusions, compress, stop-before) live with
 // the other Lectern settings on the Properties tab.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/client";
 import {
   Backup,
@@ -14,6 +14,7 @@ import {
   deleteBackup,
   listBackups,
   restoreBackup,
+  uploadBackup,
 } from "../../api/backups";
 import { ServerDetail } from "../../api/servers";
 import { useToast } from "../../components/Toasts";
@@ -30,7 +31,10 @@ export default function BackupsTab({
   onServerChanged: () => void;
 }) {
   const [backups, setBackups] = useState<Backup[] | null>(null);
-  const [busy, setBusy] = useState<string | null>(null); // backup id or "create"
+  const [busy, setBusy] = useState<string | null>(null); // backup id, "create" or "upload"
+  // Upload progress (0..1) while the body is sent; 1 = server validating.
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const fileInput = useRef<HTMLInputElement>(null);
   // Load failures only — action outcomes go through toasts.
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
@@ -66,6 +70,28 @@ export default function BackupsTab({
       await refresh();
     });
 
+  const upload = (file: File) => {
+    setUploadProgress(0);
+    run("upload", async () => {
+      const backup = await uploadBackup(serverId, file, setUploadProgress);
+      toast.success(`Backup uploaded (${formatBytes(backup.size_bytes)}).`);
+      await refresh();
+    });
+  };
+
+  const onFileChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-choosing the same file
+    if (file) upload(file);
+  };
+
+  const uploadLabel =
+    busy !== "upload"
+      ? "Upload backup"
+      : uploadProgress >= 1
+        ? "Validating…"
+        : `Uploading… ${Math.floor(uploadProgress * 100)}%`;
+
   const restore = (backup: Backup) => {
     if (
       !window.confirm(
@@ -91,7 +117,7 @@ export default function BackupsTab({
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-medium text-slate-300 flex-1">
           Backups{" "}
           {backups && <span className="text-slate-500">({backups.length})</span>}
@@ -103,6 +129,22 @@ export default function BackupsTab({
         >
           {busy === "create" ? "Backing up…" : "Create backup"}
         </button>
+        <button
+          onClick={() => fileInput.current?.click()}
+          disabled={busy !== null}
+          className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-sm px-3 py-1.5 text-sm font-medium"
+        >
+          {uploadLabel}
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".zip,application/zip"
+          className="hidden"
+          aria-label="Backup archive to upload"
+          data-testid="backup-upload-input"
+          onChange={onFileChosen}
+        />
       </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
@@ -157,7 +199,9 @@ export default function BackupsTab({
       <p className="text-xs text-slate-500">
         Archives live outside the server directory (in Lectern's backups
         folder). Retention and exclusions are configured under Properties →
-        Lectern settings.
+        Lectern settings. Uploaded archives must be whole-server backups — the
+        same shape as the zips Download gives you (server files at the root,
+        not just a world folder).
       </p>
     </section>
   );

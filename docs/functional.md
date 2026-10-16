@@ -85,7 +85,7 @@ have scheduled mod auto-updates and the newer-version indicators. Still open:
 | Managed Carpet bots | Spawn fake players at a position to keep chunks loaded, auto-respawned after every server restart via the console pipe |
 | Logs | Viewer for rotated (`*.log.gz`) logs of earlier runs |
 | Custom resource pack manager | Build and manage a server-side custom resource pack (custom models, sounds/music, textures…) that mods can hook into, from a dedicated UI rather than hand-editing the pack |
-| World pruning | Prune generated-but-unvisited or stale chunks with a proper interface, so a map explored on an older version regenerates with new resources/features after an update |
+| World pruning | Prune generated-but-unvisited or stale chunks with a proper interface, so a map explored on an older version regenerates with new resources/features after an update. Meanwhile the manual path is F-B-5: download a backup, prune it offline, upload and restore it |
 | Performance & idle | Apply/enforce recommended server optimisations (JVM flags, config tweaks); **auto-shutdown when no players are online, auto-wake when a player tries to connect** |
 
 **Design implication:** server types/editions and content sources are treated as **pluggable
@@ -164,10 +164,10 @@ which is why one content pipeline serves them all.
   with names) and in a server's Metrics tab (that server only). Kept to the newest ~300 events
   per server; recording failures never break the action being recorded.
 - **F-APP-1 — App settings.** *(post-M12)* A Settings page edits app-level tunables — the file-
-  manager upload limit, the world-import upload limit, and the create-form default memory — that
-  would otherwise be env vars / config file. Overrides persist server-side (the `Setting` table,
-  layered over the env defaults) and take effect immediately. Deployment settings (data dir, host,
-  port) stay env-only by design.
+  manager upload limit, the world-import upload limit, the backup upload limit, the restore disk
+  reserve, and the create-form default memory — that would otherwise be env vars / config file.
+  Overrides persist server-side (the `Setting` table, layered over the env defaults) and take
+  effect immediately. Deployment settings (data dir, host, port) stay env-only by design.
 - **F-SM-11 — File manager.** *(M12)* Browse and edit a server's files from the UI — the escape
   hatch for config Lectern doesn't model (`config/`, `ops.json`, reading `logs/`). A table
   (Name · Type · Modified · Size · Permissions) with multi-select; navigate the tree, edit text
@@ -262,8 +262,20 @@ which is why one content pipeline serves them all.
   stored outside the server directory.
 - **F-B-2 — List backups.** Show existing backups per server with timestamp and size.
 - **F-B-3 — Restore.** Restore a chosen backup; the server is stopped first, the archive is
-  validated, and the data is replaced.
+  validated (including that it fits on the disk once unpacked while leaving a free-space margin,
+  the *Restore disk reserve* app setting, default 1024 MB), and the data is replaced.
 - **F-B-4 — Retention.** Optionally prune old backups automatically (e.g. keep the last N).
+- **F-B-5 — Upload backup.** Upload a whole-server zip on the Backups tab and it joins the list
+  as an `uploaded` backup, restorable like any other. The use case is offline editing: download
+  a backup, change it (e.g. prune region files so chunks regenerate with new biomes/features),
+  and upload it back. The archive must have the same shape as the ones Lectern downloads (server
+  files at the root, not just a world folder, not wrapped in one folder): an archive without
+  `server.properties`, `eula.txt`, `velocity.toml` or `.lectern/` at its root is refused, since
+  restoring it would replace the whole server. It is also validated with the same rules as
+  restore (real zip, CRC check, no absolute or `..` entries) plus at least one file; whether it
+  fits on the disk once unpacked is checked when it is restored, not when it is uploaded. It
+  counts toward retention and is capped by the *Backup upload limit* app setting (default
+  16384 MB).
 
 ### 4.7 Scheduling
 

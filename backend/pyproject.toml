@@ -15,8 +15,10 @@ dependencies = [
     "apscheduler>=3.10",
     "psutil>=5.9",
     "pydantic-settings>=2.4",
-    # FastAPI multipart form parsing (resource-pack upload, M7).
-    "python-multipart>=0.0.9",
+    # FastAPI multipart form parsing (resource-pack upload, M7); >=0.0.13 for the
+    # `python_multipart` import name used by the shared streaming upload helper
+    # (api/upload.py: backup and file-manager uploads).
+    "python-multipart>=0.0.13",
     # Crop/scale player faces from Mojang skins (self-hosted avatars).
     "Pillow>=10",
 ]

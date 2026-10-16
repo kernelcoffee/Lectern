@@ -1,8 +1,8 @@
 """Runtime-editable app settings (the Settings UI).
 
 A small registry of **tunables** — app-level knobs safe to change while running
-(upload caps, the create-form default memory). Each has an env/config default
-(from ``config.Settings``); a UI edit persists an override in the ``Setting``
+(upload caps, the restore disk reserve, the create-form default memory). Each has
+an env/config default (from ``config.Settings``); a UI edit persists an override in the ``Setting``
 table (key/value), so the effective value is *DB override → config default*.
 
 Deployment settings (``LECTERN_DATA``, host, port) are intentionally **not**
@@ -46,6 +46,21 @@ TUNABLES: dict[str, Tunable] = {
             "World import upload limit",
             "Largest world archive you can upload when creating a server.",
             "MB", 1, 102400, "max_world_upload_mb", "Uploads",
+        ),
+        Tunable(
+            "max_backup_upload_mb",
+            "Backup upload limit",
+            "Largest backup archive you can upload on a server's Backups tab "
+            "(a whole-server zip, e.g. one downloaded, edited offline and re-uploaded).",
+            "MB", 1, 1048576, "max_backup_upload_mb", "Uploads",
+        ),
+        Tunable(
+            "restore_disk_reserve_mb",
+            "Restore disk reserve",
+            "Free space a restore must leave on the disk holding the server; an "
+            "archive that would unpack into this margin is refused. 0 keeps only "
+            "the 'must fit' check.",
+            "MB", 0, 1048576, "restore_disk_reserve_mb", "Backups",
         ),
         Tunable(
             "default_memory_mb",

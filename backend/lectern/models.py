@@ -140,7 +140,7 @@ class Backup(SQLModel, table=True):
     filename: str
     size_bytes: int = 0
     created_at: datetime = Field(default_factory=_now)
-    trigger: str = "manual"  # manual | scheduled
+    trigger: str = "manual"  # manual | scheduled | uploaded
 
 
 class ServerStat(SQLModel, table=True):
