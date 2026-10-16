@@ -18,7 +18,7 @@ import {
 } from "../../api/backups";
 import { ServerDetail } from "../../api/servers";
 import { useToast } from "../../components/Toasts";
-import { formatBytes } from "../../lib/format";
+import { formatBytes, parseUtc } from "../../lib/format";
 
 export default function BackupsTab({
   serverId,
@@ -162,7 +162,7 @@ export default function BackupsTab({
             <li key={b.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
               <div className="w-full sm:w-auto sm:flex-1 min-w-0">
                 <p className="text-sm truncate">
-                  {new Date(b.created_at + "Z").toLocaleString()}{" "}
+                  {parseUtc(b.created_at).toLocaleString()}{" "}
                   <span className="text-xs text-slate-500">
                     {formatBytes(b.size_bytes)} · {b.trigger}
                   </span>
