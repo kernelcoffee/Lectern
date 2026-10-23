@@ -96,6 +96,17 @@ the Playwright smoke tier, and a Docker build. Pushes to `main` publish the `mas
   and `docs/technical.md` if the API or layout changed. Bump the version in both
   `backend/pyproject.toml` and `frontend/package.json` together for a release.
 
+## Agent team
+
+`.claude/agents/` defines an adversarial dev team run by `.claude/workflows/dev-team.js`
+(launch it by `scriptPath`, not by name): a Fable planner writes per-stack briefs, an API
+contract and an expected-failure matrix; `dev-backend` and `dev-frontend` build in parallel and
+are attacked by a same-stack challenger; seven read-only reviewers (correctness, security,
+conventions, python, fastapi, typescript, react, ux) plus any ad-hoc specialist the planner
+defines review the diff, and a refuter judges every finding; `test-engineer` writes black-box
+tests from the failure matrix; `qa` runs the suite plus `scripts/check-coverage.sh` (changed
+lines ≥95% covered) and `scripts/shortcut-audit.sh`. Agents never commit; the orchestrator does.
+
 ## Git
 
 - Conventional commit subjects with a scope: `feat(servers): …`, `fix(content): …`,
