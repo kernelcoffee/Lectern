@@ -17,6 +17,9 @@
 //      text input, and new keys can be added free-form. Saved via
 //      PATCH /api/servers/{id}/properties with only the changed keys; the
 //      backend validates typed keys and 422s with a message we surface.
+//      Managed keys (management-server-*) are reserved for Lectern's
+//      management-protocol client (the backend 422s edits), so they render
+//      read-only and only once present in the file.
 //
 // Edit-tracking pattern used by both forms: the fetched data is the source of
 // truth; user changes go into a separate `edits` overlay keyed by field. Save
@@ -38,6 +41,7 @@ import {
   updateServerSettings,
 } from "../../api/servers";
 import { useToast } from "../../components/Toasts";
+import { propertyRows } from "../../lib/properties";
 
 export default function PropertiesTab({
   serverId,
@@ -197,18 +201,8 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
     load();
   }, [load]);
 
-  // Rows shown = union of keys in the file and known definitions, so a fresh
-  // minimal file still offers difficulty/gamemode/etc. Known keys first,
-  // alphabetical inside each group.
-  const rows = useMemo(() => {
-    if (!data) return [];
-    const keys = new Set([...Object.keys(data.definitions), ...Object.keys(data.properties)]);
-    return [...keys].sort((a, b) => {
-      const aKnown = a in data.definitions ? 0 : 1;
-      const bKnown = b in data.definitions ? 0 : 1;
-      return aKnown - bKnown || a.localeCompare(b);
-    });
-  }, [data]);
+  // Rows shown: file keys + known definitions (see propertyRows).
+  const rows = useMemo(() => (data ? propertyRows(data) : []), [data]);
 
   const dirty = Object.keys(edits).length > 0 || newKey.trim() !== "";
 
@@ -311,7 +305,18 @@ function PropertyField({
     (edited ? "border-amber-600" : "border-slate-700");
 
   let input;
-  if (definition?.type === "boolean") {
+  if (definition?.managed) {
+    // Reserved for Lectern's management-protocol client; PATCH rejects them.
+    // The secret is a localhost-only credential, shown as-is.
+    input = (
+      <input
+        value={value}
+        disabled
+        readOnly
+        className="w-full rounded-sm bg-slate-900 border border-slate-800 px-2 py-1.5 text-sm text-slate-500 cursor-not-allowed"
+      />
+    );
+  } else if (definition?.type === "boolean") {
     // Not the shared BoolSelect: a key absent from the file must show as
     // unset ("—"), not silently as false. Unset fields name the server's
     // built-in default so "—" isn't a mystery.
@@ -365,7 +370,12 @@ function PropertyField({
 
   return (
     <label className="block text-xs text-slate-400 space-y-1" title={definition?.description}>
-      <span>{name}</span>
+      <span>
+        {name}
+        {definition?.managed && (
+          <span className="text-slate-600"> — reserved for Lectern (management protocol)</span>
+        )}
+      </span>
       {input}
     </label>
   );

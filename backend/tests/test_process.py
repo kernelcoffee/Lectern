@@ -134,3 +134,24 @@ def test_eula_helpers(tmp_path: Path):
     assert install.eula_accepted(tmp_path) is False
     install.set_eula(tmp_path, True)
     assert install.eula_accepted(tmp_path) is True
+
+
+async def test_stop_waits_for_the_final_state_report(tmp_path: Path):
+    """stop() returns only after the pump has reported ``stopped``, even when
+    the state callback itself yields (the manager's restart starts the next
+    run as soon as stop() returns)."""
+    order: list[str] = []
+
+    async def on_state(_server_id: str, status: str, detail: str = "") -> None:
+        if status == "stopped":
+            await asyncio.sleep(0.1)
+        order.append(status)
+
+    proc = ServerProcess(
+        "s4", [sys.executable, "-u", "-c", FAKE_SERVER], str(tmp_path), ConsoleHub(), on_state
+    )
+    await proc.start()
+    assert await _wait_for(lambda: "running" in order)
+    await proc.stop("stop", timeout=5)
+    order.append("<restart resumes>")
+    assert order == ["running", "stopping", "stopped", "<restart resumes>"]

@@ -7,12 +7,20 @@ kill. Status is reported back to the manager via the ``on_state`` callback:
 
     starting → running (once the server prints "Done (") → stopping → stopped,
     or → crashed on an unexpected exit.
+
+On 1.21.9+ the manager also hands over an ``MsmpClient`` (``msmp.py``): while
+it is connected the management protocol seeds and updates the roster and its
+``server/started`` / ``server/stopping`` notifications report ``running`` /
+``stopping``. The console (roster lines, the ready marker) stays the fallback;
+``running`` is reported at most once per process whichever source sees it
+first.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import re
 import signal
 import time
@@ -21,7 +29,19 @@ from collections.abc import Awaitable, Callable
 import psutil
 
 from ..ws import ConsoleHub
+from .msmp import (
+    M_PLAYERS,
+    M_STATUS,
+    N_JOINED,
+    N_LEFT,
+    N_STARTED,
+    N_STOPPING,
+    MsmpClient,
+    MsmpError,
+)
 from .roster import Roster
+
+log = logging.getLogger(__name__)
 
 # Vanilla/Fabric print e.g. `[Server thread/INFO]: Done (12.345s)! For help, …`.
 # Proxies differ — Velocity prints `Listening on /…:25577` when ready, so the
@@ -33,6 +53,8 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _TERMINATE_GRACE = 10
 # How often to announce the remaining time during a graceful stop.
 _COUNTDOWN_STEP = 10
+# How long stop()/kill() wait, after the exit, for the pump to report it.
+_PUMP_SETTLE = 5
 
 # (server_id, status, detail) — detail is a human-readable reason, only
 # non-empty for "crashed" (exit code / signal explanation).
@@ -72,6 +94,7 @@ class ServerProcess:
         hub: ConsoleHub,
         on_state: StateCallback,
         ready_marker: str = _DONE_MARKER,
+        msmp: MsmpClient | None = None,
     ) -> None:
         self.server_id = server_id
         self.ready_marker = ready_marker
@@ -83,7 +106,12 @@ class ServerProcess:
         self._pump_task: asyncio.Task[None] | None = None
         self._stopping = False
         self.started_at: float | None = None  # wall-clock, for uptime display
-        self.roster = Roster()  # online players, parsed from console output
+        self.roster = Roster()  # online players: MSMP first, console fallback
+        self.msmp = msmp
+        self._running_reported = False
+        # Roster notifications that arrive while the connect-time snapshot is
+        # in flight; replayed on top of it so none is lost or overwritten.
+        self._roster_backlog: list[tuple[str, list]] | None = None
 
     @property
     def running(self) -> bool:
@@ -103,6 +131,7 @@ class ServerProcess:
         )
         self.started_at = time.time()
         self._pump_task = asyncio.create_task(self._pump())
+        await self._start_msmp()
 
     async def _pump(self) -> None:
         assert self._proc is not None and self._proc.stdout is not None
@@ -113,12 +142,16 @@ class ServerProcess:
                     break
                 # Strip ANSI escape codes before publishing: the browser console
                 # renders plain text, and modded servers love colored output.
-                line = _ANSI_RE.sub("", raw.decode(errors="replace")).rstrip("\r\n")
-                self.hub.publish(self.server_id, line)
-                self.roster.feed(line)
-                if not self._stopping and self.ready_marker in line:
-                    await self.on_state(self.server_id, "running", "")
+                await self._handle_line(
+                    _ANSI_RE.sub("", raw.decode(errors="replace")).rstrip("\r\n")
+                )
         finally:
+            # Cancel the management client without yielding, report the final
+            # state, and only then wait for the client's teardown: a restart
+            # resumes as soon as stop() sees the exit, and must find this run
+            # already reported as over.
+            if self.msmp is not None:
+                self.msmp.abort()
             code = await self._proc.wait()
             if self._stopping or code == 0:
                 final, detail = "stopped", ""
@@ -129,6 +162,74 @@ class ServerProcess:
                 final, detail = "crashed", describe_exit(code)
                 self.hub.publish(self.server_id, f"[lectern] crashed: {detail}")
             await self.on_state(self.server_id, final, detail)
+            if self.msmp is not None:
+                await self.msmp.close()
+
+    async def _handle_line(self, line: str) -> None:
+        self.hub.publish(self.server_id, line)
+        self.roster.feed(line)
+        if self.ready_marker in line:
+            await self._report_running()
+
+    async def _report_running(self) -> None:
+        """``running`` once per process, whether the console marker or the
+        management protocol sees it first (each report records an event)."""
+        if self._stopping or self._running_reported:
+            return
+        self._running_reported = True
+        await self.on_state(self.server_id, "running", "")
+
+    # --- management protocol -------------------------------------------------
+
+    async def _start_msmp(self) -> None:
+        if self.msmp is None:
+            return
+        self.msmp.on_connect = self._msmp_connected
+        self.msmp.on_notification = self._msmp_notification
+        await self.msmp.start()
+
+    async def _msmp_connected(self) -> None:
+        assert self.msmp is not None
+        self._roster_backlog = []
+        try:
+            players = await self.msmp.call(M_PLAYERS)
+            if isinstance(players, list):
+                self.roster.sync(players)
+        except MsmpError as exc:
+            log.info("msmp %s: player list failed: %s", self.server_id, exc)
+        finally:
+            backlog, self._roster_backlog = self._roster_backlog, None
+            for method, params in backlog:
+                self._apply_roster(method, params)
+        try:
+            status = await self.msmp.call(M_STATUS)
+        except MsmpError as exc:
+            log.info("msmp %s: status failed: %s", self.server_id, exc)
+            return
+        if isinstance(status, dict) and status.get("started"):
+            await self._report_running()
+
+    async def _msmp_notification(self, method: str, params: list) -> None:
+        if method in (N_JOINED, N_LEFT):
+            if self._roster_backlog is not None:
+                self._roster_backlog.append((method, params))
+            else:
+                self._apply_roster(method, params)
+        elif method == N_STARTED:
+            await self._report_running()
+        elif method == N_STOPPING and not self._stopping:
+            # Not ``_stopping``: exit classification stays exit-code based.
+            await self.on_state(self.server_id, "stopping", "")
+
+    def _apply_roster(self, method: str, params: list) -> None:
+        player = params[0] if params else None
+        if not isinstance(player, dict) or not isinstance(player.get("name"), str):
+            return
+        if method == N_JOINED:
+            uuid = player.get("id")
+            self.roster.joined(player["name"], uuid if isinstance(uuid, str) else None)
+        else:
+            self.roster.left(player["name"])
 
     async def send(self, command: str) -> None:
         if self._proc is not None and self._proc.stdin is not None and self.running:
@@ -174,9 +275,14 @@ class ServerProcess:
             return True
         try:
             await asyncio.wait_for(asyncio.shield(self._proc.wait()), timeout)
-            return True
         except TimeoutError:
             return False
+        # The pump reports the final state right after the exit; let it, so a
+        # caller that starts the next run (restart) never races the old one's
+        # ``stopped``. Bounded, in case a child still holds stdout open.
+        if self._pump_task is not None:
+            await asyncio.wait([self._pump_task], timeout=_PUMP_SETTLE)
+        return True
 
     async def _wait_countdown(self, timeout: int) -> bool:
         """Wait for a graceful exit, announcing the remaining seconds into the

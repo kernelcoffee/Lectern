@@ -40,6 +40,7 @@ from ..db import get_session
 from ..models import (
     InstallProgressRead,
     MigrationReportRead,
+    MsmpRead,
     PingRead,
     PropertiesRead,
     Server,
@@ -59,9 +60,9 @@ from ..models import (
     WorldImportRead,
 )
 from ..providers.base import download_file
+from ..servers import msmp, velocity, world_import
 from ..servers import properties as props
 from ..servers import stats as stats_mod
-from ..servers import velocity, world_import
 from ..servers import version_change as version_change_mod
 from ..servers.install import eula_accepted, get_progress, install_server, set_eula
 from ..servers.manager import ManagerError, manager
@@ -99,7 +100,17 @@ def _detail(server: Server) -> ServerDetailRead:
             else (eula_accepted(Path(server.path)) if server.path else False)
         ),
         running=manager.is_running(server.id),
+        msmp=_msmp_read(server.id),
     )
+
+
+def _msmp_read(server_id: str) -> MsmpRead | None:
+    """Management-protocol connection state; None without a client (stopped,
+    proxy, or a Minecraft version older than 1.21.9)."""
+    proc = manager.get_process(server_id)
+    if proc is None or proc.msmp is None:
+        return None
+    return MsmpRead(connected=proc.msmp.connected, schema_version=proc.msmp.schema_version)
 
 
 @router.get("", response_model=list[ServerRead])
@@ -293,6 +304,10 @@ async def clone_server(
     # New port must be what the process actually binds.
     file_props = props.read_properties(dst)
     file_props["server-port"] = str(port)
+    # The management secret and port are per server: the clone's first start
+    # generates its own instead of sharing the source's credential.
+    file_props.pop("management-server-secret", None)
+    file_props.pop("management-server-port", None)
     props.write_properties(dst, file_props)
 
     session.add(clone)
@@ -546,7 +561,9 @@ def get_properties(
         raise HTTPException(status.HTTP_409_CONFLICT, "Server is not installed yet")
     return PropertiesRead(
         properties=props.read_properties(Path(server.path)),
-        definitions=props.definitions_payload(),
+        definitions=props.definitions_payload(
+            include_managed=msmp.manages(server.type, server.mc_version)
+        ),
     )
 
 
@@ -561,8 +578,11 @@ def patch_properties(
     Values are validated against the typed definitions (bad enum/int/bool →
     422 listing every offending key); ``null`` removes a key; unknown keys are
     stored as free-form strings. ``server-port`` is mirrored to the record's
-    ``port`` column so the UI shows the truth. Changes apply at next start —
-    Minecraft only reads the file on boot."""
+    ``port`` column so the UI shows the truth. On servers Lectern runs the
+    management server for (1.21.9+, not proxies) the management-server keys
+    are Lectern's own (written at every start) and answer 422; elsewhere they
+    are ordinary keys. Changes apply at next start — Minecraft only reads the
+    file on boot."""
     server = session.get(Server, server_id)
     if server is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
@@ -572,8 +592,12 @@ def patch_properties(
     server_dir = Path(server.path)
     file_props = props.read_properties(server_dir)
 
+    managed = msmp.manages(server.type, server.mc_version)
     errors: list[str] = []
     for key, value in updates.items():
+        if managed and key in props.MANAGED_KEYS:
+            errors.append(f"{key} is managed by Lectern")
+            continue
         if value is None:
             file_props.pop(key, None)
             continue

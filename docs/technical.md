@@ -15,6 +15,7 @@
 | ORM / DB | **SQLModel** on **SQLite** | Pydantic + SQLAlchemy; single-file DB |
 | Scheduling | **APScheduler** (`AsyncIOScheduler`) | Cron actions |
 | Process mgmt | **asyncio** subprocess + **psutil** | One async task per server, no thread-per-server |
+| Management protocol | **websockets** (client) | MSMP JSON-RPC to 1.21.9+ servers (§5) |
 | Frontend | **React + TypeScript (Vite)** | SPA, JSON API + WebSocket |
 | Styling | **Tailwind** (minimal) | Simplicity over polish |
 | Packaging | **Docker / docker-compose** | One-command LAN deploy |
@@ -61,6 +62,9 @@ ws.py              ConsoleHub / ProgressHub / StatusHub: in-process fan-out hubs
                    (per-server console + install progress, app-wide status).
 servers/
   process.py       ServerProcess: asyncio subprocess, stdout pump, stdin.
+  msmp.py          Server Management Protocol: version gate, server.properties
+                   enablement, MsmpClient (JSON-RPC over WebSocket).
+  roster.py        Online roster: MSMP snapshot + notifications, console fallback.
   manager.py       Registry {server_id: ServerProcess}; lifecycle ops.
   status.py        set_status: the one Server.status writer (persist + publish).
   install.py       Create-server pipeline (jar + Java + files + command).
@@ -85,6 +89,9 @@ api/               Routers: servers, content, catalog, backups, schedules.
   list; the sidebar, dashboard and an open server page follow it. The map is emptied when the
   socket closes, so REST data is shown as-is until a reconnect's snapshot refills it; each
   (re)connect also refetches the list.
+- The server page refetches its row while a running server has a management client
+  (`lib/msmp.ts` `msmpPollInterval`: 5 s while connecting, 15 s once connected), so the
+  management-protocol chip and the Players tab's source line follow a late connect or a drop.
 - Pages: **Server list**, **Create wizard**, **Server detail** with tabs — Console, Properties,
   Mods/Plugins, Resource Packs, Backups, Schedule.
 
@@ -126,7 +133,7 @@ LECTERN_DATA/
     └── {server_id}/
         ├── server.jar | paper-*.jar | fabric-server-launch.jar
         ├── eula.txt
-        ├── server.properties
+        ├── server.properties   # management-server-* keys rewritten at start (1.21.9+, §5)
         ├── mods/          # Fabric/Quilt   (disabled files suffixed .disabled)
         ├── plugins/       # Paper
         ├── resourcepacks/
@@ -200,6 +207,9 @@ version no longer ships.
 - **Commands** from the UI are written to the process **stdin** (`proc.stdin.write(cmd + "\n")`).
 - **Graceful stop** sends the configured `stop_command` (`stop`), waits up to `shutdown_timeout`,
   then falls back to `terminate()`, and finally kills the process tree via `psutil` if needed.
+  After the exit, stop/kill wait (up to 5 s) for the stdout pump to report the final state, and
+  the manager ignores reports from a process a restart has already replaced, so an old run's
+  `stopped` never lands on its successor.
 - **Crash detection:** an unexpected process exit sets status `crashed`; if `crash_restart` is on,
   the server is restarted — **capped** (~3 consecutive attempts, counter reset once the server
   reaches `running`) so a boot-looping server doesn't restart forever (Crafty's lesson).
@@ -211,6 +221,51 @@ version no longer ships.
   `{"type": "snapshot", "servers": [{server_id, status}…]}` of all servers, then a
   `{"type": "status", server_id, status}` message per transition. Stop/restart write `stopping`
   before scheduling the shutdown, so the action response already carries it.
+- **Server Management Protocol (MSMP)** (`servers/msmp.py`): Mojang's JSON-RPC 2.0 over
+  WebSocket, built into the Java server since 1.21.9. Fallback order: a connected client is
+  authoritative for the roster, drives `running`/`stopping` and carries kicks; the console
+  (roster lines, ready marker, `kick`) covers older versions, proxies and a dropped socket.
+  - **Version gate:** `msmp.manages(type, mc_version)` — a non-proxy type on 1.21.9+. Versions
+    compare as `(major, minor, patch)` tuples, so `26.1` sorts after `1.21.11`; ids that don't
+    parse (snapshots) are not managed.
+  - **Enablement:** every start of a managed server writes `management-server-enabled=true`,
+    `-host=127.0.0.1`, `-port`, `-tls-enabled=false` and `-secret` into `server.properties`
+    (`msmp.enable`; other keys kept). The secret is 40 alphanumerics, generated once and then
+    kept. The port is the previous one if still free, else the first free localhost port in
+    25585–25784 outside every other server's recorded game port, running servers' effective
+    game ports and registered management ports. Clone drops the secret and port so the copy
+    gets its own. If enablement fails (no free port, a symlinked `server.properties`) the
+    reason is published to the console and the server starts without a client.
+  - **Port guard:** start refuses (`PortInUse`, naming the owner) a game port held by a running
+    server or by another server's management port, including a start still in flight.
+  - **Managed keys:** the five keys are `managed` in `properties.DEFINITIONS`; the Properties tab
+    shows them read-only and `PATCH …/properties` answers 422 for them, `null` removals
+    included. On unmanaged servers (proxies, < 1.21.9) they are left out of the definitions and
+    edit like any free-form key.
+  - **Client:** one `MsmpClient` per `ServerProcess`, created by the manager and closed when the
+    process exits. Connects to `ws://127.0.0.1:<port>` with `Authorization: Bearer <secret>`,
+    retrying with backoff (0.5 s doubling to 5 s, no cap: on 1.21.9–26.1 the port opens only
+    once the game is up, on 26.2+ before it). Each connection calls `rpc.discover` once and
+    records `info.version` as `schema_version`; `call(method, params)` sends positional array
+    params with an id and a 5 s timeout. Notifications (no id) go to the process's callback.
+    Reconnects while the process lives, never raises into the lifecycle, logs at debug/info
+    only, never logs the secret.
+  - **Roster:** on connect the process seeds the roster from `minecraft:players`
+    (`Roster.sync`, which drops names the server did not report), replays joined/left
+    notifications that arrived during the call, then applies `players/joined` /
+    `players/left` as they come. Console parsing runs alongside: entries are keyed by name,
+    adds are idempotent (earliest `joined_at` wins, uuid filled when first learned), a
+    departure from either source removes. `bot` comes only from the console's `[local]` login
+    line and survives a protocol re-add. Protocol names must match the console name pattern,
+    so no roster key carries selector syntax into a console command.
+  - **Status:** `server/started` (or `server/status` reporting `started` at connect) reports
+    `running`; `server/stopping` reports `stopping`. The ready marker stays the fallback;
+    `ServerProcess` reports `running` at most once per process, so the `started` event is not
+    recorded twice, and every write still goes through `set_status`.
+  - **Kick:** bots get Carpet's `player <name> kill`. A player with no reason and a connected
+    client goes through `minecraft:players/kick` (`[[{"name": name}]]`), falling back to the
+    console `kick` if the call fails or the reply doesn't list the player; a reason always uses
+    `kick <name> <reason>`.
 - **Stats:** `psutil` on the process for CPU/memory; a Minecraft **Server List Ping** to
   `127.0.0.1:{port}` for online/max players and MOTD. **Pull-based only**: computed on
   `GET /servers/{id}/stats`, driven by frontend polling — no background stats loop in v1. The
@@ -310,9 +365,13 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
 
 ### Servers
 - `GET /servers` · `POST /servers` (create) · `GET /servers/{id}` · `DELETE /servers/{id}`
+- `ServerDetailRead` (`GET /servers/{id}` and every endpoint returning a server's detail) carries
+  `msmp: {connected, schema_version} | null` — null without a client (stopped, proxy, < 1.21.9)
 - `POST /servers/{id}/action/{start|stop|restart|kill}`
 - `GET /servers/{id}/stats`
-- `GET/PATCH /servers/{id}/properties` (server.properties)
+- `GET/PATCH /servers/{id}/properties` (server.properties) — `definitions[key].managed` marks
+  the management-server keys on managed servers; PATCH answers 422 for them. Any endpoint that
+  writes `server.properties` answers 400 when it is a symlink leading out of the server dir
 - `POST /servers/{id}/eula` (accept)
 - `GET /servers/{id}/version/preview?mc_version=…` — dry-run content compatibility report
 - `POST /servers/{id}/version` — `{mc_version, loader_version?, allow_downgrade?, backup_first?}`;
@@ -320,6 +379,12 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
   loader-only update: the loader build is re-provisioned and content is left untouched.
 - `WS /ws/servers/{id}/console`
 - `WS /ws/status` — app-wide status feed (snapshot, then one message per transition; see §5)
+
+### Players (excerpt)
+- `GET /servers/{id}/players/online` → `[{name, uuid, bot, joined_at}]` (`uuid` undashed or
+  null; with MSMP a bot may carry its offline UUID); empty when not running
+- `POST /servers/{id}/players/online/{name}/kick` — optional `{reason}` → the updated roster;
+  404 not online, 409 not running; routing (Carpet / MSMP / console) in §5
 
 ### Content (mods / plugins / resource packs)
 - `GET /content/search?server_id=…&query=…` — Modrinth search scoped to the server
@@ -436,13 +501,17 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
   surfaced over WebSocket, so create-server isn't a blocking spinner.
 - **Modrinth rate limits / User-Agent policy** — respect their requirements; cache catalogs.
 - **Java major mapping** must be revisited as new Minecraft versions raise Java requirements.
+- **MSMP schema** is versioned and still moving (1.1.0 at 25w41a to 3.1.0 at 26.3). Lectern uses
+  only `rpc.discover`, `minecraft:players`, `players/kick`, `server/status` and the player and
+  server notifications, and falls back to the console when a call fails.
 
 ---
 
 ## 11. Testing Strategy
 
 - **Unit (pytest):** provider clients against recorded fixtures; MC→Java mapping; manifest and
-  update-diff logic; backup path-traversal guard; `.mrpack` parsing.
+  update-diff logic; backup path-traversal guard; `.mrpack` parsing; the MSMP client against a
+  fake `websockets` server (Bearer check, late-opening port, notifications).
 - **Integration (marked):** real process start/stop, console streaming, end-to-end create → run.
 - **Manual per-phase verification:** create a real server of each type, install a known mod
   (e.g. Fabric API), generate a Vanilla Tweaks pack, back up and restore — observing live

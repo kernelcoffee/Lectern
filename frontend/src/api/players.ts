@@ -46,7 +46,7 @@ export const removeFromList = (serverId: string, kind: ListKind, uuid: string) =
 
 export interface OnlinePlayer {
   name: string;
-  uuid: string | null; // null for bots / offline-mode joins
+  uuid: string | null; // undashed; null when unknown (console-only join). Not a bot signal: MSMP reports bots with their offline UUID; use `bot`
   bot: boolean; // artificial player (Carpet /player bot etc.)
   joined_at: number; // unix seconds
 }

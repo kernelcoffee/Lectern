@@ -8,11 +8,16 @@ server the change goes through a console command (``whitelist add``, ``op``,
 JSON file, keeping the files the source of truth. On a stopped server (or if
 the command doesn't land) Lectern edits the JSON files directly, which applies
 at the next start.
+
+The online roster comes from the Server Management Protocol when the process
+has a connected client (1.21.9+) and from console parsing otherwise; kicks
+follow the same order (see ``kick_player``).
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -33,8 +38,10 @@ from ..models import (
     ServerStatus,
 )
 from ..providers import avatars, mojang
-from ..servers import playerlists
+from ..servers import msmp, playerlists
 from ..servers.manager import ManagerError, manager
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["players"])
 
@@ -240,12 +247,34 @@ def _roster_read(proc) -> list[OnlinePlayerRead]:
 def online_players(
     server_id: str, session: Session = Depends(get_session)
 ) -> list[OnlinePlayerRead]:
-    """Who's on right now — parsed from the console, so it includes artificial
-    players (Carpet bots etc., flagged ``bot``). Empty when not running."""
+    """Who's on right now — from the management protocol when connected, the
+    console otherwise; includes artificial players (Carpet bots etc., flagged
+    ``bot`` from their console login line). Empty when not running."""
     if session.get(Server, server_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
     proc = manager.get_process(server_id)
     return [] if proc is None else _roster_read(proc)
+
+
+async def _kick_msmp(proc, name: str) -> bool:
+    """Kick through the management protocol; False → use the console."""
+    client = proc.msmp
+    if client is None or not client.connected:
+        return False
+    try:
+        kicked = await client.call(msmp.M_KICK, [[{"name": name}]])
+    except msmp.MsmpError as exc:
+        log.info("msmp kick of %s failed (%s), using the console", name, exc)
+        return False
+    # The reply lists the players actually kicked; anything else (an empty
+    # list when the server resolved nobody) means the console must do it.
+    wanted = name.lower()
+    if isinstance(kicked, list) and any(
+        isinstance(p, dict) and str(p.get("name", "")).lower() == wanted for p in kicked
+    ):
+        return True
+    log.info("msmp kick of %s kicked nobody, using the console", name)
+    return False
 
 
 @router.post(
@@ -258,10 +287,13 @@ async def kick_player(
     payload: KickRequest | None = None,
     session: Session = Depends(get_session),
 ) -> list[OnlinePlayerRead]:
-    """Remove an online player. Real players get ``kick``; Carpet-style bots
-    have no real connection to sever, so they need Carpet's ``player … kill``
-    instead. The name must match a roster entry, which also keeps arbitrary
-    text out of the console command."""
+    """Remove an online player. Carpet-style bots have no real connection to
+    sever, so they get Carpet's ``player … kill``. Real players go through the
+    management protocol's ``minecraft:players/kick`` when the client is
+    connected and no reason is given, else the console ``kick`` (which carries
+    the reason). The name must match a roster entry, which also keeps
+    arbitrary text out of the console command: roster keys from either
+    source match the console's name pattern (no selectors like ``@a``)."""
     if session.get(Server, server_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
     proc = manager.get_process(server_id)
@@ -270,17 +302,18 @@ async def kick_player(
     player = proc.roster.players.get(name)
     if player is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{name} is not online")
+    reason = (payload.reason or "").replace("\n", " ").strip() if payload else ""
     if player.bot:
-        command = f"player {name} kill"
+        command: str | None = f"player {name} kill"
+    elif reason:
+        command = f"kick {name} {reason}"
     else:
-        command = f"kick {name}"
-        reason = (payload.reason or "").replace("\n", " ").strip() if payload else ""
-        if reason:
-            command += f" {reason}"
-    try:
-        await manager.send(server_id, command)
-    except ManagerError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        command = None if await _kick_msmp(proc, name) else f"kick {name}"
+    if command is not None:
+        try:
+            await manager.send(server_id, command)
+        except ManagerError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
     # The roster updates when the server logs the departure; wait briefly so
     # the response already reflects the kick.
     for _ in range(max(1, int(_LIVE_APPLY_TIMEOUT / _LIVE_POLL))):

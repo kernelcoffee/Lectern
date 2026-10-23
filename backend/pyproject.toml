@@ -21,6 +21,9 @@ dependencies = [
     "python-multipart>=0.0.13",
     # Crop/scale player faces from Mojang skins (self-hosted avatars).
     "Pillow>=10",
+    # Server Management Protocol client (servers/msmp.py); also pulled in by
+    # uvicorn[standard], declared because Lectern imports it directly.
+    "websockets>=15",
 ]
 
 [project.optional-dependencies]

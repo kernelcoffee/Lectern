@@ -87,6 +87,7 @@ have scheduled mod auto-updates and the newer-version indicators. Still open:
 | Custom resource pack manager | Build and manage a server-side custom resource pack (custom models, sounds/music, textures…) that mods can hook into, from a dedicated UI rather than hand-editing the pack |
 | World pruning | Prune generated-but-unvisited or stale chunks with a proper interface, so a map explored on an older version regenerates with new resources/features after an update. Meanwhile the manual path is F-B-5: download a backup, prune it offline, upload and restore it |
 | Performance & idle | Apply/enforce recommended server optimisations (JVM flags, config tweaks); **auto-shutdown when no players are online, auto-wake when a player tries to connect** |
+| Server Management Protocol, phase 2 | Allowlist/ops/bans through the protocol instead of console commands; `server/save` before a running-server backup; live MOTD/difficulty/max-players changes without a restart |
 
 **Design implication:** server types/editions and content sources are treated as **pluggable
 providers** from day one (see [`technical.md`](./technical.md) §§ 2, 6). Fabric and Modrinth are
@@ -133,7 +134,8 @@ which is why one content pipeline serves them all.
   can type commands that are sent to the running server. Recent history is shown on open.
 - **F-SM-5 — Edit configuration.** The admin can view and edit `server.properties` through a
   form, and adjust Lectern-managed settings (memory, JVM args, port, auto-start on boot,
-  auto-restart on crash, graceful-stop timeout).
+  auto-restart on crash, graceful-stop timeout). On 1.21.9+ Java servers the
+  `management-server-*` keys belong to Lectern (F-SM-13) and show read-only.
 - **F-SM-6 — EULA.** On first start Lectern surfaces the Minecraft EULA and requires the admin to
   accept it; acceptance writes `eula=true`.
 - **F-SM-7 — Delete server.** Removes the server and its files (with confirmation), optionally
@@ -151,12 +153,18 @@ which is why one content pipeline serves them all.
   (skin-face avatar + username) and a
   list view; **avatars are rendered by Lectern itself** from the Mojang skin (no dependency on a
   flaky community service like Crafatar).
-- **F-PL-2 — Online roster.** For a running server, an "Online now" list parsed from the console's
-  own join/leave messages, with a per-player **kick**. **Artificial players** (Carpet's `/player`
-  bots and similar) are first-class: they're detected by their `[local]` (non-network) login,
-  badged as bots, may lack a Mojang UUID/avatar, and are never required to be in the registry.
+- **F-PL-2 — Online roster.** For a running server, an "Online now" list with a per-player
+  **kick**. While the server's management connection is up (1.21.9+, F-SM-13) the list comes from
+  the protocol: seeded from its player list on connect, then updated by its joined/left
+  notifications. Otherwise (older versions, proxies, connection down) it is parsed from the
+  console's own join/leave messages; console parsing always runs, and a player reported by both
+  sources is one entry. **Artificial players** (Carpet's `/player` bots and similar) are
+  first-class: they're detected by their `[local]` (non-network) console login, badged as bots,
+  may lack a Mojang UUID/avatar, and are never required to be in the registry.
   Removing a bot sends Carpet's `player <name> kill` instead of `kick` — a bot has no real
-  connection to sever, so `kick` wouldn't remove it.
+  connection to sever, so `kick` wouldn't remove it. A real player is kicked through the protocol
+  when it is connected and no reason is given, else with the console `kick` (which carries the
+  reason).
   Both the classic join/leave lines and the Minecraft 26.3 `System chat:` broadcasts (which
   replaced them) are recognised; a login logged twice counts once.
 - **F-EV-1 — Event timeline.** A persisted per-server event log — start/stop, crashes,
@@ -173,7 +181,18 @@ which is why one content pipeline serves them all.
 - **F-SM-12 — Live status.** Status changes (stop from the UI or the console, a scheduled stop, a
   crash, an auto-restart) are reflected within a second on the dashboard, the sidebar and an open
   server page, without navigating or reloading; features gated on a stopped server (Clone,
-  backup Restore) unlock immediately.
+  backup Restore) unlock immediately. On 1.21.9+ with a connected management client (F-SM-13),
+  `running` and `stopping` also come from the protocol's `server/started` and `server/stopping`
+  notifications; the console's ready line stays the fallback, and a start is reported once
+  whichever source sees it first.
+- **F-SM-13 — Server Management Protocol.** On Java servers (not proxies) at Minecraft 1.21.9 or
+  later, Lectern turns on Mojang's built-in management protocol at every start — bound to
+  localhost, on a port Lectern picks, with a secret it generates once and keeps — and holds one
+  connection to it while the server runs. It is the primary source for the online roster
+  (F-PL-2), the running/stopping transitions (F-SM-12) and kicks; the console stays the fallback
+  for older versions, proxies and whenever the connection is down, so nothing depends on it. The
+  server page shows a "management protocol" chip while connected (schema version on hover) and a
+  "connecting…" chip while it is not.
 - **F-SM-11 — File manager.** *(M12)* Browse and edit a server's files from the UI — the escape
   hatch for config Lectern doesn't model (`config/`, `ops.json`, reading `logs/`). A table
   (Name · Type · Modified · Size · Permissions) with multi-select; navigate the tree, edit text

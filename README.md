@@ -27,7 +27,8 @@ needs (including the right Java) and runs it for you.
 ## Features
 
 - **Servers** — Vanilla, **Fabric**, **Quilt**, **NeoForge** and **Forge**, with a live
-  console, status that updates instantly everywhere, stats, an online player roster, and easy
+  console, status that updates instantly everywhere, stats, an online player roster (live
+  through Mojang's Server Management Protocol on 1.21.9+, console parsing otherwise), and easy
   settings editing.
 - **Proxy** — put your servers behind **one address** with a **Velocity** proxy: players
   connect once and hop between servers. Pick the servers to put behind it — Lectern does
