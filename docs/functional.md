@@ -157,6 +157,8 @@ which is why one content pipeline serves them all.
   badged as bots, may lack a Mojang UUID/avatar, and are never required to be in the registry.
   Removing a bot sends Carpet's `player <name> kill` instead of `kick` — a bot has no real
   connection to sever, so `kick` wouldn't remove it.
+  Both the classic join/leave lines and the Minecraft 26.3 `System chat:` broadcasts (which
+  replaced them) are recognised; a login logged twice counts once.
 - **F-EV-1 — Event timeline.** A persisted per-server event log — start/stop, crashes,
   auto-restart attempts and give-ups, backup created/restored/failed, and failed schedule runs —
   so incidents that only flashed by in the live console (a 3am crash, a failed nightly backup)

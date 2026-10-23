@@ -21,8 +21,22 @@ Line shapes handled (vanilla + Fabric use the same format)::
     [12:00:00] [Server thread/INFO]: Notch lost connection: Disconnected
     [12:00:00] [Server thread/INFO]: Notch left the game
 
+Minecraft 26.3 reshaped these ("some log lines that server software might
+look out for have been removed"): the login line gained a space and a colon,
+and join/leave are now logged as system-chat broadcasts::
+
+    [12:00:00] [Server thread/INFO]: Notch [/192.0.2.7:52717]: logged in with entity id …
+    [12:00:00] [Server thread/INFO]: System chat: Notch joined the game
+    [12:00:00] [Server thread/INFO]: System chat: Notch left the game
+
+Both generations are accepted, and a server that logs both the plain and the
+``System chat:`` join for one login counts it once (the second join carries no
+new login info, so it is ignored rather than resetting the entry).
+
 Chat can't spoof these: player chat renders as ``<Name> text`` and ``/say`` as
-``[Server] text``, neither of which matches the anchored patterns below.
+``[Server] text`` (``System chat: [Server] text`` on 26.3), neither of which
+matches the anchored patterns below. The Server Management Protocol is the
+official replacement for console parsing; this stays the zero-config path.
 """
 
 from __future__ import annotations
@@ -38,10 +52,13 @@ _NAME = r"[\w.-]+"
 # exact shape (mod loaders occasionally restyle it).
 _PREFIX = r"^.*\]:\s"
 
+# 26.3 prefixes join/leave broadcasts with "System chat: " — optional here.
+_CHAT = r"(?:System chat: )?"
 _RE_UUID = re.compile(_PREFIX + rf"UUID of player ({_NAME}) is ([0-9a-fA-F-]{{32,36}})$")
-_RE_LOGIN = re.compile(_PREFIX + rf"({_NAME})\[(local|/[^\]]+)\] logged in with entity id ")
-_RE_JOINED = re.compile(_PREFIX + rf"({_NAME}) joined the game$")
-_RE_LEFT = re.compile(_PREFIX + rf"({_NAME}) (?:left the game$|lost connection: )")
+# `Name[/ip:port] logged in` (≤26.2) or `Name [/ip:port]: logged in` (26.3).
+_RE_LOGIN = re.compile(_PREFIX + rf"({_NAME}) ?\[(local|/[^\]]+)\]:? logged in with entity id ")
+_RE_JOINED = re.compile(_PREFIX + _CHAT + rf"({_NAME}) joined the game$")
+_RE_LEFT = re.compile(_PREFIX + rf"(?:{_CHAT}({_NAME}) left the game$|({_NAME}) lost connection: )")
 
 
 @dataclass
@@ -67,6 +84,8 @@ class Roster:
             self._local[m.group(1)] = m.group(2) == "local"
         elif m := _RE_JOINED.match(line):
             name = m.group(1)
+            if name in self.players and name not in self._uuids and name not in self._local:
+                return  # duplicate join line for the same login (26.3 logs two)
             self.players[name] = OnlinePlayer(
                 name=name,
                 uuid=self._uuids.pop(name, None),
@@ -74,7 +93,7 @@ class Roster:
                 joined_at=time.time(),
             )
         elif m := _RE_LEFT.match(line):
-            name = m.group(1)
+            name = m.group(1) or m.group(2)
             self.players.pop(name, None)
             self._uuids.pop(name, None)
             self._local.pop(name, None)
