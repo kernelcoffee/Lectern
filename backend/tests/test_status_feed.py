@@ -67,6 +67,7 @@ def test_status_ws_snapshot_then_update(client, engine):
 class _FakeProc:
     def __init__(self) -> None:
         self.running = True
+        self.msmp = None  # no management client (pre-1.21.9 / proxy)
         self.stops: list[tuple[str, int]] = []
 
     async def stop(self, cmd: str, timeout: int) -> None:

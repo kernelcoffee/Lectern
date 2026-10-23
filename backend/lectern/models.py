@@ -261,6 +261,14 @@ class ServerRead(SQLModel):
     created_at: datetime
 
 
+class MsmpRead(SQLModel):
+    """State of Lectern's Server Management Protocol connection to a running
+    server (1.21.9+); ``schema_version`` is ``rpc.discover``'s ``info.version``."""
+
+    connected: bool
+    schema_version: str | None = None
+
+
 class ServerDetailRead(ServerRead):
     """Server view for the detail page — adds operational + EULA state."""
 
@@ -277,6 +285,8 @@ class ServerDetailRead(ServerRead):
     backup_stop_server: bool
     eula_accepted: bool
     running: bool
+    # None when no management client exists (not running, proxy, < 1.21.9).
+    msmp: MsmpRead | None = None
 
 
 class InstallProgressRead(SQLModel):

@@ -37,6 +37,9 @@ class PropertyDef:
     # from the file. Shown by the UI next to unset fields. None = no stable
     # default worth showing (random seed, empty resource-pack, ...).
     default: str | None = None
+    # Written by Lectern at every start; read-only in the editor and rejected
+    # by PATCH (the management-server keys, see servers/msmp.py).
+    managed: bool = False
 
 
 DEFINITIONS: dict[str, PropertyDef] = {
@@ -72,7 +75,28 @@ DEFINITIONS: dict[str, PropertyDef] = {
     "level-name": PropertyDef("string", description="World folder name", default="world"),
     "level-seed": PropertyDef("string", description="World seed (blank = random)"),
     "resource-pack": PropertyDef("string", description="URL of the server resource pack"),
+    "management-server-enabled": PropertyDef(
+        "boolean", managed=True,
+        description="Server Management Protocol; Lectern turns it on for 1.21.9+",
+    ),
+    "management-server-host": PropertyDef(
+        "string", managed=True, description="Management protocol bind address (localhost only)",
+    ),
+    "management-server-port": PropertyDef(
+        "integer", min=0, max=65535, managed=True,
+        description="Management protocol port, chosen by Lectern",
+    ),
+    "management-server-tls-enabled": PropertyDef(
+        "boolean", managed=True, description="TLS on the management protocol (off on localhost)",
+    ),
+    "management-server-secret": PropertyDef(
+        "string", managed=True,
+        description="Bearer token for Lectern's local management connection",
+    ),
 }
+
+# Keys Lectern owns (written at start, never editable through the API).
+MANAGED_KEYS: tuple[str, ...] = tuple(k for k, d in DEFINITIONS.items() if d.managed)
 
 _BOOL_STRINGS = {"true": "true", "false": "false"}
 
@@ -171,8 +195,22 @@ def read_properties(server_dir: Path) -> dict[str, str]:
     return parse_properties(path.read_text(encoding="utf-8", errors="replace"))
 
 
+class PropertiesPathError(OSError):
+    """``server.properties`` resolves outside its server directory."""
+
+
+def properties_file(server_dir: Path) -> Path:
+    """``server_dir/server.properties``, refusing a symlink that leads out of
+    the server directory (path-safety rule: writes stay confined)."""
+    base = server_dir.resolve()
+    path = (server_dir / PROPERTIES_FILE).resolve()
+    if base not in path.parents:
+        raise PropertiesPathError(f"{PROPERTIES_FILE} points outside the server directory")
+    return path
+
+
 def write_properties(server_dir: Path, props: dict[str, str]) -> None:
-    (server_dir / PROPERTIES_FILE).write_text(render_properties(props), encoding="utf-8")
+    properties_file(server_dir).write_text(render_properties(props), encoding="utf-8")
 
 
 def normalize_value(key: str, value: str | int | bool) -> str:
@@ -213,8 +251,11 @@ def normalize_value(key: str, value: str | int | bool) -> str:
     return text  # string
 
 
-def definitions_payload() -> dict[str, dict]:
-    """JSON-friendly view of ``DEFINITIONS`` for the frontend."""
+def definitions_payload(*, include_managed: bool = True) -> dict[str, dict]:
+    """JSON-friendly view of ``DEFINITIONS`` for the frontend. Without
+    ``include_managed`` the managed keys are left out, so a server Lectern
+    does not run the management server for shows any such lines as plain,
+    editable rows."""
     return {
         key: {
             "type": d.type,
@@ -223,6 +264,8 @@ def definitions_payload() -> dict[str, dict]:
             "max": d.max,
             "description": d.description,
             "default": d.default,
+            "managed": d.managed,
         }
         for key, d in DEFINITIONS.items()
+        if include_managed or not d.managed
     }

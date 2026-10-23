@@ -10,8 +10,9 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
@@ -30,6 +31,7 @@ from .config import get_settings
 from .db import engine, init_db
 from .scheduler import scheduler_service
 from .servers.manager import manager
+from .servers.properties import PropertiesPathError
 from .servers.stats_sampler import stats_sampler
 
 logger = logging.getLogger(__name__)
@@ -77,6 +79,13 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(PropertiesPathError)
+    async def properties_path_error(_request: Request, exc: PropertiesPathError) -> JSONResponse:
+        # Every endpoint that writes server.properties (settings, properties,
+        # clone, proxy linking, resource packs) refuses a symlink leading out
+        # of the server directory the same way: 400 with a readable detail.
+        return JSONResponse({"detail": str(exc)}, status_code=status.HTTP_400_BAD_REQUEST)
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:

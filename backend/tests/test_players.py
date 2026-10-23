@@ -264,6 +264,28 @@ class _FakeProc:
         from lectern.servers.roster import Roster
 
         self.roster = Roster()
+        self.msmp = None  # no management client (pre-1.21.9 / proxy)
+
+
+class _FakeMsmp:
+    """Records management calls; a kick removes the player like the server's
+    ``players/left`` notification would."""
+
+    def __init__(self, proc: _FakeProc, connected: bool, fail: bool = False):
+        self.proc = proc
+        self.connected = connected
+        self.fail = fail
+        self.calls: list = []
+
+    async def call(self, method, params=None, timeout=5.0):
+        from lectern.servers.msmp import MsmpError
+
+        self.calls.append((method, params))
+        if self.fail:
+            raise MsmpError("Method not found", -32601)
+        for entry in params[0]:
+            self.proc.roster.left(entry["name"])
+        return params[0]
 
 
 def _proc_with(monkeypatch, *joins) -> _FakeProc:
@@ -322,6 +344,76 @@ def test_kick_sends_command_and_updates_roster(client, engine, tmp_path, monkeyp
         json={"reason": "bye\nstop evil"},
     )
     assert sent[-1] == "kick Notch bye stop evil"
+
+
+def _kick_setup(client, engine, tmp_path, monkeypatch, connected=True, fail=False):
+    from lectern.servers.manager import manager
+
+    sid = _installed(client, engine, tmp_path)
+    proc = _proc_with(monkeypatch, ("Notch", False), ("bot_farm", True))
+    proc.msmp = _FakeMsmp(proc, connected, fail)
+    sent: list = []
+
+    async def send(server_id, command):
+        sent.append(command)
+        name = command.split()[1]
+        proc.roster.feed(f"[12:00:00] [Server thread/INFO]: {name} left the game")
+
+    monkeypatch.setattr(manager, "send", send)
+    return sid, proc, sent
+
+
+def test_kick_routes_to_msmp_for_players_and_carpet_for_bots(
+    client, engine, tmp_path, monkeypatch
+):
+    sid, proc, sent = _kick_setup(client, engine, tmp_path, monkeypatch)
+    body = client.post(f"/api/servers/{sid}/players/online/bot_farm/kick", json={}).json()
+    assert sent == ["player bot_farm kill"]
+    assert proc.msmp.calls == []
+    assert [p["name"] for p in body] == ["Notch"]
+
+    body = client.post(f"/api/servers/{sid}/players/online/Notch/kick").json()
+    assert proc.msmp.calls == [("minecraft:players/kick", [[{"name": "Notch"}]])]
+    assert sent == ["player bot_farm kill"]  # nothing more through the console
+    assert body == []
+
+
+def test_kick_with_reason_uses_console(client, engine, tmp_path, monkeypatch):
+    sid, proc, sent = _kick_setup(client, engine, tmp_path, monkeypatch)
+    client.post(f"/api/servers/{sid}/players/online/Notch/kick", json={"reason": "bye"})
+    assert sent == ["kick Notch bye"]
+    assert proc.msmp.calls == []
+
+
+def test_kick_falls_back_to_console_when_msmp_disconnected(
+    client, engine, tmp_path, monkeypatch
+):
+    sid, proc, sent = _kick_setup(client, engine, tmp_path, monkeypatch, connected=False)
+    body = client.post(f"/api/servers/{sid}/players/online/Notch/kick", json={}).json()
+    assert sent == ["kick Notch"]
+    assert proc.msmp.calls == []
+    assert [p["name"] for p in body] == ["bot_farm"]
+
+
+def test_kick_falls_back_when_msmp_call_fails(client, engine, tmp_path, monkeypatch):
+    sid, proc, sent = _kick_setup(client, engine, tmp_path, monkeypatch, fail=True)
+    body = client.post(f"/api/servers/{sid}/players/online/Notch/kick", json={}).json()
+    assert proc.msmp.calls == [("minecraft:players/kick", [[{"name": "Notch"}]])]
+    assert sent == ["kick Notch"]
+    assert [p["name"] for p in body] == ["bot_farm"]
+
+
+def test_kick_reports_send_failure(client, engine, tmp_path, monkeypatch):
+    from lectern.servers.manager import NotRunning, manager
+
+    sid, _proc, _sent = _kick_setup(client, engine, tmp_path, monkeypatch, connected=False)
+
+    async def send(server_id, command):
+        raise NotRunning("Server is not running")
+
+    monkeypatch.setattr(manager, "send", send)
+    resp = client.post(f"/api/servers/{sid}/players/online/Notch/kick", json={})
+    assert resp.status_code == 409
 
 
 def test_kick_guards(client, engine, tmp_path, monkeypatch):
@@ -384,3 +476,35 @@ def test_avatar_endpoint(client, monkeypatch):
 
     # A player with no skin → 404 (UI falls back to a tile).
     assert client.get("/api/players/ffffffffffffffffffffffffffffffff/avatar").status_code == 404
+
+
+def test_kick_accepts_msmp_reply_with_other_case(client, engine, tmp_path, monkeypatch):
+    """The kick reply names the kicked players; Minecraft names are
+    case-insensitive, so ``notch`` in the reply confirms kicking ``Notch``."""
+    sid, proc, sent = _kick_setup(client, engine, tmp_path, monkeypatch)
+
+    async def call(method, params=None, timeout=5.0):
+        proc.msmp.calls.append((method, params))
+        proc.roster.left("Notch")
+        return [{"id": "x", "name": "notch"}, "junk"]
+
+    proc.msmp.call = call
+    client.post(f"/api/servers/{sid}/players/online/Notch/kick", json={})
+    assert sent == []
+    assert len(proc.msmp.calls) == 1
+
+
+def test_kick_falls_back_when_msmp_kicks_nobody(client, engine, tmp_path, monkeypatch):
+    """``minecraft:players/kick`` answers with the players it kicked; an empty
+    reply is not success, so the console ``kick`` runs and the player goes."""
+    sid, proc, sent = _kick_setup(client, engine, tmp_path, monkeypatch)
+
+    async def call(method, params=None, timeout=5.0):
+        proc.msmp.calls.append((method, params))
+        return []
+
+    proc.msmp.call = call
+    body = client.post(f"/api/servers/{sid}/players/online/Notch/kick", json={}).json()
+    assert proc.msmp.calls == [("minecraft:players/kick", [[{"name": "Notch"}]])]
+    assert sent == ["kick Notch"]
+    assert [p["name"] for p in body] == ["bot_farm"]

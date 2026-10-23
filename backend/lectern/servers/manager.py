@@ -5,7 +5,9 @@ the one place that drives ``Server.status`` as processes come and go. Every
 status write goes through ``servers/status.set_status``, which also publishes
 the transition to ``StatusHub`` (and so to the ``/ws/status`` feed). Endpoints
 call ``start``/``stop``/``restart``/``kill``/``send``; the process layer calls
-back into ``_on_state`` when a server changes state or exits.
+back into ``_on_state`` when a server changes state or exits; a report from a
+process that a restart has already replaced is ignored, so it can never evict
+or overwrite its successor.
 
 Stop and restart are scheduled (fire-and-forget) so the HTTP request returns
 immediately — ``stopping`` is written synchronously first (so the action
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from pathlib import Path
 
 from sqlmodel import Session, select
@@ -27,8 +30,11 @@ from ..models import Server, ServerStatus
 from ..servers.install import build_launch_command, eula_accepted
 from ..servers.types import is_proxy_type
 from ..ws import ConsoleHub
+from . import msmp
 from .process import ServerProcess
 from .status import set_status
+
+log = logging.getLogger(__name__)
 
 _RESTART_DELAY = 3  # seconds before a crash-restart
 # Give up after this many consecutive crashes (counter resets when a start
@@ -98,7 +104,19 @@ class ServerManager:
                 session.refresh(server)
             return server
 
-    async def _on_state(self, server_id: str, status: str, detail: str = "") -> None:
+    async def _on_state(
+        self,
+        server_id: str,
+        status: str,
+        detail: str = "",
+        source: ServerProcess | None = None,
+    ) -> None:
+        # A report from a process that is no longer the registered one (a
+        # restart already started its successor) must not evict or overwrite
+        # the new run.
+        if source is not None and self._procs.get(server_id) is not source:
+            log.debug("ignoring %s from a superseded process of %s", status, server_id)
+            return
         server = self._write_status(server_id, status)
         if status == ServerStatus.running.value:
             self._crash_counts.pop(server_id, None)
@@ -176,15 +194,36 @@ class ServerManager:
             from .stats_sampler import effective_port
 
             my_port = effective_port(server)
-            for other_id, _proc in self.running_processes():
+            # Other servers' bound ports, by owner name: running servers' game
+            # ports and every registered management port (a start in flight
+            # owns its port before its JVM binds it).
+            taken: dict[int, str] = {}
+            for other_id, proc in self._procs.items():
                 if other_id == server_id:
                     continue
                 other = session.get(Server, other_id)
-                if other is not None and effective_port(other) == my_port:
-                    raise PortInUse(
-                        f'Port {my_port} is already in use by "{other.name}"'
-                    )
+                owner = other.name if other is not None else other_id
+                if proc.msmp is not None:
+                    taken[proc.msmp.port] = owner
+                if proc.running and other is not None:
+                    taken[effective_port(other)] = owner
+            if my_port in taken:
+                raise PortInUse(f'Port {my_port} is already in use by "{taken[my_port]}"')
             proxy = is_proxy_type(server.type)
+            # Server Management Protocol (Java 1.21.9+, never proxies): the
+            # managed keys are rewritten every start; a failure only costs the
+            # protocol, the console fallback still works.
+            endpoint = None
+            msmp_failure = None
+            if msmp.manages(server.type, server.mc_version):
+                try:
+                    endpoint = msmp.enable(
+                        server_dir,
+                        game_port=my_port,
+                        reserved=self._reserved_ports(session, server_id, set(taken)),
+                    )
+                except (OSError, RuntimeError) as exc:
+                    msmp_failure = f"[lectern] management server not enabled — {exc}"
             argv = build_launch_command(
                 server.java_path, server.memory_mb, server.server_jar, server.jvm_args,
                 nogui=not proxy,
@@ -199,12 +238,36 @@ class ServerManager:
         self.hub.clear(server_id)
         # Proxies signal readiness differently (Velocity: "Listening on …").
         ready_marker = "Listening on" if proxy else "Done ("
+
+        async def on_state(sid: str, status: str, detail: str = "") -> None:
+            await self._on_state(sid, status, detail, source=proc)
+
         proc = ServerProcess(
-            server_id, argv, cwd, self.hub, self._on_state, ready_marker=ready_marker
+            server_id, argv, cwd, self.hub, on_state, ready_marker=ready_marker,
+            msmp=(
+                msmp.MsmpClient(server_id, endpoint.port, endpoint.secret)
+                if endpoint is not None
+                else None
+            ),
         )
         self._procs[server_id] = proc
+        if msmp_failure is not None:
+            self.hub.publish(server_id, msmp_failure)
+        if endpoint is not None:
+            self.hub.publish(
+                server_id, f"[lectern] management server on 127.0.0.1:{endpoint.port}"
+            )
         self.hub.publish(server_id, f"[lectern] starting: {' '.join(argv)}")
         await proc.start()
+
+    @staticmethod
+    def _reserved_ports(session: Session, exclude_id: str, taken: set[int]) -> set[int]:
+        """Ports a new management server must not take: every other server's
+        recorded game port plus ``taken`` (running servers' effective game
+        ports and registered management ports, computed by ``start``)."""
+        return taken | {
+            s.port for s in session.exec(select(Server)).all() if s.id != exclude_id
+        }
 
     async def stop(self, server_id: str) -> None:
         proc = self._procs.get(server_id)

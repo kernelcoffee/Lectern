@@ -68,6 +68,15 @@ export interface ServerDetail extends Server {
   backup_stop_server: boolean;
   eula_accepted: boolean;
   running: boolean;
+  /** Server Management Protocol client state; null when no client exists
+   *  (not running, proxy, or Minecraft below 1.21.9). */
+  msmp: MsmpState | null;
+}
+
+/** Lectern's MSMP (JSON-RPC over WebSocket) client for a running server. */
+export interface MsmpState {
+  connected: boolean;
+  schema_version: string | null; // from rpc.discover, e.g. "3.1.0"
 }
 
 export type ServerAction = "start" | "stop" | "restart" | "kill";
@@ -124,6 +133,8 @@ export interface PropertyDefinition {
   description: string;
   /** Vanilla's built-in default, shown next to unset fields (null = none). */
   default: string | null;
+  /** Written by Lectern at every start (management protocol); read-only. */
+  managed: boolean;
 }
 
 export interface PropertiesResponse {

@@ -6,6 +6,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../../api/client";
+import type { MsmpState } from "../../api/servers";
+import { rosterSource } from "../../lib/msmp";
 import {
   addToList,
   getOnlinePlayers,
@@ -30,7 +32,14 @@ const SECTIONS: { kind: ListKind; title: string; help: string }[] = [
   { kind: "banned", title: "Banned", help: "blocked from joining" },
 ];
 
-export default function PlayersTab({ serverId }: { serverId: string }) {
+export default function PlayersTab({
+  serverId,
+  msmp,
+}: {
+  serverId: string;
+  // Absent in the smoke-tier stubs; null when the server has no client.
+  msmp?: MsmpState | null;
+}) {
   const [lists, setLists] = useState<PlayerLists | null>(null);
   const [registry, setRegistry] = useState<Player[]>([]);
   const [busy, setBusy] = useState(false);
@@ -74,7 +83,7 @@ export default function PlayersTab({ serverId }: { serverId: string }) {
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      <OnlineSection serverId={serverId} />
+      <OnlineSection serverId={serverId} msmp={msmp} />
 
       {lists === null ? (
         <p className="text-sm text-slate-500">Loading…</p>
@@ -98,7 +107,13 @@ export default function PlayersTab({ serverId }: { serverId: string }) {
   );
 }
 
-function OnlineSection({ serverId }: { serverId: string }) {
+function OnlineSection({
+  serverId,
+  msmp,
+}: {
+  serverId: string;
+  msmp: MsmpState | null | undefined;
+}) {
   const [online, setOnline] = useState<OnlinePlayer[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +159,7 @@ function OnlineSection({ serverId }: { serverId: string }) {
           <span className="text-slate-500">({online?.length ?? 0})</span>
         </h3>
         <p className="text-[11px] text-slate-500">
-          live from the console — includes Carpet-style bots
+          {rosterSource(msmp)}
         </p>
       </div>
 
@@ -159,6 +174,7 @@ function OnlineSection({ serverId }: { serverId: string }) {
           {online.map((p) => (
             <div
               key={p.name}
+              data-testid="online-player"
               className="group relative flex flex-col items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/40 p-4"
             >
               <button

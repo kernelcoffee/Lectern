@@ -16,6 +16,10 @@
 //     of this polling.
 //   * StatsBar polls GET /stats on its own 5 s timer; mounting it only when
 //     status === "running" is what starts/stops that polling.
+//   * The management-protocol badge (`server.msmp`) is read from the same
+//     fetched row. While running with a client we keep refetching
+//     (msmpPollInterval: 5 s while connecting, 15 s once connected), so a
+//     late connect and a later drop to the console fallback both show up.
 //   * PropertiesTab reports saved settings back via onServerUpdate so the
 //     meta line (port/memory) updates without a refetch.
 //
@@ -50,6 +54,7 @@ import ModsTab from "./ModsTab";
 import MonitorPanel from "./MonitorPanel";
 import PlayersTab from "./PlayersTab";
 import PropertiesTab from "./PropertiesTab";
+import { msmpChip, msmpPollInterval } from "../../lib/msmp";
 import ProxyTab from "./ProxyTab";
 import ResourcePacksTab from "./ResourcePacksTab";
 import ScheduleTab from "./ScheduleTab";
@@ -193,6 +198,17 @@ export default function ServerDetail({
     return () => window.clearInterval(t);
   }, [server, refresh]);
 
+  // Management-protocol chip: the client can connect after "running" (on
+  // 1.21.9–26.1 the port opens only once the game server is up) and can drop
+  // and reconnect later, neither of which changes the status. Keep refetching
+  // while a client exists; `msmp === null` (old version, proxy) never polls.
+  const msmpPollMs = msmpPollInterval(server?.status, server?.msmp);
+  useEffect(() => {
+    if (msmpPollMs === null) return;
+    const t = window.setInterval(refresh, msmpPollMs);
+    return () => window.clearInterval(t);
+  }, [msmpPollMs, refresh]);
+
   async function doAction(action: ServerAction) {
     setBusy(action);
     try {
@@ -267,6 +283,7 @@ export default function ServerDetail({
     server.status === "installing" || server.status === "install_failed";
   // Proxies aren't Minecraft servers: no players/content/version tabs.
   const isProxy = server.type === "velocity";
+  const msmp = msmpChip(server.msmp);
 
   return (
     <div className="p-4 sm:p-6 space-y-5">
@@ -312,6 +329,20 @@ export default function ServerDetail({
             {server.type} · MC {server.mc_version}
             {server.loader_version && ` · ${server.loader_version}`} · :{server.port} ·{" "}
             {server.memory_mb} MB
+            {msmp && (
+              <span
+                data-testid={msmp.connected ? "msmp-badge" : "msmp-pending"}
+                title={msmp.title}
+                className={
+                  "ml-2 inline-flex items-center rounded-full border px-2 py-0.5 " +
+                  (msmp.connected
+                    ? "bg-emerald-950/60 border-emerald-800/60 text-emerald-300"
+                    : "bg-slate-900 border-slate-700 text-slate-400")
+                }
+              >
+                {msmp.label}
+              </span>
+            )}
             {newerVersion && (
               <span className="ml-2 inline-flex items-center gap-1.5 rounded-full bg-sky-950/60 border border-sky-800/60 px-2 py-0.5 text-sky-300">
                 {isProxy ? "Velocity" : "Minecraft"} {newerVersion} is available
@@ -510,7 +541,7 @@ export default function ServerDetail({
           )}
           {tab === "metrics" && <MonitorPanel serverId={serverId} />}
           {tab === "proxy" && <ProxyTab serverId={serverId} />}
-          {tab === "players" && <PlayersTab serverId={serverId} />}
+          {tab === "players" && <PlayersTab serverId={serverId} msmp={server.msmp} />}
           {tab === "schedule" && <ScheduleTab serverId={serverId} />}
           {tab === "files" && <FilesTab serverId={serverId} />}
           {tab === "version" && (

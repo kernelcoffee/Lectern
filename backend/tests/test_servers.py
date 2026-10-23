@@ -279,6 +279,25 @@ def test_clone_copies_dir_record_and_content(client, engine, tmp_path):
         assert items[0].id != "item-1"
 
 
+def test_clone_does_not_share_management_secret(client, engine, tmp_path):
+    """The management secret is kept across starts; a verbatim copy would
+    make it a credential shared by two servers, so clone drops it (and the
+    management port) and the clone's first start generates its own."""
+    from lectern.servers.properties import read_properties
+
+    src = _installed_with_content(client, engine, tmp_path)
+    (tmp_path / "server.properties").write_text(
+        "server-port=25565\nmanagement-server-secret=" + "a" * 40 + "\n"
+        "management-server-port=25585\n"
+    )
+    resp = client.post(f"/api/servers/{src}/clone", json={})
+    assert resp.status_code == 201, resp.text
+    with Session(engine) as s:
+        props = read_properties(Path(s.get(Server, resp.json()["id"]).path))
+    assert "management-server-secret" not in props
+    assert "management-server-port" not in props
+
+
 def test_clone_without_world(client, engine, tmp_path):
     src = _installed_with_content(client, engine, tmp_path, name="NoWorld", port=25570)
     resp = client.post(f"/api/servers/{src}/clone", json={"include_world": False})
