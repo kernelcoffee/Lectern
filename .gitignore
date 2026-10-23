@@ -37,3 +37,8 @@ saves/
 # E2E (Playwright)
 .e2e-data/
 test-results/
+
+# coverage reports (scripts/check-coverage.sh, CI)
+.coverage
+backend/coverage.xml
+frontend/coverage/
