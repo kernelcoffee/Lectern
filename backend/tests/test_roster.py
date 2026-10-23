@@ -77,3 +77,69 @@ def test_rejoin_refreshes_entry():
     r.feed(PREFIX + "Notch left the game")
     _join_real(r)
     assert [p.name for p in r.online()] == ["Notch"]
+
+
+# --- Minecraft 26.3 log shape ------------------------------------------------
+
+
+def _join_real_263(r: Roster, name="Notch", uuid=NOTCH_DASHED, both=False):
+    r.feed(AUTH + f"UUID of player {name} is {uuid}")
+    r.feed(
+        PREFIX
+        + f"{name} [/192.0.2.7:52717]: logged in with entity id 3795 at "
+        "([minecraft:overworld]-29.0, 81.1, -17.4)"
+    )
+    if both:  # a build that logs the plain line and the broadcast
+        r.feed(PREFIX + f"{name} joined the game")
+    r.feed(PREFIX + f"System chat: {name} joined the game")
+
+
+def test_263_join_and_leave():
+    r = Roster()
+    _join_real_263(r)
+    [p] = r.online()
+    assert (p.name, p.uuid, p.bot) == ("Notch", NOTCH_DASHED.replace("-", ""), False)
+    r.feed(PREFIX + "System chat: Notch left the game")
+    assert r.online() == []
+
+
+def test_263_bot_login_shape():
+    r = Roster()
+    r.feed(PREFIX + "bot_farm [local]: logged in with entity id 321 at ([minecraft:overworld]0, 64, 0)")
+    r.feed(PREFIX + "System chat: bot_farm joined the game")
+    [p] = r.online()
+    assert (p.name, p.uuid, p.bot) == ("bot_farm", None, True)
+
+
+def test_263_double_join_counts_once_and_keeps_uuid():
+    r = Roster()
+    _join_real_263(r, both=True)
+    [p] = r.online()
+    assert p.uuid == NOTCH_DASHED.replace("-", "")
+    assert p.bot is False
+
+
+def test_263_lost_connection_then_broadcast_leave():
+    r = Roster()
+    _join_real_263(r)
+    r.feed(PREFIX + "Notch lost connection: Disconnected")
+    r.feed(PREFIX + "System chat: Notch left the game")
+    assert r.online() == []
+
+
+def test_263_system_chat_cannot_spoof():
+    r = Roster()
+    _join_real_263(r)
+    r.feed(PREFIX + "System chat: [Server] bob joined the game")  # /say on 26.3
+    r.feed(PREFIX + "System chat: <griefer> Notch left the game")
+    r.feed(PREFIX + "System chat: Notch fell from a high place")  # death message
+    assert [p.name for p in r.online()] == ["Notch"]
+
+
+def test_263_rejoin_after_leave_refreshes():
+    r = Roster()
+    _join_real_263(r)
+    r.feed(PREFIX + "System chat: Notch left the game")
+    _join_real_263(r)
+    [p] = r.online()
+    assert p.uuid == NOTCH_DASHED.replace("-", "")
