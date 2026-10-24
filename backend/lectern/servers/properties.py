@@ -18,6 +18,8 @@ Parse unescapes; render re-escapes the same way so round-trips are faithful.
 
 from __future__ import annotations
 
+import asyncio
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,6 +95,20 @@ DEFINITIONS: dict[str, PropertyDef] = {
         "string", managed=True,
         description="Bearer token for Lectern's local management connection",
     ),
+}
+
+# Keys a running server applies at once through the Server Management Protocol
+# (servers/msmp.py): ``server.properties`` key -> ``serversettings`` name, as in
+# ``minecraft:serversettings/<name>/set``. Every other key applies at the next
+# start. ``gamemode`` is the default for players joining for the first time.
+LIVE_SETTINGS: dict[str, str] = {
+    "motd": "motd",
+    "difficulty": "difficulty",
+    "max-players": "max_players",
+    "view-distance": "view_distance",
+    "white-list": "use_allowlist",
+    "enforce-whitelist": "enforce_allowlist",
+    "gamemode": "game_mode",
 }
 
 # Keys Lectern owns (written at start, never editable through the API).
@@ -213,6 +229,56 @@ def write_properties(server_dir: Path, props: dict[str, str]) -> None:
     properties_file(server_dir).write_text(render_properties(props), encoding="utf-8")
 
 
+# One read-modify-write of a server's ``server.properties`` at a time (see
+# ``edit_lock``). Weak values: a lock lives only while someone holds or waits
+# on it.
+_edit_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
+
+
+def edit_lock(server_dir: Path) -> asyncio.Lock:
+    """The lock every read-modify-write of ``server_dir``'s
+    ``server.properties`` takes. The properties PATCH reads the file, awaits
+    the server's live sets, then writes a merge of that read; another writer
+    getting in between would have its change reverted by that write."""
+    return _edit_locks.setdefault(str(server_dir.resolve()), asyncio.Lock())
+
+
+async def edit_properties(server_dir: Path, changes: dict[str, str | None]) -> dict[str, str]:
+    """Apply ``changes`` (``None`` removes a key) to ``server.properties``
+    under ``edit_lock`` and return the file as written."""
+    async with edit_lock(server_dir):
+        file_props = read_properties(server_dir)
+        for key, value in changes.items():
+            if value is None:
+                file_props.pop(key, None)
+            else:
+                file_props[key] = value
+        write_properties(server_dir, file_props)
+        return file_props
+
+
+# ``op-permission-level``: Minecraft's default, and the levels it knows.
+DEFAULT_OP_LEVEL = 4
+_MIN_OP_LEVEL = 0
+_MAX_OP_LEVEL = 4
+
+
+def clamp_op_level(level: int) -> int:
+    """``level`` brought into the operator levels Minecraft knows (0..4)."""
+    return min(max(level, _MIN_OP_LEVEL), _MAX_OP_LEVEL)
+
+
+def op_permission_level(file_props: dict[str, str]) -> int:
+    """The level a new operator gets on a server with these properties
+    (``op-permission-level``): Minecraft's default 4 when the key is missing
+    or not a number, clamped to 0..4 otherwise."""
+    try:
+        level = int(file_props.get("op-permission-level", ""))
+    except ValueError:
+        return DEFAULT_OP_LEVEL
+    return clamp_op_level(level)
+
+
 def normalize_value(key: str, value: str | int | bool) -> str:
     """Validate ``value`` against the key's definition and return the string
     to store. Raises ``ValueError`` with a user-facing message."""
@@ -251,11 +317,24 @@ def normalize_value(key: str, value: str | int | bool) -> str:
     return text  # string
 
 
+def live_value(key: str, text: str) -> str | int | bool:
+    """The typed protocol value for a normalised ``text`` (``normalize_value``
+    output): ``int`` for integer keys, ``bool`` for boolean keys, the string
+    itself (enum names, the unescaped motd) otherwise."""
+    definition = DEFINITIONS.get(key)
+    kind = definition.type if definition is not None else "string"
+    if kind == "integer":
+        return int(text)
+    if kind == "boolean":
+        return text == "true"
+    return text
+
+
 def definitions_payload(*, include_managed: bool = True) -> dict[str, dict]:
     """JSON-friendly view of ``DEFINITIONS`` for the frontend. Without
     ``include_managed`` the managed keys are left out, so a server Lectern
     does not run the management server for shows any such lines as plain,
-    editable rows."""
+    editable rows. ``live`` marks the keys in ``LIVE_SETTINGS``."""
     return {
         key: {
             "type": d.type,
@@ -265,6 +344,7 @@ def definitions_payload(*, include_managed: bool = True) -> dict[str, dict]:
             "description": d.description,
             "default": d.default,
             "managed": d.managed,
+            "live": key in LIVE_SETTINGS,
         }
         for key, d in DEFINITIONS.items()
         if include_managed or not d.managed

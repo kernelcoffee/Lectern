@@ -429,9 +429,20 @@ class PlayerListsRead(SQLModel):
 
 
 class PlayerListAddRequest(SQLModel):
-    """Add a registered player (by UUID) to one of a server's lists."""
+    """Add a registered player (by UUID) to one of a server's lists.
+
+    ``reason`` and ``expires`` only apply to the ``banned`` list and are
+    ignored for the others. ``reason`` is free text (newlines become spaces;
+    blank means Minecraft's default; over 200 characters on a ban is 422,
+    checked by the endpoint so other lists ignore it whole). ``expires`` is an ISO-8601 datetime,
+    naive values taken as UTC, and must lie in the future (else 422); absent
+    means a permanent ban. Through the management protocol both apply as
+    given; the console ``ban`` carries the reason only; a direct file edit
+    stores both."""
 
     uuid: str
+    reason: str | None = None
+    expires: datetime | None = None
 
 
 class ServerEventRead(SQLModel):
@@ -534,11 +545,18 @@ class PropertiesRead(SQLModel):
       string), enum values, integer min/max, and a human description. The
       frontend uses it to render proper widgets (toggle, select, number input)
       and the PATCH endpoint validates against it. Keys not present in the map
-      are legal free-form strings — modded servers add their own.
+      are legal free-form strings — modded servers add their own. ``live``
+      marks the keys a running server can apply at once through the
+      management protocol (``properties.LIVE_SETTINGS``).
+    - ``applied_live`` — on a PATCH response, the request's keys the running
+      server applied immediately through the management protocol, in request
+      order; every other key was written to the file and applies at the next
+      start. Always ``[]`` on GET.
     """
 
     properties: dict[str, str]
     definitions: dict[str, dict]
+    applied_live: list[str] = Field(default_factory=list)
 
 
 class BackupRead(SQLModel):

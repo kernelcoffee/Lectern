@@ -101,6 +101,11 @@ export interface ServerCreate {
 //     `properties` is the raw server.properties key→value map (all strings, as
 //     in the file); `definitions` is backend metadata describing well-known
 //     keys (type/enum values/min/max) that PropertiesTab uses to pick a widget.
+//     `definitions[key].live` marks the keys a running server with a connected
+//     management-protocol client applies immediately (serversettings/*/set);
+//     PATCH answers `applied_live` with the keys that actually did (the server
+//     rewrote the file itself), every other saved key applies at next start.
+//     GET always answers `applied_live: []`.
 //   * ServerStats           ← GET /api/servers/{id}/stats — polled by StatsBar
 //     while the server is running; `ping` is null until the server has fully
 //     booted and answers a Server List Ping.
@@ -135,11 +140,17 @@ export interface PropertyDefinition {
   default: string | null;
   /** Written by Lectern at every start (management protocol); read-only. */
   managed: boolean;
+  /** Applied immediately through the management protocol while the server
+   *  runs with a connected client (motd, difficulty, max-players, …). */
+  live: boolean;
 }
 
 export interface PropertiesResponse {
   properties: Record<string, string>;
   definitions: Record<string, PropertyDefinition>;
+  /** PATCH: keys applied through the management protocol, in request order
+   *  (not written by Lectern; the server rewrote the file). Always [] on GET. */
+  applied_live: string[];
 }
 
 /** What the Minecraft server reports over a Server List Ping. */

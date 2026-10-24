@@ -34,8 +34,34 @@ export const removePlayer = (uuid: string) =>
 export const getPlayerLists = (serverId: string) =>
   apiGet<PlayerLists>(`/api/servers/${serverId}/playerlists`);
 
-export const addToList = (serverId: string, kind: ListKind, uuid: string) =>
-  apiPost<PlayerLists>(`/api/servers/${serverId}/playerlists/${kind}`, { uuid });
+/** Ban details; the backend honours them only for `kind === "banned"`. */
+export interface ListAddOptions {
+  reason?: string;
+  /** ISO-8601 UTC instant, e.g. "2030-01-01T00:00:00Z"; omitted = forever. */
+  expires?: string;
+}
+
+/** Body for POST …/playerlists/{kind}: blank options are left out entirely so
+ *  the server keeps its defaults (default reason, permanent ban). */
+export function listAddBody(uuid: string, opts: ListAddOptions = {}) {
+  const body: { uuid: string; reason?: string; expires?: string } = { uuid };
+  const reason = opts.reason?.trim();
+  if (reason) body.reason = reason;
+  const expires = opts.expires?.trim();
+  if (expires) body.expires = expires;
+  return body;
+}
+
+export const addToList = (
+  serverId: string,
+  kind: ListKind,
+  uuid: string,
+  opts?: ListAddOptions,
+) =>
+  apiPost<PlayerLists>(
+    `/api/servers/${serverId}/playerlists/${kind}`,
+    listAddBody(uuid, opts),
+  );
 
 export const removeFromList = (serverId: string, kind: ListKind, uuid: string) =>
   apiDeleteJson<PlayerLists>(

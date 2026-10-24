@@ -8,6 +8,8 @@ import asyncio
 import json
 import logging
 import socket
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -17,17 +19,32 @@ from websockets.asyncio.server import serve
 from lectern.models import Server
 from lectern.servers import msmp
 from lectern.servers.msmp import (
+    M_ALLOWLIST_ADD,
+    M_ALLOWLIST_REMOVE,
+    M_AUTOSAVE,
+    M_BANS_ADD,
+    M_BANS_REMOVE,
     M_KICK,
+    M_OP_LEVEL,
+    M_OPERATORS_ADD,
+    M_OPERATORS_REMOVE,
     M_PLAYERS,
+    M_SAVE,
     N_JOINED,
     N_LEFT,
     N_STARTED,
     N_STOPPING,
     MsmpClient,
     MsmpError,
+    MsmpTimeout,
 )
 from lectern.servers.process import ServerProcess
-from lectern.servers.properties import MANAGED_KEYS, read_properties, write_properties
+from lectern.servers.properties import (
+    LIVE_SETTINGS,
+    MANAGED_KEYS,
+    read_properties,
+    write_properties,
+)
 from lectern.servers.roster import Roster
 from lectern.ws import ConsoleHub
 
@@ -39,11 +56,39 @@ NOTCH_UNDASHED = NOTCH.replace("-", "")
 OFFLINE = "5b6b3b8e-0000-3000-8000-000000000001"
 SILENT = "test:never-answers"
 LATE = "test:answers-late"
+N_SAVING = "minecraft:notification/server/saving"
+N_SAVED = "minecraft:notification/server/saved"
+SETTING_PREFIX = "minecraft:serversettings/"
+# serversettings name -> server.properties key (the inverse of LIVE_SETTINGS).
+SETTING_KEYS = {name: key for key, name in LIVE_SETTINGS.items()}
+# Protocol list -> (file, add method, remove method, notification stem).
+LISTS = {
+    "allowlist": ("whitelist.json", M_ALLOWLIST_ADD, M_ALLOWLIST_REMOVE),
+    "operators": ("ops.json", M_OPERATORS_ADD, M_OPERATORS_REMOVE),
+    "bans": ("banned-players.json", M_BANS_ADD, M_BANS_REMOVE),
+}
+
+
+def _resolve(player: dict) -> dict:
+    """What the server does with a name-only player: give it a UUID (here a
+    deterministic stand-in for the Mojang / offline lookup)."""
+    name = player["name"]
+    return {"id": player.get("id") or str(uuid.uuid5(uuid.NAMESPACE_URL, name)), "name": name}
 
 
 class FakeMsmp:
     """A minimal MSMP endpoint: Bearer check, rpc.discover, players, kick,
-    server/status, pushed notifications."""
+    server/status, pushed notifications; the allowlist / operators / bans
+    mutations, server/save, serversettings get/set, autosave and the
+    operator level (``op_level``, the server's ``op-permission-level``).
+
+    With ``server_dir`` set it behaves like the server on disk: list changes
+    rewrite whitelist.json / ops.json / banned-players.json in Minecraft's
+    shapes before replying, and a settings set rewrites server.properties from
+    its in-memory copy (``props``, loaded from the file at the first set, or
+    set by a test to model the server's startup snapshot). Methods named in
+    ``fail`` answer -32603; a method in ``delays`` is handled that many seconds
+    late, holding up the calls behind it like the server's main thread."""
 
     def __init__(self, secret: str = SECRET) -> None:
         self.secret = secret
@@ -52,6 +97,16 @@ class FakeMsmp:
         self.players: list[dict] = []
         self.started = False
         self.rejected = 0
+        self.lists: dict[str, list[dict]] = {name: [] for name in LISTS}
+        self.settings: dict[str, object] = {}
+        self.saved = 0
+        self.autosave = True
+        self.op_level = 4
+        self.server_dir: Path | None = None
+        self.props: dict[str, str] | None = None
+        self.fail: set[str] = set()
+        self.answers: dict[str, object] = {}
+        self.delays: dict[str, float] = {}
         self._conns: set = set()
         self._server = None
 
@@ -86,13 +141,27 @@ class FakeMsmp:
                 msg = json.loads(raw)
                 method, params = msg["method"], msg.get("params")
                 self.calls.append((method, params))
+                await asyncio.sleep(self.delays.get(method, 0))
                 if not isinstance(params, list):
                     await self._reply(ws, msg, error=(-32602, "Not a json array"))
                 elif method == "rpc.discover":
                     await self._reply(ws, msg, result={
                         "info": {"title": "Minecraft Server JSON-RPC", "version": "3.1.0"},
-                        "methods": [{"name": M_PLAYERS}, {"name": M_KICK}],
+                        "methods": [
+                            {"name": m} for m in (
+                                M_PLAYERS, M_KICK, M_SAVE, M_AUTOSAVE, M_OP_LEVEL,
+                                *(m for _f, *pair in LISTS.values() for m in pair),
+                                *(f"{SETTING_PREFIX}{n}/set" for n in SETTING_KEYS),
+                                *(f"{SETTING_PREFIX}{n}" for n in SETTING_KEYS),
+                            )
+                        ],
                     })
+                elif method in self.fail:
+                    await self._reply(ws, msg, error=(-32603, "boom"))
+                elif method in self.answers:
+                    await self._reply(ws, msg, result=self.answers[method])
+                elif await self._mutate(ws, msg, method, params):
+                    continue
                 elif method == M_PLAYERS:
                     await self._reply(ws, msg, result=list(self.players))
                 elif method == "minecraft:server/status":
@@ -116,6 +185,113 @@ class FakeMsmp:
                     await self._reply(ws, msg, error=(-32601, "Method not found"))
         finally:
             self._conns.discard(ws)
+
+    async def _mutate(self, ws, msg, method: str, params: list) -> bool:
+        """Lists, save, autosave and settings; False for any other method."""
+        for list_name, (_file, add_method, remove_method) in LISTS.items():
+            if method == add_method:
+                await self._list_add(ws, msg, list_name, params[0])
+                return True
+            if method == remove_method:
+                await self._list_remove(ws, msg, list_name, params[0])
+                return True
+        if method == M_SAVE:
+            await self.push(N_SAVING, [])
+            self.saved += 1
+            await self._reply(ws, msg, result=True)
+            await self.push(N_SAVED, [])
+            return True
+        if method == M_AUTOSAVE:
+            await self._reply(ws, msg, result=self.autosave)
+            return True
+        if method == M_OP_LEVEL:
+            await self._reply(ws, msg, result=self.op_level)
+            return True
+        name = method.removeprefix(SETTING_PREFIX).removesuffix("/set")
+        if method.startswith(SETTING_PREFIX) and method.endswith("/set") and name in SETTING_KEYS:
+            value = params[0]
+            self.settings[name] = value
+            self._write_setting(SETTING_KEYS[name], value)
+            await self._reply(ws, msg, result=value)
+            return True
+        if name in SETTING_KEYS:  # the get: no params, the current value
+            await self._reply(ws, msg, result=self.settings.get(name))
+            return True
+        return False
+
+    @staticmethod
+    def _player_of(entry: dict) -> dict:
+        return entry.get("player", entry)
+
+    async def _list_add(self, ws, msg, list_name: str, entries: list[dict]) -> None:
+        current = self.lists[list_name]
+        for entry in entries:
+            player = _resolve(self._player_of(entry))
+            if any(self._player_of(e)["id"] == player["id"] for e in current):
+                continue
+            if list_name == "allowlist":
+                added: dict = player
+            elif list_name == "operators":
+                added = {**entry, "player": player}
+            else:
+                added = {
+                    "player": player,
+                    "reason": entry.get("reason", "Banned by an operator."),
+                    "source": entry.get("source", "Management server"),
+                    **({"expires": entry["expires"]} if "expires" in entry else {}),
+                }
+            current.append(added)
+            self._write_list(list_name)
+            await self.push(f"minecraft:notification/{list_name}/added", [added])
+        await self._reply(ws, msg, result=list(current))
+
+    async def _list_remove(self, ws, msg, list_name: str, entries: list[dict]) -> None:
+        for entry in entries:
+            gone = [
+                e for e in self.lists[list_name]
+                if self._player_of(e)["id"] == entry.get("id")
+                or self._player_of(e)["name"].lower() == entry["name"].lower()
+            ]
+            self.lists[list_name] = [e for e in self.lists[list_name] if e not in gone]
+            self._write_list(list_name)
+            for removed in gone:
+                await self.push(f"minecraft:notification/{list_name}/removed", [removed])
+        await self._reply(ws, msg, result=list(self.lists[list_name]))
+
+    def _write_list(self, list_name: str) -> None:
+        if self.server_dir is None:
+            return
+        rows = []
+        for entry in self.lists[list_name]:
+            player = self._player_of(entry)
+            row: dict = {"uuid": player["id"], "name": player["name"]}
+            if list_name == "operators":
+                row["level"] = entry["permissionLevel"]
+                row["bypassesPlayerLimit"] = entry["bypassesPlayerLimit"]
+            elif list_name == "bans":
+                expires = entry.get("expires")
+                row.update(
+                    created="2026-10-24 12:00:00 +0000",
+                    source=entry["source"],
+                    expires=(
+                        datetime.fromisoformat(expires).strftime("%Y-%m-%d %H:%M:%S +0000")
+                        if expires else "forever"
+                    ),
+                    reason=entry["reason"],
+                )
+            rows.append(row)
+        (self.server_dir / LISTS[list_name][0]).write_text(json.dumps(rows, indent=2))
+
+    def _write_setting(self, key: str, value: object) -> None:
+        if self.server_dir is None:
+            return
+        if self.props is None:
+            self.props = read_properties(self.server_dir)
+        if isinstance(value, bool):
+            self.props[key] = "true" if value else "false"
+        else:
+            self.props[key] = str(value)
+        write_properties(self.server_dir, self.props)
 
     @staticmethod
     async def _reply(ws, msg, result=None, error=None) -> None:
@@ -313,7 +489,7 @@ async def test_client_call_errors(fake_msmp):
         with pytest.raises(MsmpError) as missing:
             await client.call("minecraft:players/")
         assert missing.value.code == -32601
-        with pytest.raises(MsmpError, match="timed out"):
+        with pytest.raises(MsmpTimeout, match="timed out"):
             await client.call(SILENT, timeout=0.2)
         assert client._pending == {}
         assert await client.call(M_PLAYERS) == []
@@ -1199,3 +1375,517 @@ def test_patch_managed_key_alone_writes_nothing(client, engine, tmp_path):
     )
     assert resp.status_code == 422
     assert read_properties(tmp_path) == {"motd": "hi"}
+
+
+# --- phase 2 through the real client: lists, backups, live settings ---------------
+
+JEB = "853c80ef-3c37-49fd-aa49-938b674adae6"
+
+
+def _fake_id(name: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
+
+
+async def _running_env(fake: FakeMsmp, engine, tmp_path, monkeypatch, *, apply=None, **fields):
+    """A running server whose process has a real client connected to ``fake``
+    (which writes its files into ``tmp_path``); console commands are recorded
+    and, with ``apply``, acted on like the server would."""
+    from lectern.models import Player
+    from lectern.servers.manager import manager
+
+    fake.server_dir = tmp_path
+    with Session(engine) as session:
+        server = Server(
+            name="p", mc_version="26.3", type="fabric", path=str(tmp_path),
+            status="running", **fields,
+        )
+        session.add(server)
+        session.add(Player(uuid=NOTCH_UNDASHED, name="Notch"))
+        session.add(Player(uuid=JEB.replace("-", ""), name="jeb_"))
+        session.commit()
+        sid = server.id
+    proc, _ = await _process_with(fake, tmp_path)
+    monkeypatch.setattr(manager, "get_process", lambda server_id: proc)
+    monkeypatch.setattr(manager, "is_running", lambda server_id: True)
+    sent: list[str] = []
+
+    async def send(server_id, command):
+        sent.append(command)
+        if apply is not None:
+            apply(command)
+
+    monkeypatch.setattr(manager, "send", send)
+    return sid, proc, sent
+
+
+def _mutations(fake: FakeMsmp) -> list[tuple[str, object]]:
+    """Calls other than the ones the process makes on every connect, and the
+    operator-level read an ops add makes first (see test_op_add_uses_...)."""
+    reads = ("rpc.discover", M_PLAYERS, msmp.M_STATUS, M_OP_LEVEL)
+    return [c for c in fake.calls if c[0] not in reads]
+
+
+@pytest.mark.parametrize(
+    ("kind", "add", "remove", "entry"),
+    [
+        ("whitelist", M_ALLOWLIST_ADD, M_ALLOWLIST_REMOVE, {"name": "Notch"}),
+        ("ops", M_OPERATORS_ADD, M_OPERATORS_REMOVE, {
+            "player": {"name": "Notch"}, "permissionLevel": 4, "bypassesPlayerLimit": False,
+        }),
+        ("banned", M_BANS_ADD, M_BANS_REMOVE, {"player": {"name": "Notch"}, "source": "Lectern"}),
+    ],
+)
+async def test_list_add_and_remove_go_through_real_client(
+    fake_msmp, engine, tmp_path, monkeypatch, kind, add, remove, entry
+):
+    """One protocol call per change and nothing on the console; the response
+    is the file exactly as the server wrote it (its own UUID for the name)."""
+    from lectern.api.players import add_to_list, remove_from_list
+    from lectern.models import PlayerListAddRequest
+
+    sid, proc, sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    server_uuid = _fake_id("Notch")
+    try:
+        with Session(engine) as session:
+            body = await add_to_list(sid, kind, PlayerListAddRequest(uuid=NOTCH), session)
+        assert _mutations(fake_msmp) == [(add, [[entry]])]
+        assert sent == []
+        assert [(e.uuid, e.name) for e in getattr(body, kind)] == [
+            (server_uuid.replace("-", ""), "Notch")
+        ]
+        with Session(engine) as session:
+            body = await remove_from_list(sid, kind, server_uuid.replace("-", ""), session)
+        assert _mutations(fake_msmp)[1:] == [
+            (remove, [[{"name": "Notch", "id": server_uuid}]])
+        ]
+        assert sent == []
+        assert getattr(body, kind) == []
+    finally:
+        await proc.msmp.close()
+
+
+async def test_ban_carries_reason_and_expiry_and_omits_them_when_absent(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    from lectern.api.players import add_to_list
+    from lectern.models import PlayerListAddRequest
+
+    sid, proc, sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    try:
+        with Session(engine) as session:
+            await add_to_list(sid, "banned", PlayerListAddRequest(
+                uuid=NOTCH, reason=" griefing\nspawn ", expires="2099-01-01T02:00:00+02:00",
+            ), session)
+        with Session(engine) as session:
+            await add_to_list(sid, "banned", PlayerListAddRequest(uuid=JEB), session)
+        assert _mutations(fake_msmp) == [
+            (M_BANS_ADD, [[{
+                "player": {"name": "Notch"}, "source": "Lectern",
+                "reason": "griefing spawn", "expires": "2099-01-01T00:00:00Z",
+            }]]),
+            (M_BANS_ADD, [[{"player": {"name": "jeb_"}, "source": "Lectern"}]]),
+        ]
+        assert sent == []
+        rows = json.loads((tmp_path / "banned-players.json").read_text())
+        assert [(r["name"], r["reason"], r["expires"], r["source"]) for r in rows] == [
+            ("Notch", "griefing spawn", "2099-01-01 00:00:00 +0000", "Lectern"),
+            ("jeb_", "Banned by an operator.", "forever", "Lectern"),
+        ]
+    finally:
+        await proc.msmp.close()
+
+
+async def test_list_protocol_error_falls_back_to_console(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    """A JSON-RPC error on add or remove: the console command runs as on main
+    and the response still reflects the change."""
+    from lectern.api.players import add_to_list, remove_from_list
+    from lectern.models import PlayerListAddRequest
+    from lectern.servers import playerlists
+
+    def apply(command):
+        verb = command.split()[0]
+        if verb == "op":
+            playerlists.add(tmp_path, "ops", NOTCH, "Notch")
+        elif verb == "deop":
+            playerlists.remove(tmp_path, "ops", NOTCH)
+
+    sid, proc, sent = await _running_env(
+        fake_msmp, engine, tmp_path, monkeypatch, apply=apply
+    )
+    fake_msmp.fail = {M_OPERATORS_ADD, M_OPERATORS_REMOVE}
+    try:
+        with Session(engine) as session:
+            body = await add_to_list(sid, "ops", PlayerListAddRequest(uuid=NOTCH), session)
+        assert [e.name for e in body.ops] == ["Notch"]
+        with Session(engine) as session:
+            body = await remove_from_list(sid, "ops", NOTCH, session)
+        assert body.ops == []
+        assert sent == ["op Notch", "deop Notch"]
+        assert [m for m, _ in _mutations(fake_msmp)] == [M_OPERATORS_ADD, M_OPERATORS_REMOVE]
+    finally:
+        await proc.msmp.close()
+
+
+async def test_list_unconfirmed_reply_falls_back_to_console(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    """The server answered but its list lacks the player (a name it could not
+    resolve): not success, so the console is tried."""
+    from lectern.api.players import add_to_list
+    from lectern.models import PlayerListAddRequest
+    from lectern.servers import playerlists
+
+    sid, proc, sent = await _running_env(
+        fake_msmp, engine, tmp_path, monkeypatch,
+        apply=lambda command: playerlists.add(tmp_path, "whitelist", NOTCH, "Notch"),
+    )
+    fake_msmp.answers[M_ALLOWLIST_ADD] = [{"id": JEB, "name": "jeb_"}]
+    try:
+        with Session(engine) as session:
+            body = await add_to_list(sid, "whitelist", PlayerListAddRequest(uuid=NOTCH), session)
+        assert sent == ["whitelist add Notch"]
+        assert [(e.uuid, e.name) for e in body.whitelist] == [(NOTCH_UNDASHED, "Notch")]
+    finally:
+        await proc.msmp.close()
+
+
+async def test_running_backup_flushes_through_real_client(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    from lectern import backups as bk
+
+    (tmp_path / "level.dat").write_bytes(b"W")
+    recorded: list = []
+    monkeypatch.setattr(
+        bk.events, "record", lambda _sid, kind, msg="": recorded.append((kind, msg))
+    )
+    sid, proc, sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    try:
+        with Session(engine) as session:
+            filename = (await bk.create_backup(session, session.get(Server, sid))).filename
+        assert fake_msmp.saved == 1
+        assert (M_SAVE, [True]) in fake_msmp.calls
+        assert sent == ["save-off", "save-on"]
+        assert recorded == [
+            ("backup_created", f"{filename} (manual, flushed via management protocol)")
+        ]
+    finally:
+        await proc.msmp.close()
+
+
+async def test_running_backup_leaves_operator_save_off_alone(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    """Saving already off (an operator's save-off): the world is still
+    flushed, but neither save-off nor the save-on that would undo it is sent."""
+    from lectern import backups as bk
+
+    monkeypatch.setattr(bk.events, "record", lambda *a: None)
+    sid, proc, sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    fake_msmp.autosave = False
+    try:
+        with Session(engine) as session:
+            await bk.create_backup(session, session.get(Server, sid), trigger="scheduled")
+        assert fake_msmp.saved == 1
+        assert sent == []
+    finally:
+        await proc.msmp.close()
+
+
+async def test_running_backup_save_error_falls_back_to_console_flush(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    from lectern import backups as bk
+
+    recorded: list = []
+    monkeypatch.setattr(
+        bk.events, "record", lambda _sid, kind, msg="": recorded.append((kind, msg))
+    )
+    monkeypatch.setattr(bk, "_CONSOLE_FLUSH_GRACE", 0)
+    sid, proc, sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    fake_msmp.fail = {M_SAVE, M_AUTOSAVE}
+    try:
+        with Session(engine) as session:
+            backup = await bk.create_backup(session, session.get(Server, sid), trigger="scheduled")
+            filename = backup.filename
+        assert sent == ["save-off", "save-all flush", "save-on"]
+        assert recorded == [
+            ("backup_created", f"{filename} (scheduled, flushed via console)")
+        ]
+    finally:
+        await proc.msmp.close()
+
+
+LIVE_REQUEST = {
+    "motd": "Hello \u00a7aworld", "difficulty": "hard", "max-players": "25",
+    "view-distance": 12, "white-list": "true", "enforce-whitelist": False,
+    "gamemode": "creative",
+}
+
+
+async def test_live_settings_apply_through_real_client_without_lectern_writing(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    """Every live key goes out typed; the server rewrites server.properties
+    itself and Lectern writes nothing when nothing else needs writing."""
+    from lectern.api import servers as api
+    from lectern.servers import properties as props
+
+    write_properties(tmp_path, {"motd": "old", "pvp": "true"})
+    sid, proc, _sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    writes: list = []
+    real_write = props.write_properties
+    monkeypatch.setattr(
+        api.props, "write_properties",
+        lambda d, p: (writes.append(dict(p)), real_write(d, p)),
+    )
+    try:
+        with Session(engine) as session:
+            body = await api.patch_properties(sid, dict(LIVE_REQUEST), session)
+        assert body.applied_live == list(LIVE_REQUEST)
+        assert fake_msmp.settings == {
+            "motd": "Hello \u00a7aworld", "difficulty": "hard", "max_players": 25,
+            "view_distance": 12, "use_allowlist": True, "enforce_allowlist": False,
+            "game_mode": "creative",
+        }
+        assert [type(v) for v in fake_msmp.settings.values()] == [
+            str, str, int, int, bool, bool, str,
+        ]
+        assert writes == []
+        on_disk = read_properties(tmp_path)
+        assert on_disk == fake_msmp.props
+        assert on_disk["motd"] == "Hello \u00a7aworld" and on_disk["max-players"] == "25"
+        assert body.properties == on_disk
+
+        # Mixed: the live key goes out, only the other one is written, once.
+        with Session(engine) as session:
+            body = await api.patch_properties(sid, {"motd": "x", "pvp": False}, session)
+        assert body.applied_live == ["motd"]
+        assert len(writes) == 1 and writes[0]["pvp"] == "false" and writes[0]["motd"] == "x"
+        assert read_properties(tmp_path)["pvp"] == "false"
+    finally:
+        await proc.msmp.close()
+
+
+async def test_live_set_does_not_revert_earlier_file_edits(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    """The server rewrites server.properties from its startup copy: a key
+    Lectern wrote while it ran (pvp) would be reverted by the next live set,
+    so Lectern writes it again on top."""
+    from lectern.api import servers as api
+
+    write_properties(tmp_path, {"motd": "old", "pvp": "true"})
+    sid, proc, _sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    fake_msmp.props = read_properties(tmp_path)  # the server's startup snapshot
+    try:
+        with Session(engine) as session:
+            await api.patch_properties(sid, {"pvp": False}, session)
+        with Session(engine) as session:
+            body = await api.patch_properties(sid, {"motd": "new"}, session)
+        assert body.applied_live == ["motd"]
+        assert read_properties(tmp_path) == {"motd": "new", "pvp": "false"}
+        assert body.properties == {"motd": "new", "pvp": "false"}
+    finally:
+        await proc.msmp.close()
+
+
+async def test_live_set_failure_or_other_value_writes_the_file(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    """A failing set is written to the file for the next start, and so is a
+    set the server answers with another value (a hardcore world keeps hard):
+    the server refused it, so it is not reported as applied now."""
+    from lectern.api import servers as api
+
+    write_properties(tmp_path, {"motd": "old"})
+    sid, proc, _sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    fake_msmp.fail = {msmp.setting_method("max-players")}
+    fake_msmp.answers[msmp.setting_method("difficulty")] = "hard"
+    try:
+        with Session(engine) as session:
+            body = await api.patch_properties(
+                sid, {"motd": "m", "difficulty": "peaceful", "max-players": 5}, session
+            )
+        assert body.applied_live == ["motd"]
+        assert read_properties(tmp_path) == {
+            "motd": "m", "difficulty": "peaceful", "max-players": "5",
+        }
+        assert body.properties == read_properties(tmp_path)
+    finally:
+        await proc.msmp.close()
+
+
+async def test_live_set_answered_late_is_read_back_before_the_file_write(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    """A set that times out on Lectern's side still runs on the server, whose
+    rewrite from its startup copy would land after Lectern's file write and
+    revert pvp. Lectern reads the setting back (answered once the set ran),
+    finds it applied, and writes pvp on top of the server's rewrite."""
+    from lectern.api import servers as api
+
+    write_properties(tmp_path, {"motd": "old", "pvp": "true"})
+    sid, proc, _sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    fake_msmp.props = read_properties(tmp_path)  # the server's startup snapshot
+    fake_msmp.delays[msmp.setting_method("motd")] = 0.3
+    monkeypatch.setattr(api, "_SET_TIMEOUT", 0.05)
+    try:
+        with Session(engine) as session:
+            body = await api.patch_properties(sid, {"motd": "x", "pvp": False}, session)
+        assert body.applied_live == ["motd"]
+        assert (msmp.setting_get_method("motd"), []) in fake_msmp.calls
+        assert await _wait_for(lambda: fake_msmp.settings.get("motd") == "x")
+        assert read_properties(tmp_path) == {"motd": "x", "pvp": "false"}
+        assert body.properties == {"motd": "x", "pvp": "false"}
+    finally:
+        await proc.msmp.close()
+
+
+@pytest.mark.parametrize(
+    ("request_body", "read_back", "read_back_timeout", "applied_first", "saved"),
+    [
+        # The read-back is held up behind the slow set past its own timeout.
+        ({"motd": "x", "pvp": False}, None, 0.1, None, "pvp"),
+        # A key applied live first, then the slow set: the reviewers' case.
+        ({"difficulty": "hard", "motd": "x"}, None, 0.1, "difficulty", None),
+        # The read-back answers, but not with the value sent.
+        ({"difficulty": "hard", "motd": "x", "pvp": False}, "other", 5.0, "difficulty", "pvp"),
+    ],
+)
+async def test_live_set_unconfirmed_after_timeout_is_504_after_restoring_the_file(
+    fake_msmp, engine, tmp_path, monkeypatch, caplog, request_body, read_back,
+    read_back_timeout, applied_first, saved,
+):
+    """When the read-back cannot tell whether the late set ran, the request
+    still writes the file before answering 504: a set confirmed earlier in it
+    made the server rewrite server.properties from its startup copy, and an
+    edit saved while the server ran (spawn-protection) must survive that. The
+    unconfirmed key keeps whatever is on disk; the 504 names it, what applied
+    live and what was saved."""
+    from fastapi import HTTPException
+
+    from lectern.api import servers as api
+
+    write_properties(tmp_path, {"motd": "old", "pvp": "true"})
+    sid, proc, _sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    fake_msmp.props = read_properties(tmp_path)  # the server's startup snapshot
+    try:
+        with Session(engine) as session:
+            await api.patch_properties(sid, {"spawn-protection": 5}, session)
+        fake_msmp.delays[msmp.setting_method("motd")] = 0.4
+        if read_back is not None:
+            fake_msmp.answers[msmp.setting_get_method("motd")] = read_back
+        monkeypatch.setattr(api, "_SET_TIMEOUT", 0.05)
+        monkeypatch.setattr(api, "_SETTING_READ_BACK_TIMEOUT", read_back_timeout)
+        caplog.set_level(logging.INFO, logger="lectern.api.servers")
+
+        with Session(engine) as session, pytest.raises(HTTPException) as refused:
+            await api.patch_properties(sid, dict(request_body), session)
+        detail = refused.value.detail
+        assert refused.value.status_code == 504
+        assert "did not confirm the motd change" in detail
+        assert "rewrites server.properties from its startup copy" in detail
+        assert ("difficulty applied live" in detail) == (applied_first is not None)
+        assert (f"{saved} saved to server.properties" in detail) == (saved is not None)
+        assert ("saved to server.properties" in detail) == (saved is not None)
+        # Which way the read-back failed: no answer, or another value.
+        assert ("read-back of motd failed" in caplog.text) == (read_back is None)
+        assert ("read-back of motd: 'other'" in caplog.text) == (read_back is not None)
+
+        on_disk = read_properties(tmp_path)
+        assert on_disk["spawn-protection"] == "5"
+        assert on_disk["pvp"] == ("false" if saved else "true")
+        assert ("difficulty" in on_disk) == (applied_first is not None)
+        if applied_first:
+            assert on_disk["difficulty"] == "hard"
+        # Answered late (another value), the set had already run and rewritten
+        # the file: motd keeps what the server wrote. Unanswered, it has not.
+        assert on_disk["motd"] == ("x" if read_back is not None else "old")
+        # The slow set lands eventually; let it before the client goes away.
+        assert await _wait_for(lambda: fake_msmp.settings.get("motd") == "x")
+    finally:
+        await proc.msmp.close()
+
+
+async def test_live_set_unconfirmed_504_still_mirrors_the_port(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    """The 504 comes after the file write: a server-port saved by that write
+    reaches the record's port column too, so the file and the DB agree."""
+    from fastapi import HTTPException
+
+    from lectern.api import servers as api
+
+    write_properties(tmp_path, {"motd": "old", "server-port": "25565"})
+    sid, proc, _sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    try:
+        fake_msmp.delays[msmp.setting_method("motd")] = 0.4
+        monkeypatch.setattr(api, "_SET_TIMEOUT", 0.05)
+        monkeypatch.setattr(api, "_SETTING_READ_BACK_TIMEOUT", 0.1)
+        with Session(engine) as session, pytest.raises(HTTPException) as refused:
+            await api.patch_properties(sid, {"motd": "x", "server-port": 25570}, session)
+        assert refused.value.status_code == 504
+        assert "server-port saved to server.properties" in refused.value.detail
+        assert read_properties(tmp_path)["server-port"] == "25570"
+        with Session(engine) as session:
+            assert session.get(Server, sid).port == 25570
+        assert await _wait_for(lambda: fake_msmp.settings.get("motd") == "x")
+    finally:
+        await proc.msmp.close()
+
+
+async def test_op_add_uses_the_running_servers_op_level(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    """Through the socket: the operator level is read from the server first
+    (its ``op-permission-level``), and ops.json gets that level, as the
+    console ``op`` would grant on this server."""
+    from lectern.api.players import add_to_list
+    from lectern.models import PlayerListAddRequest
+
+    write_properties(tmp_path, {"op-permission-level": "3"})
+    sid, proc, sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    fake_msmp.op_level = 2
+    try:
+        with Session(engine) as session:
+            await add_to_list(sid, "ops", PlayerListAddRequest(uuid=NOTCH), session)
+        calls = [c for c in fake_msmp.calls if c[0] in (M_OP_LEVEL, M_OPERATORS_ADD)]
+        assert calls == [(M_OP_LEVEL, []), (M_OPERATORS_ADD, [[{
+            "player": {"name": "Notch"}, "permissionLevel": 2, "bypassesPlayerLimit": False,
+        }]])]
+        assert sent == []
+        assert json.loads((tmp_path / "ops.json").read_text())[0]["level"] == 2
+    finally:
+        await proc.msmp.close()
+
+
+async def test_concurrent_live_patches_do_not_lose_edits(
+    fake_msmp, engine, tmp_path, monkeypatch
+):
+    """Challenger: PATCH is now async and reads the file, awaits the live
+    calls, then merges onto that earlier read. Two PATCHes of one running
+    server overlapping across that await each merge onto a stale snapshot, so
+    the later write reverts the other's edits (a file edit, or a key the
+    server just applied live and rewrote). Serialised per server, both
+    survive."""
+    from lectern.api import servers as api
+
+    write_properties(tmp_path, {"motd": "old", "pvp": "true"})
+    sid, proc, _sent = await _running_env(fake_msmp, engine, tmp_path, monkeypatch)
+    fake_msmp.props = read_properties(tmp_path)  # the server's startup snapshot
+
+    async def patch(updates):
+        with Session(engine) as session:
+            return await api.patch_properties(sid, updates, session)
+
+    try:
+        a, b = await asyncio.gather(
+            patch({"motd": "a", "pvp": False}), patch({"difficulty": "hard"})
+        )
+        assert a.applied_live == ["motd"] and b.applied_live == ["difficulty"]
+        assert read_properties(tmp_path) == {"motd": "a", "pvp": "false", "difficulty": "hard"}
+    finally:
+        await proc.msmp.close()

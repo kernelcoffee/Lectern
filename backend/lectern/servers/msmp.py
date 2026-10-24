@@ -3,7 +3,9 @@
 MSMP is Mojang's management API for the Java dedicated server: JSON-RPC 2.0
 over a WebSocket, built into the server since 1.21.9 (25w35a). Lectern uses it
 as the primary source for the online roster and the ``running``/``stopping``
-transitions, and as the kick channel; console parsing stays the fallback.
+transitions, and as the channel for kicks, player-list changes, save flushes
+before backups and live ``server.properties`` settings; the console (and, for
+lists and settings, direct file edits) stays the fallback.
 
 Facts this module relies on (probed on a Fabric 26.3 server):
 
@@ -25,6 +27,20 @@ Facts this module relies on (probed on a Fabric 26.3 server):
   ``params: [{id, name}]`` (Carpet bots included, with an offline UUID), and
   ``minecraft:notification/server/started``, ``/stopping``, ``/saving``,
   ``/saved``, ``/status`` (heartbeat), ``/activity``.
+* Player lists: ``minecraft:allowlist/add|remove``, ``operators/add|remove``
+  and ``bans/add|remove`` take one positional array of ``player``
+  (``{name, id}``), ``operator`` (``{player, permissionLevel,
+  bypassesPlayerLimit}``) or ``user_ban`` (``{player, reason, source,
+  expires}``) components and return the resulting list. The server rewrites
+  ``whitelist.json`` / ``ops.json`` / ``banned-players.json`` before replying,
+  so the files stay the source of truth for reads.
+* ``minecraft:server/save [flush]`` returns ``true`` once the save (and the
+  chunk IO flush) has finished; ``serversettings/autosave`` reads the
+  ``save-off``/``save-on`` state.
+* ``minecraft:serversettings/<name>/set [value]`` applies a setting at once,
+  returns the value now in effect and rewrites ``server.properties`` from the
+  server's in-memory copy (loaded at startup) before replying: file edits
+  made while the server runs are reverted by it unless written again.
 * Versions: introduced 1.21.9; auth + TLS default since 25w37a; schema 1.1.0
   (25w41a), 2.0.0 (25w44a), 3.0.0 (26.2: the management server starts *before*
   the game server), 3.1.0 (26.3). On 1.21.9–26.1 the port opens only once the
@@ -57,7 +73,7 @@ from typing import Any
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus, WebSocketException
 
-from .properties import properties_file, read_properties, write_properties
+from .properties import LIVE_SETTINGS, properties_file, read_properties, write_properties
 from .types import is_proxy_type
 
 log = logging.getLogger(__name__)
@@ -81,6 +97,15 @@ N_JOINED = "minecraft:notification/players/joined"
 N_LEFT = "minecraft:notification/players/left"
 N_STARTED = "minecraft:notification/server/started"
 N_STOPPING = "minecraft:notification/server/stopping"
+M_ALLOWLIST_ADD = "minecraft:allowlist/add"
+M_ALLOWLIST_REMOVE = "minecraft:allowlist/remove"
+M_OPERATORS_ADD = "minecraft:operators/add"
+M_OPERATORS_REMOVE = "minecraft:operators/remove"
+M_BANS_ADD = "minecraft:bans/add"
+M_BANS_REMOVE = "minecraft:bans/remove"
+M_SAVE = "minecraft:server/save"
+M_AUTOSAVE = "minecraft:serversettings/autosave"
+M_OP_LEVEL = "minecraft:serversettings/operator_user_permission_level"
 
 _VERSION_RE = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?")
 # Everything the reconnect loop treats as "the socket is gone, try again".
@@ -111,6 +136,20 @@ def manages(server_type: str, mc_version: str) -> bool:
     """True when Lectern runs the management server for this server: a Java
     (non-proxy) type on 1.21.9+. Only then are the managed keys Lectern's."""
     return not is_proxy_type(server_type) and supports_msmp(mc_version)
+
+
+def setting_method(key: str) -> str:
+    """The ``serversettings`` set method for a live ``server.properties`` key
+    (``motd`` -> ``minecraft:serversettings/motd/set``). ``KeyError`` for a
+    key that cannot be applied live."""
+    return f"minecraft:serversettings/{LIVE_SETTINGS[key]}/set"
+
+
+def setting_get_method(key: str) -> str:
+    """The ``serversettings`` read method for a live key (``motd`` ->
+    ``minecraft:serversettings/motd``, no params, answers the current value).
+    ``KeyError`` for a key that cannot be applied live."""
+    return f"minecraft:serversettings/{LIVE_SETTINGS[key]}"
 
 
 # --- enablement ----------------------------------------------------------------
@@ -190,6 +229,11 @@ class MsmpError(Exception):
         self.code = code
 
 
+class MsmpTimeout(MsmpError):
+    """No answer in time. Unlike the other failures the request did reach the
+    server, which may still carry it out after Lectern stopped waiting."""
+
+
 class MsmpClient:
     """One management connection per running server process.
 
@@ -257,7 +301,7 @@ class MsmpClient:
         except ConnectionClosed:
             raise MsmpError("disconnected") from None
         except TimeoutError:
-            raise MsmpError("timed out") from None
+            raise MsmpTimeout("timed out") from None
         finally:
             self._pending.pop(request_id, None)
 

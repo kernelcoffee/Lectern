@@ -10,6 +10,7 @@ frontend can surface what else was pulled in.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
@@ -476,7 +477,7 @@ def download_content_file(
 
 
 @router.post("/servers/{server_id}/content/{item_id}/serve")
-def set_server_pack(
+async def set_server_pack(
     server_id: str,
     item_id: str,
     body: ServerResourcePackUpdate,
@@ -507,8 +508,11 @@ def set_server_pack(
         if not path.exists():
             raise HTTPException(status.HTTP_404_NOT_FOUND, "File not on disk")
         url = f"{str(request.base_url).rstrip('/')}/api/servers/{server_id}/content/{item_id}/file"
-        sha1 = rp.sha1_of(path)
-        rp.set_server_resource_pack(server_dir, url=url, sha1=sha1)
+        sha1 = await asyncio.to_thread(rp.sha1_of, path)
+        # The file lock may wait on a properties PATCH: free the connection.
+        session.close()
+        await rp.set_server_resource_pack(server_dir, url=url, sha1=sha1)
         return {"resource_pack": url, "resource_pack_sha1": sha1}
-    rp.set_server_resource_pack(server_dir, url="", sha1="")
+    session.close()
+    await rp.set_server_resource_pack(server_dir, url="", sha1="")
     return {"resource_pack": None, "resource_pack_sha1": None}

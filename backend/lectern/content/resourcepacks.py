@@ -302,14 +302,11 @@ async def install_upload(
 # --- server resource-pack prompt (optional, F-RP-3) ---------------------------
 
 
-def set_server_resource_pack(server_dir: Path, *, url: str, sha1: str) -> None:
+async def set_server_resource_pack(server_dir: Path, *, url: str, sha1: str) -> None:
     """Point ``server.properties`` at a downloadable pack so clients are
-    prompted to use it. Empty url clears both keys."""
-    file_props = props.read_properties(server_dir)
-    if url:
-        file_props["resource-pack"] = url
-        file_props["resource-pack-sha1"] = sha1
-    else:
-        file_props.pop("resource-pack", None)
-        file_props.pop("resource-pack-sha1", None)
-    props.write_properties(server_dir, file_props)
+    prompted to use it. Empty url clears both keys. Waits its turn behind a
+    properties PATCH of the same server (``properties.edit_lock``)."""
+    await props.edit_properties(
+        server_dir,
+        {"resource-pack": url or None, "resource-pack-sha1": sha1 if url else None},
+    )

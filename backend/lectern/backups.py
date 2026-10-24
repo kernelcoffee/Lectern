@@ -13,9 +13,20 @@ per server, not Crafty's named multi-configs):
 - ``backup_compress`` — deflate vs store (uncompressed is faster on the
   Pi-class boxes Lectern targets; worlds compress ~50%).
 - ``backup_stop_server`` — gracefully stop a running server before backing
-  up (and restart it after). Backing up a *running* server otherwise is
-  crash-consistent at best: Minecraft may be mid-write, so ``session.lock``
-  and unreadable files are skipped rather than failing the backup.
+  up (and restart it after).
+
+Backing up a *running* server without stopping it brackets the archive: the
+console ``save-off`` stops automatic saving, the world is flushed to disk
+(``minecraft:server/save [true]`` through the management protocol when the
+client is connected, which answers once the save has finished; else the
+console ``save-all flush`` plus a short grace period), the zip is written, and
+``save-on`` always follows, even when the archive fails. A running proxy
+(Velocity) has no world and none of these commands: it is archived as is. An operator's own
+``save-off`` (read through the protocol) is left alone, and backups of the
+same server take turns so one's ``save-on`` never lands during another's zip.
+The ``backup_created`` event says how the world was flushed. Files can still
+change during the zip (player data on logout), so ``session.lock`` and
+unreadable files are skipped rather than failing the backup.
 
 Restore is the dangerous direction, so it is deliberately conservative:
 the server must be stopped; the archive is validated first; the current
@@ -28,7 +39,10 @@ the disk (zip bomb, or simply too big) is refused before anything moves.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import logging
 import shutil
+import weakref
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,6 +52,26 @@ from sqlmodel import Session, select
 from . import app_settings, events
 from .config import get_settings
 from .models import Backup, Server
+from .servers import msmp
+from .servers.types import is_proxy_type
+
+log = logging.getLogger(__name__)
+
+# How long a protocol ``server/save`` may take (a big world on a slow disk).
+_SAVE_TIMEOUT = 120.0
+# The console ``save-all flush`` gives no completion signal Lectern waits on;
+# this pause lets a small world finish writing before the zip starts.
+_CONSOLE_FLUSH_GRACE = 2.0
+# One save bracket per server at a time (see ``_bracket_lock``). Weak values:
+# a lock lives only while a backup holds or waits on it, so ids of deleted
+# servers leave nothing behind.
+_bracket_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
+    weakref.WeakValueDictionary()
+)
+
+FLUSHED_MSMP = "flushed via management protocol"
+FLUSHED_CONSOLE = "flushed via console"
+NOT_FLUSHED = "not flushed"
 
 
 class BackupError(Exception):
@@ -115,19 +149,89 @@ def _write_archive(server_dir: Path, dest: Path, *, prefixes: list[str], compres
     return dest.stat().st_size
 
 
+def _bracket_lock(server_id: str) -> asyncio.Lock:
+    """Backups of one running server take turns: an overlapping second
+    backup's zip would otherwise run after the first one's ``save-on``."""
+    return _bracket_locks.setdefault(server_id, asyncio.Lock())
+
+
+def _client(server_id: str) -> msmp.MsmpClient | None:
+    """The process's connected management client, or None."""
+    from .servers.manager import manager  # late import (cycle)
+
+    proc = manager.get_process(server_id)
+    client = proc.msmp if proc is not None else None
+    return client if client is not None and client.connected else None
+
+
+async def _autosave_off(server_id: str) -> bool:
+    """True when the server reports automatic saving already off: an
+    operator's deliberate ``save-off``, which the backup must not undo.
+    Without a client (or on any error) Lectern cannot tell and assumes on."""
+    client = _client(server_id)
+    if client is None:
+        return False
+    try:
+        return await client.call(msmp.M_AUTOSAVE) is False
+    except msmp.MsmpError as exc:
+        log.info("backup of %s: autosave state unknown (%s)", server_id, exc)
+        return False
+
+
+async def _flush_running(server_id: str) -> str:
+    """Write the world to disk before the zip and say how: the protocol's
+    ``server/save [true]`` answers once the save and its flush are done; the
+    console ``save-all flush`` gets a fixed grace period instead."""
+    from .servers.manager import ManagerError, manager  # late import (cycle)
+
+    client = _client(server_id)
+    if client is not None:
+        try:
+            if await client.call(msmp.M_SAVE, [True], timeout=_SAVE_TIMEOUT) is True:
+                return FLUSHED_MSMP
+            log.info("backup of %s: server/save did not confirm, using the console", server_id)
+        except msmp.MsmpError as exc:
+            log.info("backup of %s: server/save failed (%s), using the console", server_id, exc)
+    try:
+        await manager.send(server_id, "save-all flush")
+    except ManagerError:
+        return NOT_FLUSHED
+    await asyncio.sleep(_CONSOLE_FLUSH_GRACE)
+    return FLUSHED_CONSOLE
+
+
 async def create_backup(
     session: Session, server: Server, *, trigger: str = "manual"
 ) -> Backup:
-    """Archive the server now (optionally stop/restart around it) and prune
-    old backups past the retention limit."""
+    """Archive the server now and prune old backups past the retention limit.
+    A running server is either stopped and restarted around the archive
+    (``backup_stop_server``) or kept up with saving bracketed (module doc)."""
     if not server.path:
         raise BackupError("Server is not installed yet")
     server_dir = Path(server.path)
+    from .servers.manager import manager  # late import (cycle)
 
+    was_running = manager.is_running(server.id)
+    if not was_running or server.backup_stop_server or is_proxy_type(server.type):
+        return await _create(session, server, server_dir, trigger, was_running)
+    async with _bracket_lock(server.id):
+        # Ask again once it is our turn: the server may have stopped while an
+        # earlier backup held the lock, and a stopped world needs no bracket.
+        return await _create(
+            session, server, server_dir, trigger, manager.is_running(server.id)
+        )
+
+
+async def _create(
+    session: Session, server: Server, server_dir: Path, trigger: str, was_running: bool
+) -> Backup:
     # Optionally take the server down for a consistent snapshot.
     from .servers.manager import ManagerError, manager  # late import (cycle)
 
-    was_running = manager.is_running(server.id)
+    # A proxy has no world to flush and no save commands to send.
+    bracket = (
+        was_running and not server.backup_stop_server and not is_proxy_type(server.type)
+    )
     if was_running and server.backup_stop_server:
         try:
             await manager.stop(server.id)
@@ -141,7 +245,17 @@ async def create_backup(
 
     filename = _new_filename()
     dest = _backups_dir(server.id) / filename
+    saving_off = False
+    flushed: str | None = None
     try:
+        if bracket:
+            try:
+                if not await _autosave_off(server.id):
+                    await manager.send(server.id, "save-off")
+                    saving_off = True
+                flushed = await _flush_running(server.id)
+            except ManagerError:
+                flushed = NOT_FLUSHED  # stopped meanwhile: archive what is on disk
         size = await asyncio.to_thread(
             _write_archive,
             server_dir,
@@ -153,6 +267,10 @@ async def create_backup(
         events.record(server.id, "backup_failed", str(exc))
         raise
     finally:
+        if saving_off:
+            # Stopped meanwhile: saving is back on with the next start anyway.
+            with contextlib.suppress(ManagerError):
+                await manager.send(server.id, "save-on")
         if was_running and server.backup_stop_server:
             try:
                 await manager.start(server.id)
@@ -166,7 +284,8 @@ async def create_backup(
     session.commit()
     session.refresh(backup)
     _prune(session, server)
-    events.record(server.id, "backup_created", f"{filename} ({trigger})")
+    how = trigger if flushed is None else f"{trigger}, {flushed}"
+    events.record(server.id, "backup_created", f"{filename} ({how})")
     return backup
 
 

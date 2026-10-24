@@ -63,7 +63,10 @@ ws.py              ConsoleHub / ProgressHub / StatusHub: in-process fan-out hubs
 servers/
   process.py       ServerProcess: asyncio subprocess, stdout pump, stdin.
   msmp.py          Server Management Protocol: version gate, server.properties
-                   enablement, MsmpClient (JSON-RPC over WebSocket).
+                   enablement, MsmpClient (JSON-RPC over WebSocket), method names.
+  properties.py    server.properties parse/render, DEFINITIONS, LIVE_SETTINGS,
+                   edit_lock (one read-modify-write per server at a time).
+  playerlists.py   whitelist.json / ops.json / banned-players.json read + edit.
   roster.py        Online roster: MSMP snapshot + notifications, console fallback.
   manager.py       Registry {server_id: ServerProcess}; lifecycle ops.
   status.py        set_status: the one Server.status writer (persist + publish).
@@ -134,6 +137,7 @@ LECTERN_DATA/
         ├── server.jar | paper-*.jar | fabric-server-launch.jar
         ├── eula.txt
         ├── server.properties   # management-server-* keys rewritten at start (1.21.9+, §5)
+        │                       # (the server itself rewrites it on a live setting, §5)
         ├── mods/          # Fabric/Quilt   (disabled files suffixed .disabled)
         ├── plugins/       # Paper
         ├── resourcepacks/
@@ -223,8 +227,10 @@ version no longer ships.
   before scheduling the shutdown, so the action response already carries it.
 - **Server Management Protocol (MSMP)** (`servers/msmp.py`): Mojang's JSON-RPC 2.0 over
   WebSocket, built into the Java server since 1.21.9. Fallback order: a connected client is
-  authoritative for the roster, drives `running`/`stopping` and carries kicks; the console
-  (roster lines, ready marker, `kick`) covers older versions, proxies and a dropped socket.
+  authoritative for the roster, drives `running`/`stopping` and carries kicks, list changes,
+  the pre-backup flush and live settings; the console (roster lines, ready marker, `kick`,
+  `whitelist`/`op`/`ban`, `save-all flush`) covers older versions, proxies and a dropped socket,
+  and direct file edits are the last rung for lists and settings.
   - **Version gate:** `msmp.manages(type, mc_version)` — a non-proxy type on 1.21.9+. Versions
     compare as `(major, minor, patch)` tuples, so `26.1` sorts after `1.21.11`; ids that don't
     parse (snapshots) are not managed.
@@ -246,8 +252,11 @@ version no longer ships.
     process exits. Connects to `ws://127.0.0.1:<port>` with `Authorization: Bearer <secret>`,
     retrying with backoff (0.5 s doubling to 5 s, no cap: on 1.21.9–26.1 the port opens only
     once the game is up, on 26.2+ before it). Each connection calls `rpc.discover` once and
-    records `info.version` as `schema_version`; `call(method, params)` sends positional array
-    params with an id and a 5 s timeout. Notifications (no id) go to the process's callback.
+    records `info.version` as `schema_version`; `call(method, params, timeout=5.0)` sends
+    positional array params with an id. It raises `MsmpError` on a JSON-RPC error, no
+    connection or a drop, and its subclass `MsmpTimeout` when no answer came in time (the
+    request reached the server, which may still carry it out). Notifications (no id) go to the
+    process's callback.
     Reconnects while the process lives, never raises into the lifecycle, logs at debug/info
     only, never logs the secret.
   - **Roster:** on connect the process seeds the roster from `minecraft:players`
@@ -266,6 +275,41 @@ version no longer ships.
     client goes through `minecraft:players/kick` (`[[{"name": name}]]`), falling back to the
     console `kick` if the call fails or the reply doesn't list the player; a reason always uses
     `kick <name> <reason>`.
+  - **Player lists** (`api/players.py`): only on a server that is `running` (starting/stopping
+    edit the files). Rung 1, a connected client: `minecraft:allowlist/add`, `operators/add` or
+    `bans/add` with `[[component]]` built from the registry name only (the server resolves the
+    UUID per its own online mode, as the console does). Operators get `permissionLevel` from
+    `serversettings/operator_user_permission_level` (else the file's `op-permission-level`,
+    default 4, clamped 0–4) and `bypassesPlayerLimit: false`; bans carry `source: "Lectern"` and,
+    when given, `reason` and `expires` (`YYYY-MM-DDTHH:MM:SSZ`). Removes send
+    `[[{"name", "id": <dashed uuid>}]]` from the file entry, so an online-mode server does not
+    look the name up again. The reply is the resulting list: an add is confirmed when it holds
+    the player by name (case-insensitive) or undashed id, a remove when no entry carries that id
+    (by name only for entries without an id). Rung 2, after an error or an unconfirmed reply:
+    the console command (`ban <name> <reason>` with a reason; an expiry cannot be expressed),
+    confirmed by polling the file. Rung 3: `playerlists.add/remove` edits the file (bans store
+    the reason, default `Banned by an operator.`, and `expires` as `YYYY-MM-DD HH:MM:SS +0000`,
+    default `forever`). The server rewrites the JSON file before answering, so reads always
+    come from the files. The request releases its DB session before waiting on the server.
+  - **Live settings** (`PATCH …/properties`): `properties.LIVE_SETTINGS` maps `motd`,
+    `difficulty`, `max-players`, `view-distance`, `white-list`, `enforce-whitelist` and
+    `gamemode` to the protocol's names (`motd`, `difficulty`, `max_players`, `view_distance`,
+    `use_allowlist`, `enforce_allowlist`, `game_mode`); `msmp.setting_method(key)` builds
+    `minecraft:serversettings/<name>/set`. Sets go in request order with a typed value
+    (`properties.live_value`: int, bool or string) and a 5 s timeout, only when the server is
+    `running` with a connected client. A key counts as applied only when the answer equals the
+    value sent (a hardcore world keeps `hard`); an error or another answer leaves it to the file
+    write. A timeout reads the value back (`serversettings/<name>`, 30 s): sent value → applied;
+    anything else → the key is unconfirmed and no further set is tried. The server rewrites
+    `server.properties` from its startup copy on every set, so the PATCH reads the file before
+    the sets, re-reads it after, takes the server's values for the keys it settled, and writes
+    the pre-set file plus the remaining keys again (no write when every key applied live and
+    nothing else changed). An unconfirmed set answers 504 after that write, naming the keys
+    applied live and those saved for the next start. Every `server.properties`
+    read-modify-write (the PATCH, the port in `PATCH /servers/{id}`, the server resource pack,
+    proxy linking) holds `properties.edit_lock(server_dir)`, so none lands between the PATCH's
+    read and its write.
+  - **Backup flush:** see §8.
 - **Stats:** `psutil` on the process for CPU/memory; a Minecraft **Server List Ping** to
   `127.0.0.1:{port}` for online/max players and MOTD. **Pull-based only**: computed on
   `GET /servers/{id}/stats`, driven by frontend polling — no background stats loop in v1. The
@@ -369,9 +413,14 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
   `msmp: {connected, schema_version} | null` — null without a client (stopped, proxy, < 1.21.9)
 - `POST /servers/{id}/action/{start|stop|restart|kill}`
 - `GET /servers/{id}/stats`
-- `GET/PATCH /servers/{id}/properties` (server.properties) — `definitions[key].managed` marks
-  the management-server keys on managed servers; PATCH answers 422 for them. Any endpoint that
-  writes `server.properties` answers 400 when it is a symlink leading out of the server dir
+- `GET/PATCH /servers/{id}/properties` (server.properties) → `{properties, definitions,
+  applied_live}` — `definitions[key].managed` marks the management-server keys on managed
+  servers; PATCH answers 422 for them. `definitions[key].live` marks the keys a running server
+  can apply at once (§5); `applied_live` lists, in request order, the PATCH keys it did apply
+  that way (always `[]` on GET); the rest were written for the next start. PATCH answers 422
+  listing every invalid key with nothing applied, and 504 when a live set went unconfirmed
+  (the other keys are saved by then, see §5). Any endpoint that writes `server.properties`
+  answers 400 when it is a symlink leading out of the server dir
 - `POST /servers/{id}/eula` (accept)
 - `GET /servers/{id}/version/preview?mc_version=…` — dry-run content compatibility report
 - `POST /servers/{id}/version` — `{mc_version, loader_version?, allow_downgrade?, backup_first?}`;
@@ -385,6 +434,15 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
   null; with MSMP a bot may carry its offline UUID); empty when not running
 - `POST /servers/{id}/players/online/{name}/kick` — optional `{reason}` → the updated roster;
   404 not online, 409 not running; routing (Carpet / MSMP / console) in §5
+- `GET /servers/{id}/playerlists` → `{whitelist, ops, banned}`, each `[{uuid, name}]` (uuid
+  undashed), read from the JSON files only
+- `POST /servers/{id}/playerlists/{whitelist|ops|banned}` — `{uuid, reason?, expires?}` → the
+  lists; `reason` (newlines become spaces, blank = none, max 200 characters) and `expires`
+  (ISO-8601, naive = UTC, must be in the future) apply to `banned` only and are ignored
+  elsewhere. 404 unknown server, list or unregistered player, 409 not installed, 422 bad
+  `reason`/`expires`; no command or protocol call on any 4xx
+- `DELETE /servers/{id}/playerlists/{kind}/{uuid}` → the lists; a uuid absent from the file is a
+  no-op 200. Routing (MSMP / console / file) for both in §5
 
 ### Content (mods / plugins / resource packs)
 - `GET /content/search?server_id=…&query=…` — Modrinth search scoped to the server
@@ -438,6 +496,19 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
 
 - **Create:** zip the server directory, excluding a configurable set of paths, writing to
   `LECTERN_DATA/backups/{server_id}/{timestamp}.zip`.
+- **Running server:** with `backup_stop_server` on, stop → zip → start. Otherwise (not for a
+  proxy, which has no world and is zipped as is) the archive is bracketed: console `save-off`
+  (skipped when `minecraft:serversettings/autosave` reports saving already off, an operator's
+  own `save-off`), then a flush — `minecraft:server/save [true]` awaited with a 120 s timeout
+  through a connected client, else (no client, error, or a reply other than `true`) console
+  `save-all flush` plus a fixed 2 s grace (`_CONSOLE_FLUSH_GRACE`) — then the zip, then console
+  `save-on` in a `finally` whenever `save-off` was sent. A `ManagerError` from any console send
+  (the server stopped meanwhile) is swallowed. Bracketed backups of one server take turns
+  (per-server `asyncio.Lock`), so one's `save-on` never lands during another's zip. The
+  `backup_created` message is `{filename} ({trigger}, flushed via management protocol|flushed
+  via console|not flushed)`; a stopped server or a stop-for-backup keeps `{filename}
+  ({trigger})`. Files can still change during the zip, so `session.lock` and unreadable files
+  are skipped rather than failing the backup.
 - **Path-traversal guard:** the backup destination is validated to be **outside** the server
   directory before writing/restoring (borrowed from Crafty's approach) to avoid recursive or
   destructive archives.
@@ -502,8 +573,11 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
 - **Modrinth rate limits / User-Agent policy** — respect their requirements; cache catalogs.
 - **Java major mapping** must be revisited as new Minecraft versions raise Java requirements.
 - **MSMP schema** is versioned and still moving (1.1.0 at 25w41a to 3.1.0 at 26.3). Lectern uses
-  only `rpc.discover`, `minecraft:players`, `players/kick`, `server/status` and the player and
-  server notifications, and falls back to the console when a call fails.
+  only `rpc.discover`, `minecraft:players`, `players/kick`, `server/status`, `server/save`, the
+  `allowlist`/`operators`/`bans` add and remove methods, the seven `serversettings/*/set` of
+  `LIVE_SETTINGS` (and their getters, plus `autosave` and `operator_user_permission_level`) and
+  the player and server notifications, and falls back to the console (or the files) when a call
+  fails.
 
 ---
 
@@ -511,7 +585,8 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
 
 - **Unit (pytest):** provider clients against recorded fixtures; MC→Java mapping; manifest and
   update-diff logic; backup path-traversal guard; `.mrpack` parsing; the MSMP client against a
-  fake `websockets` server (Bearer check, late-opening port, notifications).
+  fake `websockets` server (Bearer check, late-opening port, notifications, list changes,
+  `server/save`, live settings and their fallbacks).
 - **Integration (marked):** real process start/stop, console streaming, end-to-end create → run.
 - **Manual per-phase verification:** create a real server of each type, install a known mod
   (e.g. Fabric API), generate a Vanilla Tweaks pack, back up and restore — observing live

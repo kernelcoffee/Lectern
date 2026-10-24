@@ -26,11 +26,16 @@
 // sends the overlay, then replaces the source of truth with the response and
 // clears the overlay. "Dirty" = overlay non-empty.
 //
-// Everything here applies at the NEXT server start (Minecraft reads the file
-// and Lectern rebuilds the launch command on boot) — the banner reminds users.
+// Lectern settings and most server.properties keys apply at the NEXT server
+// start (Minecraft reads the file and Lectern rebuilds the launch command on
+// boot). The exception: on a running server whose management-protocol client
+// is connected, the keys the backend marks `live` (motd, difficulty, …) are
+// applied immediately through the protocol and the server rewrites the file
+// itself; the PATCH answer lists them in `applied_live`. Each edited or just
+// saved row says which of the two applies (see applyHint in lib/properties).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { errorMessage } from "../../api/client";
+import { ApiError, errorMessage } from "../../api/client";
 import {
   getProperties,
   patchProperties,
@@ -38,10 +43,18 @@ import {
   PropertyDefinition,
   ServerDetail,
   ServerSettingsUpdate,
+  ServerStatus,
   updateServerSettings,
 } from "../../api/servers";
 import { useToast } from "../../components/Toasts";
-import { propertyRows } from "../../lib/properties";
+import {
+  applyHint,
+  pendingEdits,
+  propertyRows,
+  SaveOutcome,
+  saveOutcome,
+  savedMessage,
+} from "../../lib/properties";
 
 export default function PropertiesTab({
   serverId,
@@ -54,15 +67,27 @@ export default function PropertiesTab({
    *  (port/memory line, controls) reflects the change immediately. */
   onServerUpdate: (s: ServerDetail) => void;
 }) {
+  // Live keys apply immediately only on a fully running server whose
+  // protocol client is connected — the backend's own gate. While starting or
+  // stopping the client can still be connected, but the PATCH writes the file.
+  const connected = server.status === "running" && server.msmp?.connected === true;
   return (
     <div className="space-y-6">
       <p className="text-xs text-slate-500">
-        Changes apply the next time the server starts.
+        {connected
+          ? "Changes apply at the next start. While the server runs with its management protocol connected, motd, difficulty, max players, view distance, the whitelist switches and gamemode take effect immediately; an edited row says which applies."
+          : "Changes apply the next time the server starts."}
       </p>
       <LecternSettingsForm server={server} onServerUpdate={onServerUpdate} />
       {/* Proxies have no server.properties — velocity.toml lives in the
           Files tab, links in the Proxy tab. */}
-      {server.type !== "velocity" && <ServerPropertiesForm serverId={serverId} />}
+      {server.type !== "velocity" && (
+        <ServerPropertiesForm
+          serverId={serverId}
+          status={server.status}
+          connected={connected}
+        />
+      )}
     </div>
   );
 }
@@ -174,11 +199,40 @@ function LecternSettingsForm({
 // Section 2 — server.properties (file on disk)
 // ---------------------------------------------------------------------------
 
-function ServerPropertiesForm({ serverId }: { serverId: string }) {
+function ServerPropertiesForm({
+  serverId,
+  status,
+  connected,
+}: {
+  serverId: string;
+  /** Lifecycle status; any change makes the post-save hints stale. */
+  status: ServerStatus;
+  /** The server is running with its management-protocol client connected
+   *  (live keys apply immediately on save). */
+  connected: boolean;
+}) {
   // `data` mirrors the backend response (file content + widget metadata).
   const [data, setData] = useState<PropertiesResponse | null>(null);
   // Overlay of changed keys → new string value.
   const [edits, setEdits] = useState<Record<string, string>>({});
+  // How each key saved in this visit took effect (live vs at next start);
+  // dropped for a key as soon as it is edited again, and for every key when
+  // the server's status changes: after a stop or a (re)start "applied now" and
+  // "applies at next start" no longer describe the running server.
+  const [lastSave, setLastSave] = useState<Record<string, SaveOutcome>>({});
+  // Keys this visit wrote to the file since the status last changed, including
+  // the part a failed save still wrote. For a non-live key such as
+  // force-gamemode the running server keeps the value it started with, so the
+  // file no longer says what is in effect.
+  const [writtenThisRun, setWrittenThisRun] = useState<ReadonlySet<string>>(new Set());
+  const [hintStatus, setHintStatus] = useState(status);
+  if (hintStatus !== status) {
+    // Adjusting state on a prop change during render (no effect, so no frame
+    // with stale hints); React re-renders before committing.
+    setHintStatus(status);
+    setLastSave({});
+    setWrittenThisRun(new Set());
+  }
   // Free-form "add a property" row.
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
@@ -201,6 +255,15 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
     load();
   }, [load]);
 
+  // Whether force-gamemode is on in the running server: the saved file value,
+  // trusted only while this visit has neither a pending edit of it nor written
+  // it since the status changed. Anything else gets the cautious gamemode
+  // wording ("to new players").
+  const forceGamemodeInEffect =
+    data?.properties["force-gamemode"] === "true" &&
+    edits["force-gamemode"] === undefined &&
+    !writtenThisRun.has("force-gamemode");
+
   // Rows shown: file keys + known definitions (see propertyRows).
   const rows = useMemo(() => (data ? propertyRows(data) : []), [data]);
 
@@ -214,22 +277,60 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
     if (!data) return;
     setSaving(true);
     setError(null);
+    const added = newKey.trim();
+    const updates: Record<string, string> = { ...edits };
+    if (added) updates[added] = newValue;
     try {
-      const updates: Record<string, string> = { ...edits };
-      if (newKey.trim()) updates[newKey.trim()] = newValue;
-      // Backend validates typed keys (enum/int/bool) and answers with the
+      // Backend validates typed keys (enum/int/bool), applies live keys
+      // through the management protocol when it can, and answers with the
       // full re-read file, which becomes the new source of truth.
-      setData(await patchProperties(serverId, updates));
+      const saved = await patchProperties(serverId, updates);
+      setData(saved);
+      setLastSave((prev) => ({
+        ...prev,
+        ...saveOutcome(Object.keys(updates), saved.applied_live),
+      }));
+      setWrittenThisRun((prev) => new Set([...prev, ...Object.keys(updates)]));
       setEdits({});
       setNewKey("");
       setNewValue("");
-      toast.success("server.properties saved.");
+      toast.success(savedMessage(saved.applied_live));
     } catch (e) {
-      // 422 carries the list of invalid keys/messages from the backend.
+      // 422 carries the list of invalid keys/messages from the backend and
+      // means nothing was written. Any other failure (the 504 for a live set
+      // the server did not confirm) may come after the backend already wrote
+      // the other keys, so re-read the file and keep only the edits it lacks.
       setError(errorMessage(e));
+      if (!(e instanceof ApiError && e.status === 422)) {
+        await reconcileAfterFailure(updates, added);
+      }
     } finally {
       setSaving(false);
     }
+  }
+
+  /** After a failed save: adopt the file as it is now and drop every edit
+   *  (and the free-form row) it already holds. The error message stays. */
+  async function reconcileAfterFailure(updates: Record<string, string>, added: string) {
+    let fresh: PropertiesResponse;
+    try {
+      fresh = await getProperties(serverId);
+    } catch {
+      // The re-read failed too: keep every edit, so nothing looks saved
+      // that may not be; the save error is already shown.
+      return;
+    }
+    const pending = pendingEdits(updates, fresh.properties);
+    const settled = Object.keys(updates).filter((key) => !(key in pending));
+    setData(fresh);
+    setEdits((prev) =>
+      Object.fromEntries(Object.entries(prev).filter(([key]) => key in pending)),
+    );
+    if (added && !(added in pending)) {
+      setNewKey("");
+      setNewValue("");
+    }
+    setWrittenThisRun((prev) => new Set([...prev, ...settled]));
   }
 
   if (!data) {
@@ -256,7 +357,23 @@ function ServerPropertiesForm({ serverId }: { serverId: string }) {
             definition={data.definitions[key]}
             value={valueOf(key)}
             edited={edits[key] !== undefined}
-            onChange={(v) => setEdits((prev) => ({ ...prev, [key]: v }))}
+            hint={applyHint({
+              edited: edits[key] !== undefined,
+              live: data.definitions[key]?.live === true,
+              connected,
+              lastSave: lastSave[key] ?? null,
+              key,
+              forceGamemode: forceGamemodeInEffect,
+            })}
+            onChange={(v) => {
+              setEdits((prev) => ({ ...prev, [key]: v }));
+              setLastSave((prev) => {
+                if (!(key in prev)) return prev;
+                const next = { ...prev };
+                delete next[key];
+                return next;
+              });
+            }}
           />
         ))}
       </div>
@@ -291,12 +408,15 @@ function PropertyField({
   definition,
   value,
   edited,
+  hint,
   onChange,
 }: {
   name: string;
   definition: PropertyDefinition | undefined;
   value: string;
   edited: boolean;
+  /** When the edit or the last save takes effect; ignored for managed keys. */
+  hint: string | null;
   onChange: (value: string) => void;
 }) {
   const base =
@@ -372,8 +492,10 @@ function PropertyField({
     <label className="block text-xs text-slate-400 space-y-1" title={definition?.description}>
       <span>
         {name}
-        {definition?.managed && (
+        {definition?.managed ? (
           <span className="text-slate-600"> — reserved for Lectern (management protocol)</span>
+        ) : (
+          hint && <span className="text-slate-600"> — {hint}</span>
         )}
       </span>
       {input}

@@ -87,7 +87,7 @@ have scheduled mod auto-updates and the newer-version indicators. Still open:
 | Custom resource pack manager | Build and manage a server-side custom resource pack (custom models, sounds/music, textures…) that mods can hook into, from a dedicated UI rather than hand-editing the pack |
 | World pruning | Prune generated-but-unvisited or stale chunks with a proper interface, so a map explored on an older version regenerates with new resources/features after an update. Meanwhile the manual path is F-B-5: download a backup, prune it offline, upload and restore it |
 | Performance & idle | Apply/enforce recommended server optimisations (JVM flags, config tweaks); **auto-shutdown when no players are online, auto-wake when a player tries to connect** |
-| Server Management Protocol, phase 2 | Allowlist/ops/bans through the protocol instead of console commands; `server/save` before a running-server backup; live MOTD/difficulty/max-players changes without a restart |
+| Server Management Protocol, phase 3 | Game rules editor (`gamerules`, keys are namespaced like `minecraft:natural_health_regeneration`); IP bans (`ip_bans`); in-game system messages (`server/system_message`, e.g. a backup notice) |
 
 **Design implication:** server types/editions and content sources are treated as **pluggable
 providers** from day one (see [`technical.md`](./technical.md) §§ 2, 6). Fabric and Modrinth are
@@ -135,7 +135,14 @@ which is why one content pipeline serves them all.
 - **F-SM-5 — Edit configuration.** The admin can view and edit `server.properties` through a
   form, and adjust Lectern-managed settings (memory, JVM args, port, auto-start on boot,
   auto-restart on crash, graceful-stop timeout). On 1.21.9+ Java servers the
-  `management-server-*` keys belong to Lectern (F-SM-13) and show read-only.
+  `management-server-*` keys belong to Lectern (F-SM-13) and show read-only. While a server runs
+  with its management connection up, `motd`, `difficulty`, `max-players`, `view-distance`,
+  `white-list`, `enforce-whitelist` and `gamemode` apply **immediately** through the protocol
+  (the server rewrites `server.properties` itself); every other key, and a live key the server
+  refuses or the call fails for, is written to the file and applies at the next start. Each
+  edited or just-saved row says "applies now" or "applies at next start"; a live `gamemode`
+  change sets the default for new players only, unless `force-gamemode` is on. Game rules are
+  not edited here.
 - **F-SM-6 — EULA.** On first start Lectern surfaces the Minecraft EULA and requires the admin to
   accept it; acceptance writes `eula=true`.
 - **F-SM-7 — Delete server.** Removes the server and its files (with confirmation), optionally
@@ -147,9 +154,17 @@ which is why one content pipeline serves them all.
   stored canonical). From a server's **Players** tab those registered players are added to / removed
   from the server's **whitelist**, **operators**, and **banned** lists — backed by the server's own
   `whitelist.json` / `ops.json` / `banned-players.json` (correct per-list shape). On a **running**
-  server the change is applied **immediately** via the matching console command (`whitelist
-  add/remove`, `op`/`deop`, `ban`/`pardon` — the server rewrites its own files); on a stopped
-  server the files are edited directly and apply at the next start. The registry has a card view
+  server the change is applied **immediately**: through the management protocol while its
+  connection is up (F-SM-13), else via the matching console command (`whitelist add/remove`,
+  `op`/`deop`, `ban`/`pardon`) — either way the server rewrites its own files. If neither lands,
+  or the server is stopped (or starting/stopping), the files are edited directly and apply at the
+  next start. The lists are always read from the files, so they show for stopped servers too. A
+  ban may carry a **reason** (up to 200 characters; Players tab and API) and an **expiry** (API
+  only, must be in the future): the protocol honours both, the console `ban` only the reason, a
+  direct file edit stores both. A new operator gets the server's `op-permission-level` (default
+  4), as the console `op` grants. The add picker hides registry players already on a list, by
+  UUID, or by name for an entry the server resolved itself (offline-mode or proxied backends
+  record an offline UUID). The registry has a card view
   (skin-face avatar + username) and a
   list view; **avatars are rendered by Lectern itself** from the Mojang skin (no dependency on a
   flaky community service like Crafatar).
@@ -189,10 +204,12 @@ which is why one content pipeline serves them all.
   later, Lectern turns on Mojang's built-in management protocol at every start — bound to
   localhost, on a port Lectern picks, with a secret it generates once and keeps — and holds one
   connection to it while the server runs. It is the primary source for the online roster
-  (F-PL-2), the running/stopping transitions (F-SM-12) and kicks; the console stays the fallback
-  for older versions, proxies and whenever the connection is down, so nothing depends on it. The
-  server page shows a "management protocol" chip while connected (schema version on hover) and a
-  "connecting…" chip while it is not.
+  (F-PL-2), the running/stopping transitions (F-SM-12) and kicks, and the channel for
+  whitelist/ops/ban changes (F-PL-1), the world flush before a running-server backup (F-B-1) and
+  live `server.properties` settings (F-SM-5); the console (and, for lists and settings, direct
+  file edits) stays the fallback for older versions, proxies and whenever the connection is
+  down, so nothing depends on it. The server page shows a "management protocol" chip while
+  connected (schema version on hover) and a "connecting…" chip while it is not.
 - **F-SM-11 — File manager.** *(M12)* Browse and edit a server's files from the UI — the escape
   hatch for config Lectern doesn't model (`config/`, `ops.json`, reading `logs/`). A table
   (Name · Type · Modified · Size · Permissions) with multi-select; navigate the tree, edit text
@@ -284,7 +301,14 @@ which is why one content pipeline serves them all.
 ### 4.6 Backups
 
 - **F-B-1 — Create backup.** On demand, Lectern creates a compressed archive of a server's data,
-  stored outside the server directory.
+  stored outside the server directory. A running server is either stopped and restarted around
+  the archive (the per-server *Stop server for backup* setting) or kept up: saving is paused
+  (`save-off`), the world is flushed to disk (the management protocol's `server/save` when its
+  connection is up, else the console `save-all flush`), the archive is written, and `save-on`
+  always follows, even when the archive fails. An operator's own `save-off` (seen through the
+  protocol) is left alone, and two backups of one server take turns. The `backup_created` event
+  says how the world was flushed ("flushed via management protocol", "flushed via console" or
+  "not flushed").
 - **F-B-2 — List backups.** Show existing backups per server with timestamp and size.
 - **F-B-3 — Restore.** Restore a chosen backup; the server is stopped first, the archive is
   validated (including that it fits on the disk once unpacked while leaving a free-space margin,
