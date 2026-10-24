@@ -8,8 +8,11 @@ just supplies the names/UUIDs you add from.
 UUIDs are stored **dashed** in the files (Minecraft's format) but compared
 **undashed** everywhere else, so add/remove normalise both ways. Minecraft
 caches these files in memory, so direct edits apply at the next start / list
-reload — for a *running* server the API layer (``api/players.py``) sends the
-equivalent console command instead and only falls back to these file edits.
+reload. For a *running* server the API layer (``api/players.py``) goes
+through the Server Management Protocol when its client is connected, else the
+equivalent console command, and only falls back to these file edits; either
+way the server rewrites the file itself. A direct edit while the server runs
+is overwritten by its next own rewrite of that list.
 """
 
 from __future__ import annotations
@@ -63,30 +66,56 @@ def read_list(server_dir: Path, kind: str) -> list[dict]:
     return out
 
 
-def _new_entry(kind: str, uuid: str, name: str) -> dict:
+# Minecraft's own wording and formats for banned-players.json.
+DEFAULT_BAN_REASON = "Banned by an operator."
+_FILE_DATE = "%Y-%m-%d %H:%M:%S +0000"
+
+
+def _new_entry(
+    kind: str, uuid: str, name: str, reason: str | None, expires: datetime | None, level: int
+) -> dict:
     dashed = dash_uuid(uuid)
     if kind == "ops":
-        return {"uuid": dashed, "name": name, "level": 4, "bypassesPlayerLimit": False}
+        return {"uuid": dashed, "name": name, "level": level, "bypassesPlayerLimit": False}
     if kind == "banned":
         return {
             "uuid": dashed,
             "name": name,
-            "created": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S +0000"),
+            "created": datetime.now(UTC).strftime(_FILE_DATE),
             "source": "Lectern",
-            "expires": "forever",
-            "reason": "Banned by an operator.",
+            "expires": as_utc(expires).strftime(_FILE_DATE) if expires else "forever",
+            "reason": reason or DEFAULT_BAN_REASON,
         }
     return {"uuid": dashed, "name": name}  # whitelist
 
 
-def add(server_dir: Path, kind: str, uuid: str, name: str) -> None:
-    """Add a player to a list (no-op if already present)."""
+def as_utc(moment: datetime) -> datetime:
+    """A naive datetime is taken as UTC; an aware one is converted to UTC."""
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)
+
+
+def add(
+    server_dir: Path,
+    kind: str,
+    uuid: str,
+    name: str,
+    *,
+    reason: str | None = None,
+    expires: datetime | None = None,
+    level: int = 4,
+) -> None:
+    """Add a player to a list (no-op if already present). ``reason`` and
+    ``expires`` only apply to ``banned`` (default: Minecraft's reason, and
+    ``forever``), ``level`` only to ``ops`` (default: Minecraft's default
+    ``op-permission-level``); the other lists ignore them."""
     path = _path(server_dir, kind)
     entries = _load(path)
     target = undash_uuid(uuid)
     if any(undash_uuid(str(e.get("uuid", ""))) == target for e in entries):
         return
-    entries.append(_new_entry(kind, uuid, name))
+    entries.append(_new_entry(kind, uuid, name, reason, expires, level))
     _save(path, entries)
 
 

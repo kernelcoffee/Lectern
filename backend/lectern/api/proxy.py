@@ -115,9 +115,7 @@ async def _prepare_backend(
 ) -> None:
     """Side effects for a newly-linked backend: offline-mode + forwarding."""
     backend_dir = Path(backend.path)
-    file_props = props.read_properties(backend_dir)
-    file_props["online-mode"] = "false"
-    props.write_properties(backend_dir, file_props)
+    await props.edit_properties(backend_dir, {"online-mode": "false"})
 
     if backend.type in _FORWARDING_MOD_TYPES:
         try:
@@ -208,10 +206,7 @@ async def set_proxy_links(
                     "proxy needs. Stop it first so it can be moved to an internal port.",
                 )
             new_port = next_free_port()
-            backend_dir = Path(backend.path)
-            file_props = props.read_properties(backend_dir)
-            file_props["server-port"] = str(new_port)
-            props.write_properties(backend_dir, file_props)
+            await props.edit_properties(Path(backend.path), {"server-port": str(new_port)})
             backend.port = new_port
             session.add(backend)
             session.commit()
@@ -243,9 +238,7 @@ async def set_proxy_links(
             and address in previously_linked
             and address not in links.values()
         ):
-            file_props = props.read_properties(Path(s.path))
-            file_props["online-mode"] = "true"
-            props.write_properties(Path(s.path), file_props)
+            await props.edit_properties(Path(s.path), {"online-mode": "true"})
 
     try:
         velocity.write_links(proxy_dir, links, try_order)

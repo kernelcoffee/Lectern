@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import shutil
 import tempfile
 import time
@@ -17,6 +18,7 @@ import uuid
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 import anyio
 from fastapi import (
@@ -71,12 +73,18 @@ from ..servers.types import is_proxy_type
 from ..ws import progress_hub, status_hub
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
+log = logging.getLogger(__name__)
 
 # WebSocket console lives outside the /api prefix (see docs/technical.md §5),
 # and Vite proxies /ws separately.
 console_router = APIRouter(tags=["console"])
 
 _ACTIONS = {"start", "stop", "restart", "kill"}
+# A live ``serversettings/*/set`` normally answers at once; past this the set
+# is read back (``_SETTING_READ_BACK_TIMEOUT``, a lagging server) before the
+# file is touched.
+_SET_TIMEOUT = 5.0
+_SETTING_READ_BACK_TIMEOUT = 30.0
 
 
 def _detail(server: Server) -> ServerDetailRead:
@@ -394,7 +402,7 @@ def server_progress(
 
 
 @router.patch("/{server_id}", response_model=ServerDetailRead)
-def update_server_settings(
+async def update_server_settings(
     server_id: str,
     payload: ServerSettingsUpdate,
     session: Session = Depends(get_session),
@@ -402,15 +410,15 @@ def update_server_settings(
     """Update Lectern-owned settings (JSON-merge semantics: only fields present
     in the request are applied). Memory/JVM changes take effect at the next
     start; a port change is also written into ``server.properties`` because
-    that file — not the DB column — is what the Minecraft process reads."""
+    that file — not the DB column — is what the Minecraft process reads. That
+    write waits its turn behind a properties PATCH of the same server (see
+    ``properties.edit_lock``)."""
     server = session.get(Server, server_id)
     if server is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
 
     updates = payload.model_dump(exclude_unset=True)
     _check_conflicts(session, name=updates.get("name"), exclude_id=server_id)
-    for key, value in updates.items():
-        setattr(server, key, value)
 
     if "port" in updates and server.path:
         server_dir = Path(server.path)
@@ -418,10 +426,13 @@ def update_server_settings(
             with contextlib.suppress(velocity.VelocityConfigError):
                 velocity.set_bind_port(server_dir, updates["port"])
         else:
-            file_props = props.read_properties(server_dir)
-            file_props["server-port"] = str(updates["port"])
-            props.write_properties(server_dir, file_props)
+            # The lock may wait on a properties PATCH's live calls: do not pin
+            # a pooled connection meanwhile.
+            session.close()
+            await props.edit_properties(server_dir, {"server-port": str(updates["port"])})
 
+    for key, value in updates.items():
+        setattr(server, key, value)
     session.add(server)
     session.commit()
     session.refresh(server)
@@ -567,8 +578,93 @@ def get_properties(
     )
 
 
+class _LiveOutcome(NamedTuple):
+    """What ``_apply_live_settings`` did: the keys the server confirmed, and
+    the one whose set timed out without a read-back confirming it (the loop
+    stops there, so later live keys go to the file)."""
+
+    applied: list[str]
+    unconfirmed: str | None
+
+
+async def _apply_live_settings(server: Server, normalized: dict[str, str | None]) -> _LiveOutcome:
+    """Apply the live keys of a validated update through the running server's
+    management client, in request order. A key counts only when the server
+    answers with the value sent: a different answer (a hardcore world keeps
+    ``hard``) means the server refused it, so the key is left to the file
+    write like a failed call. No client, or a server not fully up: nothing is
+    applied.
+
+    A set that times out may still run on the server. The current value is
+    then read back: the server handles management calls in order, so that
+    answer comes after the set ran. Read back as sent, the key counts as
+    applied; anything else (no answer, another value) leaves the outcome
+    unknown: the key is returned as ``unconfirmed`` and no further set is
+    tried on a server that slow."""
+    if server.status != ServerStatus.running.value:
+        return _LiveOutcome([], None)
+    proc = manager.get_process(server.id)
+    client = proc.msmp if proc is not None else None
+    if client is None or not client.connected:
+        return _LiveOutcome([], None)
+    applied: list[str] = []
+    for key, text in normalized.items():
+        if text is None or key not in props.LIVE_SETTINGS:
+            continue
+        value = props.live_value(key, text)
+        try:
+            result = await client.call(msmp.setting_method(key), [value], timeout=_SET_TIMEOUT)
+        except msmp.MsmpTimeout:
+            if not await _read_back_setting(client, key, value):
+                return _LiveOutcome(applied, key)
+            result = value
+        except msmp.MsmpError as exc:
+            log.info("msmp set of %s failed (%s), writing the file", key, exc)
+            continue
+        if result != value:
+            log.info(
+                "msmp set of %s to %r: the server kept %r, writing the file", key, value, result
+            )
+            continue
+        applied.append(key)
+    return _LiveOutcome(applied, None)
+
+
+async def _read_back_setting(client: msmp.MsmpClient, key: str, value: object) -> bool:
+    """After a set timed out: whether the server's current value for ``key``,
+    read once the set has run, is the value sent (see _apply_live_settings)."""
+    try:
+        current = await client.call(
+            msmp.setting_get_method(key), [], timeout=_SETTING_READ_BACK_TIMEOUT
+        )
+    except msmp.MsmpError as exc:
+        log.info("msmp read-back of %s failed (%s)", key, exc)
+        return False
+    if current != value:
+        log.info("msmp read-back of %s: %r, not the %r sent", key, current, value)
+        return False
+    return True
+
+
+def _unconfirmed_detail(key: str, applied: list[str], saved: list[str]) -> str:
+    """The 504 for a live set nobody can confirm. The file has already been
+    written with the rest; a late set would still make the server rewrite it
+    from its startup copy, which Lectern cannot undo after answering."""
+    parts = [f"The server did not confirm the {key} change in time and may still apply it."]
+    if applied:
+        parts.append(f"{', '.join(applied)} applied live.")
+    if saved:
+        parts.append(f"{', '.join(saved)} saved to server.properties for the next start.")
+    parts.append(
+        f"If the server applies {key} late, it rewrites server.properties from its startup "
+        "copy, which can revert changes saved while it runs: reload and check before "
+        "saving again."
+    )
+    return " ".join(parts)
+
+
 @router.patch("/{server_id}/properties", response_model=PropertiesRead)
-def patch_properties(
+async def patch_properties(
     server_id: str,
     updates: dict[str, str | int | bool | None],
     session: Session = Depends(get_session),
@@ -576,13 +672,23 @@ def patch_properties(
     """Merge ``updates`` into ``server.properties``.
 
     Values are validated against the typed definitions (bad enum/int/bool →
-    422 listing every offending key); ``null`` removes a key; unknown keys are
-    stored as free-form strings. ``server-port`` is mirrored to the record's
-    ``port`` column so the UI shows the truth. On servers Lectern runs the
-    management server for (1.21.9+, not proxies) the management-server keys
-    are Lectern's own (written at every start) and answer 422; elsewhere they
-    are ordinary keys. Changes apply at next start — Minecraft only reads the
-    file on boot."""
+    422 listing every offending key, nothing applied); ``null`` removes a key;
+    unknown keys are stored as free-form strings. ``server-port`` is mirrored
+    to the record's ``port`` column so the UI shows the truth. On servers
+    Lectern runs the management server for (1.21.9+, not proxies) the
+    management-server keys are Lectern's own (written at every start) and
+    answer 422; elsewhere they are ordinary keys.
+
+    While the server is running with a connected management client, the keys
+    in ``properties.LIVE_SETTINGS`` apply at once through
+    ``minecraft:serversettings/<name>/set`` and come back in ``applied_live``;
+    the server rewrites the file itself for those. Every other key (and a live
+    key whose call fails, or that the server answers with another value) is
+    written to the file and applies at next start. The server's rewrite comes
+    from its startup copy of the file, so whatever Lectern wrote while it ran
+    is written again on top of it. A set the server neither answers nor
+    confirms on read-back answers 504 after that write, naming what applied
+    and what was saved (see ``_apply_live_settings``)."""
     server = session.get(Server, server_id)
     if server is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Server not found")
@@ -590,35 +696,81 @@ def patch_properties(
         raise HTTPException(status.HTTP_409_CONFLICT, "Server is not installed yet")
 
     server_dir = Path(server.path)
-    file_props = props.read_properties(server_dir)
-
     managed = msmp.manages(server.type, server.mc_version)
     errors: list[str] = []
+    normalized: dict[str, str | None] = {}
     for key, value in updates.items():
         if managed and key in props.MANAGED_KEYS:
             errors.append(f"{key} is managed by Lectern")
             continue
         if value is None:
-            file_props.pop(key, None)
+            normalized[key] = None
             continue
         try:
-            file_props[key] = props.normalize_value(key, value)
+            normalized[key] = props.normalize_value(key, value)
         except ValueError as exc:
             errors.append(str(exc))
     if errors:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "; ".join(errors))
 
-    props.write_properties(server_dir, file_props)
+    # Refuse a server.properties symlinked out of the server dir (400) before
+    # anything is applied, live or not.
+    props.properties_file(server_dir)
+    # The lock and the live calls wait: do not pin a pooled connection.
+    session.close()
+    unconfirmed_error: HTTPException | None = None
+    # Every server.properties writer takes this lock: the merge below is
+    # built from a read made before the live calls.
+    async with props.edit_lock(server_dir):
+        before = props.read_properties(server_dir)
+        applied_live, unconfirmed = await _apply_live_settings(server, normalized)
+        # Keys the server has had a say in: their value is whatever it wrote.
+        settled = [*applied_live, *([unconfirmed] if unconfirmed else [])]
+        file_props = props.read_properties(server_dir) if settled else before
 
-    # Keep the record's port column in sync with the file (the file wins).
+        # Start from the file as it was: a live set rewrites the file from the
+        # server's startup copy, which would drop edits Lectern made since.
+        # The settled keys are whatever the server wrote for them; Lectern
+        # never writes a value of its own for those. This runs even when a set
+        # went unconfirmed, so the sets that did apply cannot cost earlier edits.
+        merged = dict(before)
+        for key in settled:
+            if key in file_props:
+                merged[key] = file_props[key]
+            else:
+                merged.pop(key, None)
+        saved: list[str] = []
+        for key, text in normalized.items():
+            if key in settled:
+                continue
+            saved.append(key)
+            if text is None:
+                merged.pop(key, None)
+            else:
+                merged[key] = text
+        if not settled or merged != file_props:
+            props.write_properties(server_dir, merged)
+            file_props = merged
+        if unconfirmed is not None:
+            unconfirmed_error = HTTPException(
+                status.HTTP_504_GATEWAY_TIMEOUT,
+                _unconfirmed_detail(unconfirmed, applied_live, saved),
+            )
+
+    # Keep the record's port column in sync with the file (the file wins),
+    # also before a 504: the file has been written by then.
     new_port = file_props.get("server-port")
     if new_port is not None and new_port.isdigit() and int(new_port) != server.port:
         server.port = int(new_port)
         session.add(server)
         session.commit()
+    if unconfirmed_error is not None:
+        raise unconfirmed_error
 
     return PropertiesRead(
-        properties=file_props, definitions=props.definitions_payload()
+        properties=file_props,
+        definitions=props.definitions_payload(),
+        applied_live=applied_live,
     )
 
 

@@ -29,7 +29,8 @@ needs (including the right Java) and runs it for you.
 - **Servers** — Vanilla, **Fabric**, **Quilt**, **NeoForge** and **Forge**, with a live
   console, status that updates instantly everywhere, stats, an online player roster (live
   through Mojang's Server Management Protocol on 1.21.9+, console parsing otherwise), and easy
-  settings editing.
+  settings editing (on 1.21.9+ the MOTD, difficulty, player limit, view distance, whitelist
+  switches and default gamemode apply without a restart).
 - **Proxy** — put your servers behind **one address** with a **Velocity** proxy: players
   connect once and hop between servers. Pick the servers to put behind it — Lectern does
   all the wiring for you.
