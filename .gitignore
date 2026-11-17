@@ -32,6 +32,7 @@ frontend/vite.config.d.ts
 # Internal working notes — kept local, not published
 docs/PROGRESS.md
 docs/implementation.md
+docs/plans/
 saves/
 
 # E2E (Playwright)

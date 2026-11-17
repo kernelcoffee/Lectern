@@ -58,7 +58,7 @@ notes in [`technical.md`](./technical.md)):
 
 ---
 
-## 3. Scope & Roadmap
+## 3. Scope
 
 Lectern is built in an extensible way, but the **first version deliberately targets a narrow,
 end-to-end slice**:
@@ -71,23 +71,10 @@ end-to-end slice**:
 - The full server lifecycle around them: create, run, console, config, Java auto-provisioning,
   backups, scheduling.
 
-### Roadmap (designed for, added later)
+### Since the first version
 
-Since the first version, **Quilt, Forge, NeoForge** and **Velocity proxies** have shipped, as
-have scheduled mod auto-updates and the newer-version indicators. Still open:
-
-| Area | Later additions |
-|------|-----------------|
-| Server types | **Paper** (plugins), **Bedrock** |
-| Content sources | CurseForge was considered and **decided against** (key-gated API, see README); Modrinth stays the only source, with manual jar drop-in as the escape hatch |
-| Access | Optional single-password gate |
-| Command library | Saved admin commands, runnable manually and as schedule actions |
-| Managed Carpet bots | Spawn fake players at a position to keep chunks loaded, auto-respawned after every server restart via the console pipe |
-| Logs | Viewer for rotated (`*.log.gz`) logs of earlier runs |
-| Custom resource pack manager | Build and manage a server-side custom resource pack (custom models, sounds/music, textures…) that mods can hook into, from a dedicated UI rather than hand-editing the pack |
-| World pruning | Prune generated-but-unvisited or stale chunks with a proper interface, so a map explored on an older version regenerates with new resources/features after an update. Meanwhile the manual path is F-B-5: download a backup, prune it offline, upload and restore it |
-| Performance & idle | Apply/enforce recommended server optimisations (JVM flags, config tweaks); **auto-shutdown when no players are online, auto-wake when a player tries to connect** |
-| Server Management Protocol, phase 3 | Game rules editor (`gamerules`, keys are namespaced like `minecraft:natural_health_regeneration`); IP bans (`ip_bans`); in-game system messages (`server/system_message`, e.g. a backup notice) |
+**Quilt, Forge, NeoForge** and **Velocity proxies** have shipped, as have scheduled mod
+auto-updates and the newer-version indicators.
 
 **Design implication:** server types/editions and content sources are treated as **pluggable
 providers** from day one (see [`technical.md`](./technical.md) §§ 2, 6). Fabric and Modrinth are
