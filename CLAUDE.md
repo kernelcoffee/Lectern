@@ -8,8 +8,15 @@ A self-hosted web app for creating and running modded Minecraft servers on a tru
 One Docker image serves a FastAPI backend and a built React SPA on one port. No auth by design.
 Core mission is done (v0.3.0); current work is the improvement phase.
 
-- `docs/functional.md` — what it does. **The roadmap table in §3 is the single source of truth
-  for the todo list.** When asked to "add to the list", edit that table.
+- `docs/functional.md` — what it does: scope and requirements.
+- The todo list is the GitHub project **Lectern**
+  (<https://github.com/users/kernelcoffee/projects/7>), not a file; **it is the single source
+  of truth for what is planned and what is in progress.** It tracks repository issues, ideas
+  (draft items) and, in each item's body, the notes that help the work. When asked to "add to
+  the list", add a draft item there (`gh project item-create 7 --owner kernelcoffee`) with
+  Status Backlog. New repository issues land in To triage until they are sorted. Keep Status
+  current as work moves: Backlog, Ready (planned), In progress, In review (PR open), Done.
+- `docs/plans/` — plan documents. Local and git-ignored; never commit them.
 - `docs/technical.md` — architecture, on-disk layout, provider integrations, API surface.
 - `docs/references/` — notes on Crafty 4 and mc-image-helper (patterns borrowed from them).
 
@@ -92,20 +99,13 @@ the Playwright smoke tier, and a Docker build. Pushes to `main` publish the `mas
   Modrinth is deliberately the only content source (CurseForge rejected; see README).
 - **Frontend:** keep API types in `src/api/*` mirroring backend schemas. Use the shared
   `Modal` and `Toasts` components rather than new ad-hoc ones. Layout must work on phones.
-- **Docs:** when a feature ships, update `docs/functional.md` (requirements + roadmap table)
-  and `docs/technical.md` if the API or layout changed. Bump the version in both
+- **Docs:** when a feature ships, update `docs/functional.md` (requirements), the
+  item on the project board, and `docs/technical.md` if the API or layout changed. Bump the version in both
   `backend/pyproject.toml` and `frontend/package.json` together for a release.
 
 ## Agent team
 
-`.claude/agents/` defines an adversarial dev team run by `.claude/workflows/dev-team.js`
-(launch it by `scriptPath`, not by name): a Fable planner writes per-stack briefs, an API
-contract and an expected-failure matrix; `dev-backend` and `dev-frontend` build in parallel and
-are attacked by a same-stack challenger; seven read-only reviewers (correctness, security,
-conventions, python, fastapi, typescript, react, ux) plus any ad-hoc specialist the planner
-defines review the diff, and a refuter judges every finding; `test-engineer` writes black-box
-tests from the failure matrix; `qa` runs the suite plus `scripts/check-coverage.sh` (changed
-lines ≥95% covered) and `scripts/shortcut-audit.sh`. Agents never commit; the orchestrator does.
+The agent team is provided by the Conclave plugin.
 
 ## Git
 

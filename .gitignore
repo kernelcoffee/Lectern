@@ -32,11 +32,16 @@ frontend/vite.config.d.ts
 # Internal working notes — kept local, not published
 docs/PROGRESS.md
 docs/implementation.md
+docs/plans/
 saves/
 
 # E2E (Playwright)
 .e2e-data/
 test-results/
+
+# Claude Code: local agent configuration, never committed
+.claude/
+.claude.bak/
 
 # coverage reports (scripts/check-coverage.sh, CI)
 .coverage
