@@ -166,7 +166,8 @@ async def test_install_progress_ws_ends_when_the_socket_closes():
     scope = {
         "type": "websocket", "asgi": {"version": "3.0"}, "scheme": "ws",
         "path": "/ws/servers/idle-install/install", "raw_path": b"", "root_path": "",
-        "query_string": b"", "headers": [], "subprotocols": [],
+        # A real handshake carries Host; without one the request guard refuses it.
+        "query_string": b"", "headers": [(b"host", b"testserver")], "subprotocols": [],
         "server": ("testserver", 80), "client": ("testclient", 50000),
     }
     await asyncio.wait_for(app(scope, receive, send), timeout=5)
@@ -203,7 +204,8 @@ async def test_install_progress_ws_ignores_client_messages():
     scope = {
         "type": "websocket", "asgi": {"version": "3.0"}, "scheme": "ws",
         "path": "/ws/servers/chatty-install/install", "raw_path": b"", "root_path": "",
-        "query_string": b"", "headers": [], "subprotocols": [],
+        # A real handshake carries Host; without one the request guard refuses it.
+        "query_string": b"", "headers": [(b"host", b"testserver")], "subprotocols": [],
         "server": ("testserver", 80), "client": ("testclient", 50000),
     }
     handler = asyncio.create_task(app(scope, receive, send))
