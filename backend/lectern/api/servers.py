@@ -939,7 +939,11 @@ async def status_ws(websocket: WebSocket, session: Session = Depends(get_session
 async def install_progress_ws(websocket: WebSocket, server_id: str) -> None:
     """Stream install progress: current snapshot (if an install is tracked),
     then live updates. Closes itself after a terminal event so short-lived
-    clients don't need their own teardown logic."""
+    clients don't need their own teardown logic. The client sends nothing;
+    reading is only how the close is noticed, so a socket closed by the client
+    or by the server shutting down ends the handler even while no install
+    event arrives (uvicorn waits for every handler before the lifespan
+    shutdown that stops the servers)."""
     await websocket.accept()
     # Subscribe BEFORE reading the snapshot so no update can fall in between
     # (a duplicate of the snapshot is harmless; a gap would be a stuck bar).
@@ -950,11 +954,27 @@ async def install_progress_ws(websocket: WebSocket, server_id: str) -> None:
             await websocket.send_json(asdict(current))
             if current.done or current.error:
                 return
-        while True:
-            event = await queue.get()
-            await websocket.send_json(event)
-            if event.get("done") or event.get("error"):
-                return
+
+        async def forward() -> None:
+            while True:
+                event = await queue.get()
+                await websocket.send_json(event)
+                if event.get("done") or event.get("error"):
+                    return
+
+        async def until_closed() -> None:
+            while (await websocket.receive())["type"] != "websocket.disconnect":
+                pass
+
+        tasks = {asyncio.create_task(forward()), asyncio.create_task(until_closed())}
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.wait(tasks)
+        for task in done:
+            task.result()
     except WebSocketDisconnect:
         pass
     finally:

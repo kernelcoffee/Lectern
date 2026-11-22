@@ -3,6 +3,7 @@ milestones a place to extend. Not exhaustive (CRUD is thin framework glue)."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -139,6 +140,85 @@ def test_install_progress_ws_closes_on_already_done(client):
         snap = ws.receive_json()
         assert snap["done"] is True
     install._progress.pop("wspid2", None)
+
+
+async def test_install_progress_ws_ends_when_the_socket_closes():
+    """With no install event coming, a close (the browser leaving, or uvicorn
+    closing every socket at shutdown) still ends the handler. uvicorn runs the
+    lifespan shutdown, which stops the servers, only after every handler has
+    returned, so one parked on the progress queue blocked it forever."""
+    from lectern.main import app
+    from lectern.ws import progress_hub
+
+    inbox: asyncio.Queue[dict] = asyncio.Queue()
+    inbox.put_nowait({"type": "websocket.connect"})
+    sent: list[dict] = []
+
+    async def receive() -> dict:
+        return await inbox.get()
+
+    async def send(message: dict) -> None:
+        sent.append(message)
+        if message["type"] == "websocket.accept":
+            # uvicorn's close at shutdown: 1012, service restart.
+            inbox.put_nowait({"type": "websocket.disconnect", "code": 1012})
+
+    scope = {
+        "type": "websocket", "asgi": {"version": "3.0"}, "scheme": "ws",
+        "path": "/ws/servers/idle-install/install", "raw_path": b"", "root_path": "",
+        "query_string": b"", "headers": [], "subprotocols": [],
+        "server": ("testserver", 80), "client": ("testclient", 50000),
+    }
+    await asyncio.wait_for(app(scope, receive, send), timeout=5)
+    assert [m["type"] for m in sent] == ["websocket.accept"]
+    assert not progress_hub._subs.get("idle-install")
+
+
+async def test_install_progress_ws_ignores_client_messages():
+    """The client is not expected to send anything; a message it sends anyway
+    is read and dropped, and the stream goes on until the socket closes."""
+    from lectern.main import app
+    from lectern.ws import progress_hub
+
+    inbox: asyncio.Queue[dict] = asyncio.Queue()
+    inbox.put_nowait({"type": "websocket.connect"})
+    inbox.put_nowait({"type": "websocket.receive", "text": "ping"})
+    reads = 0
+    reading_past_the_message = asyncio.Event()
+    forwarded = asyncio.Event()
+    sent: list[dict] = []
+
+    async def receive() -> dict:
+        nonlocal reads
+        reads += 1
+        if reads == 3:  # the connect, the client's message, then the next read
+            reading_past_the_message.set()
+        return await inbox.get()
+
+    async def send(message: dict) -> None:
+        sent.append(message)
+        if message["type"] == "websocket.send":
+            forwarded.set()
+
+    scope = {
+        "type": "websocket", "asgi": {"version": "3.0"}, "scheme": "ws",
+        "path": "/ws/servers/chatty-install/install", "raw_path": b"", "root_path": "",
+        "query_string": b"", "headers": [], "subprotocols": [],
+        "server": ("testserver", 80), "client": ("testclient", 50000),
+    }
+    handler = asyncio.create_task(app(scope, receive, send))
+    try:
+        await asyncio.wait_for(reading_past_the_message.wait(), timeout=5)
+        progress_hub.publish("chatty-install", {"step": "download_jar", "done": False})
+        await asyncio.wait_for(forwarded.wait(), timeout=5)
+        assert not handler.done()
+        inbox.put_nowait({"type": "websocket.disconnect", "code": 1001})
+        await asyncio.wait_for(handler, timeout=5)
+    finally:
+        handler.cancel()
+    assert [m["type"] for m in sent] == ["websocket.accept", "websocket.send"]
+    assert json.loads(sent[1]["text"]) == {"step": "download_jar", "done": False}
+    assert not progress_hub._subs.get("chatty-install")
 
 
 def test_create_validation_error(client):
