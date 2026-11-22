@@ -124,6 +124,7 @@ Everything is optional. Deployment settings are environment variables:
 | `LECTERN_DATA` | `/data` (image) | Directory for the DB, JREs, caches, backups, and server files. |
 | `LECTERN_HOST` | `0.0.0.0` | API/web bind address. |
 | `LECTERN_PORT` | `8000` | API/web port. |
+| `LECTERN_ALLOWED_HOSTS` | *(empty)* | Extra names or IP addresses Lectern may be reached by, comma-separated and exact (e.g. `mc.example.org,192.0.2.5`). `*` switches the Host and Origin checks off. See below. |
 
 ### App settings
 
@@ -144,6 +145,32 @@ unpacked; `0` keeps only the check that the backup fits.
 
 Lectern is built for a **trusted LAN** — there is no user auth. Don't expose it directly to the
 internet; put it behind a VPN or a reverse proxy with access control if you need remote access.
+
+### Host and Origin check
+
+Your browser sits on the LAN, so a web page from outside it could use it to talk to Lectern
+(send console commands, change servers, or reach the API through DNS rebinding). Lectern
+therefore refuses, before any route runs, every request and WebSocket handshake whose `Host` or
+`Origin` header is not the LAN. Two rules, both needing no configuration for a normal install:
+
+- **Host** (the address the request was sent to): any IP address, `localhost`, a single-word
+  name (`pi`, `backend`), or a name ending in `.local`, `.lan`, `.home.arpa` or `.internal`.
+  Anything else must be listed in `LECTERN_ALLOWED_HOSTS`.
+- **Origin** (the page making the request; checked only when the request carries one, so
+  `curl` and scripts pass): the same host name as `Host`, a loopback, private (10/8, 172.16/12,
+  192.168/16, fc00::/7) or link-local IP address, a name the Host rule accepts without an
+  entry, or a listed name. A public IP address is not accepted as Origin unless listed, and
+  `Origin: null` is always refused. Ports are ignored.
+
+A refused request gets `403` with a message naming `LECTERN_ALLOWED_HOSTS`; a refused WebSocket
+handshake is closed with code `1008` before it is accepted.
+
+**Behind a reverse proxy**, list the public name (`LECTERN_ALLOWED_HOSTS=mc.example.org`) even
+when the proxy rewrites `Host` to something internal: the browser's `Origin` still carries the
+public name, and it is refused otherwise. Entries may be names or IP addresses.
+
+`LECTERN_ALLOWED_HOSTS=*` switches both checks off and logs a warning at startup. Only use it
+if something else already keeps foreign pages out.
 
 ## Development
 
