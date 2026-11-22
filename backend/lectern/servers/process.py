@@ -20,11 +20,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ctypes
 import logging
+import os
 import re
 import signal
+import sys
 import time
 from collections.abc import Awaitable, Callable
+from enum import StrEnum
 
 import psutil
 
@@ -51,6 +55,8 @@ _DONE_MARKER = "Done ("
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 # Grace period after terminate() before escalating to a psutil tree kill.
 _TERMINATE_GRACE = 10
+# How long ``kill`` waits for the killed process to exit.
+_KILL_WAIT = 5
 # How often to announce the remaining time during a graceful stop.
 _COUNTDOWN_STEP = 10
 # How long stop()/kill() wait, after the exit, for the pump to report it.
@@ -59,6 +65,17 @@ _PUMP_SETTLE = 5
 # (server_id, status, detail) — detail is a human-readable reason, only
 # non-empty for "crashed" (exit code / signal explanation).
 StateCallback = Callable[[str, str, str], Awaitable[None]]
+
+
+class StopOutcome(StrEnum):
+    """How a ``stop`` or ``force_stop`` ended; the value reads as the end of
+    a log line (the caller adds why it had to terminate or kill)."""
+
+    exited = "exited after the stop command"
+    terminated = "was terminated"
+    killed = "was killed"
+    survived_kill = "is still running after being killed"
+    not_running = "was not running"
 
 
 def describe_exit(code: int) -> str:
@@ -84,6 +101,48 @@ def describe_exit(code: int) -> str:
     return f"exited with code {code}"
 
 
+# prctl(2) option: the signal the calling process gets when its parent dies.
+_PR_SET_PDEATHSIG = 1
+
+
+def _end_with_parent() -> Callable[[], None] | None:
+    """A ``preexec_fn`` that ties the server's life to Lectern's, on Linux.
+
+    Each server runs in its own session, so no terminal or process-group
+    signal reaches it. Should Lectern die without its lifespan shutdown (a
+    SIGKILL, a crash), the kernel then sends the server SIGTERM, and the
+    JVM's shutdown hook saves the world, instead of leaving it running where
+    Lectern can no longer see it. The signal is tied to the thread that
+    spawned the server: the event loop's, which lives as long as Lectern. The
+    setting survives the ``exec`` of a launch script into java.
+
+    This only helps where Lectern is an ordinary process (a terminal, a
+    service). In the Docker image Lectern is PID 1: when it dies the kernel
+    kills everything in the container before any parent-death signal is
+    sent, so the servers are SIGKILLed, as they always were.
+
+    Runs in the child between fork and exec, so it only calls an already
+    resolved C function and compares two pids."""
+    if not sys.platform.startswith("linux"):
+        return None
+    prctl = ctypes.CDLL(None).prctl
+    prctl.argtypes = (ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong)
+    prctl.restype = ctypes.c_int
+    lectern_pid = os.getpid()
+
+    def arm() -> None:
+        # The result is not checked: this is a safety net, and a runtime that
+        # refuses the call (a strict seccomp profile) must not keep every
+        # server from starting. An exception raised here would also reach
+        # Lectern without its reason.
+        prctl(_PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0)
+        if os.getppid() != lectern_pid:
+            # Lectern died between the fork and the prctl: nobody will send
+            # the signal, so do not launch a server nobody owns.
+            raise ChildProcessError("Lectern exited while the server was being launched")
+
+    return arm
+
 
 class ServerProcess:
     def __init__(
@@ -104,6 +163,11 @@ class ServerProcess:
         self.on_state = on_state
         self._proc: asyncio.subprocess.Process | None = None
         self._pump_task: asyncio.Task[None] | None = None
+        # The stop sequence in flight, shared by every caller of ``stop`` so a
+        # second caller waits for it instead of sending the command again.
+        self._stop_task: asyncio.Task[StopOutcome] | None = None
+        # Set once ``start`` has launched the subprocess or failed to.
+        self._spawn_settled = asyncio.Event()
         self._stopping = False
         self.started_at: float | None = None  # wall-clock, for uptime display
         self.roster = Roster()  # online players: MSMP first, console fallback
@@ -122,13 +186,24 @@ class ServerProcess:
         return self._proc.pid if self._proc is not None else None
 
     async def start(self) -> None:
-        self._proc = await asyncio.create_subprocess_exec(
-            *self.argv,
-            cwd=self.cwd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        try:
+            self._proc = await asyncio.create_subprocess_exec(
+                *self.argv,
+                cwd=self.cwd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                # Its own session: a Ctrl+C in Lectern's terminal (SIGINT to
+                # the foreground process group) must not reach the server and
+                # bypass the graceful stop; only Lectern decides how it ends.
+                # A terminal hangup becomes Lectern's own graceful shutdown
+                # (main.py); if Lectern dies without one, the parent-death
+                # signal still ends the server with SIGTERM.
+                start_new_session=True,
+                preexec_fn=_end_with_parent(),
+            )
+        finally:
+            self._spawn_settled.set()
         self.started_at = time.time()
         self._pump_task = asyncio.create_task(self._pump())
         await self._start_msmp()
@@ -145,6 +220,14 @@ class ServerProcess:
                 await self._handle_line(
                     _ANSI_RE.sub("", raw.decode(errors="replace")).rstrip("\r\n")
                 )
+        except asyncio.CancelledError:
+            # Only the event loop's own teardown cancels the pump: Lectern is
+            # exiting without its lifespan shutdown (a forced quit). Ask the
+            # server to end, so the wait below is for an exit that is coming
+            # and Lectern does not hang on its way out. No deadline and no
+            # kill here: the JVM takes the time it needs to save the world.
+            self._terminate_with_lectern()
+            raise
         finally:
             # Cancel the management client without yielding, report the final
             # state, and only then wait for the client's teardown: a restart
@@ -237,29 +320,58 @@ class ServerProcess:
             with contextlib.suppress(Exception):
                 await self._proc.stdin.drain()
 
-    async def stop(self, stop_command: str = "stop", timeout: int = 60) -> None:
-        if not self.running or self._proc is None:
-            return
+    async def wait_spawned(self) -> None:
+        """Return once ``start`` has launched the subprocess (or failed to), so
+        a caller that found this process registered but not yet ``running``
+        can tell a launch in flight from a process that never came up."""
+        await self._spawn_settled.wait()
+
+    async def stop(self, stop_command: str = "stop", timeout: int = 60) -> StopOutcome:
+        """Stop gracefully: ``stop_command``, then ``terminate()`` once
+        ``timeout`` runs out, then a tree kill. A call made while a stop is
+        already in flight sends nothing and waits for that one's outcome (so
+        its command and timeout apply); cancelling one waiter never cancels
+        the stop the others are waiting for."""
+        if self._stop_task is None or self._stop_task.done():
+            if not self.running:
+                return StopOutcome.not_running
+            self._stop_task = asyncio.create_task(self._stop(stop_command, timeout))
+        return await asyncio.shield(self._stop_task)
+
+    async def _stop(self, stop_command: str, timeout: int) -> StopOutcome:
+        assert self._proc is not None
         self._stopping = True
         await self.on_state(self.server_id, "stopping", "")
 
         await self.send(stop_command)
         if await self._wait_countdown(timeout):
-            return
+            return StopOutcome.exited
+        return await self._terminate_then_kill("[lectern] stop timed out — terminating")
 
-        # Graceful stop timed out — ask the JVM to terminate.
-        self.hub.publish(self.server_id, "[lectern] stop timed out — terminating")
+    async def force_stop(self) -> StopOutcome:
+        """Stop without the stop command, for when the graceful stop itself
+        failed: ``terminate()`` first (the JVM's shutdown hook still saves the
+        world), a tree kill only if that does not end it."""
+        self._stopping = True
+        if not self.running:
+            return StopOutcome.not_running
+        return await self._terminate_then_kill("[lectern] stop failed — terminating")
+
+    async def _terminate_then_kill(self, notice: str) -> StopOutcome:
+        assert self._proc is not None
+        self.hub.publish(self.server_id, notice)
         with contextlib.suppress(ProcessLookupError):
             self._proc.terminate()
         if await self._wait(_TERMINATE_GRACE):
-            return
+            return StopOutcome.terminated
+        return StopOutcome.killed if await self.kill() else StopOutcome.survived_kill
 
-        await self.kill()
-
-    async def kill(self) -> None:
+    async def kill(self) -> bool:
+        """Kill the whole process tree; True once the process has exited (a
+        process stuck in uninterruptible IO can outlive the wait)."""
         self._stopping = True
         if self._proc is None:
-            return
+            return True
         self.hub.publish(self.server_id, "[lectern] killing process tree")
         with contextlib.suppress(psutil.NoSuchProcess, ProcessLookupError):
             parent = psutil.Process(self._proc.pid)
@@ -267,7 +379,19 @@ class ServerProcess:
                 with contextlib.suppress(psutil.NoSuchProcess):
                     child.kill()
             parent.kill()
-        await self._wait(5)
+        return await self._wait(_KILL_WAIT)
+
+    def _terminate_with_lectern(self) -> None:
+        """Send SIGTERM to a server Lectern is exiting under, so the JVM's
+        shutdown hook saves the world. It never escalates to a kill: a forced
+        quit must not cut a save short, and the pump waits for the exit."""
+        assert self._proc is not None
+        if self._proc.returncode is not None:
+            return
+        self._stopping = True
+        self.hub.publish(self.server_id, "[lectern] Lectern is exiting — terminating")
+        with contextlib.suppress(ProcessLookupError):
+            self._proc.terminate()
 
     async def _wait(self, timeout: float) -> bool:
         """Wait up to ``timeout`` for exit; True if the process has exited."""
