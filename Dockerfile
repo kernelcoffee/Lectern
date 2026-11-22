@@ -41,4 +41,9 @@ ENV LECTERN_DATA=/data \
 VOLUME ["/data"]
 EXPOSE 8000 25565
 
-CMD ["uvicorn", "lectern.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# On SIGTERM uvicorn waits for open requests before it runs Lectern's shutdown,
+# which stops the Minecraft servers. The timeout keeps one long request (a large
+# backup download, say) from using up the container's stop grace period: after
+# 15 s uvicorn cancels what is still open and the servers get their stop command.
+CMD ["uvicorn", "lectern.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--timeout-graceful-shutdown", "15"]

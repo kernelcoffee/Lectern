@@ -20,6 +20,11 @@ services:
     container_name: lectern
     image: ghcr.io/kernelcoffee/lectern:${LECTERN_TAG:-latest}
     restart: unless-stopped
+    # When the container stops, Lectern stops every running server with its own
+    # stop command, all in parallel, so worlds are saved. Keep this above the
+    # longest per-server graceful-stop timeout plus about 45 s: the default of
+    # 60 s fits; raise it if you set a server's timeout above about 75 s.
+    stop_grace_period: 2m
     ports:
       - "8000:8000"        # web UI + API
       - "25565:25565"      # Minecraft (single fixed port; see note below)

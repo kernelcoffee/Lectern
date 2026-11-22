@@ -22,6 +22,7 @@ import contextlib
 import logging
 from pathlib import Path
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
 from .. import events
@@ -31,7 +32,7 @@ from ..servers.install import build_launch_command, eula_accepted
 from ..servers.types import is_proxy_type
 from ..ws import ConsoleHub
 from . import msmp
-from .process import ServerProcess
+from .process import ServerProcess, StopOutcome
 from .status import set_status
 
 log = logging.getLogger(__name__)
@@ -68,11 +69,18 @@ class PortInUse(ManagerError):
     status_code = 409
 
 
+class ShuttingDown(ManagerError):
+    status_code = 409
+
+
 class ServerManager:
     def __init__(self) -> None:
         self.hub = ConsoleHub()
         self._procs: dict[str, ServerProcess] = {}
         self._crash_counts: dict[str, int] = {}
+        # Set by ``shutdown``, cleared by ``reconcile`` at the next startup:
+        # while set, ``start`` refuses and a crash schedules no restart.
+        self._shutting_down = False
 
     # --- queries -----------------------------------------------------------
 
@@ -117,7 +125,15 @@ class ServerManager:
         if source is not None and self._procs.get(server_id) is not source:
             log.debug("ignoring %s from a superseded process of %s", status, server_id)
             return
-        server = self._write_status(server_id, status)
+        try:
+            server = self._write_status(server_id, status)
+        except SQLAlchemyError:
+            # The status row is a report on the process, not part of its
+            # lifecycle: a locked or full database must not stop a stop
+            # command from being sent or a finished process from being
+            # deregistered. Without the row there is no crash restart either.
+            log.exception("could not record status %s for server %s", status, server_id)
+            server = None
         if status == ServerStatus.running.value:
             self._crash_counts.pop(server_id, None)
             events.record(server_id, "started")
@@ -129,7 +145,12 @@ class ServerManager:
                 # The reason (exit code / signal) — so "why?" is answerable
                 # from the timeline instead of archaeology in kernel logs.
                 events.record(server_id, "crashed", detail)
-            if status == ServerStatus.crashed.value and server is not None and server.crash_restart:
+            if (
+                status == ServerStatus.crashed.value
+                and server is not None
+                and server.crash_restart
+                and not self._shutting_down
+            ):
                 crashes = self._crash_counts.get(server_id, 0) + 1
                 self._crash_counts[server_id] = crashes
                 if crashes > _MAX_CRASH_RESTARTS:
@@ -167,6 +188,11 @@ class ServerManager:
     # --- lifecycle ---------------------------------------------------------
 
     async def start(self, server_id: str) -> None:
+        # Checked before anything else; no await separates this check from
+        # registering the process below, so every start that gets past it is
+        # in ``_procs`` by the time ``shutdown`` can look.
+        if self._shutting_down:
+            raise ShuttingDown("Lectern is shutting down")
         if self.is_running(server_id):
             raise AlreadyRunning("Server is already running")
 
@@ -250,7 +276,6 @@ class ServerManager:
                 else None
             ),
         )
-        self._procs[server_id] = proc
         if msmp_failure is not None:
             self.hub.publish(server_id, msmp_failure)
         if endpoint is not None:
@@ -258,6 +283,10 @@ class ServerManager:
                 server_id, f"[lectern] management server on 127.0.0.1:{endpoint.port}"
             )
         self.hub.publish(server_id, f"[lectern] starting: {' '.join(argv)}")
+        # Nothing between registering and ``proc.start()``: ``shutdown`` waits
+        # for every registered process to settle its spawn, and only
+        # ``proc.start()`` settles it (whether the spawn works or not).
+        self._procs[server_id] = proc
         await proc.start()
 
     @staticmethod
@@ -320,7 +349,9 @@ class ServerManager:
         """At startup no processes exist; downgrade any stale live statuses so
         the UI doesn't show a phantom running server after a restart. Installs
         run in-process, so a record still `installing` after a restart can
-        never finish — mark it failed rather than spinning forever."""
+        never finish — mark it failed rather than spinning forever. Also lifts
+        the start refusal a previous ``shutdown`` left on this singleton."""
+        self._shutting_down = False
         stale = (
             ServerStatus.starting.value,
             ServerStatus.running.value,
@@ -363,9 +394,63 @@ class ServerManager:
             self.hub.publish(server_id, f"[lectern] auto-start skipped — {exc}")
 
     async def shutdown(self) -> None:
-        for server_id in list(self._procs):
-            with contextlib.suppress(Exception):
-                await self.kill(server_id)
+        """Stop every server Lectern owns the way the Stop button does (its own
+        stop command and graceful-stop timeout, then terminate, then kill), all
+        at once, and refuse any start from here on. A server already stopping
+        is waited for, not sent a second command; one still being launched is
+        waited for, then stopped. A server whose stop fails is logged, then
+        terminated (and killed if that is not enough), so it is never left
+        running behind Lectern. One line per server says how it ended."""
+        self._shutting_down = True
+        targets = list(self._procs.items())
+        if not targets:
+            return
+        log.info("shutdown: stopping %d server(s)", len(targets))
+        results = await asyncio.gather(
+            *(self._shutdown_one(server_id, proc) for server_id, proc in targets),
+            return_exceptions=True,
+        )
+        failed: list[tuple[str, ServerProcess]] = []
+        for (server_id, proc), result in zip(targets, results, strict=True):
+            if isinstance(result, BaseException):
+                log.error(
+                    "shutdown: server %s could not be stopped gracefully",
+                    server_id,
+                    exc_info=result,
+                )
+                failed.append((server_id, proc))
+            else:
+                _log_ending(server_id, result, "after its graceful-stop timeout")
+        if failed:
+            await self._force_stop_after_failure(failed)
+
+    async def _shutdown_one(self, server_id: str, proc: ServerProcess) -> StopOutcome:
+        await proc.wait_spawned()
+        stop_command, timeout = self._stop_params(server_id)
+        return await proc.stop(stop_command, timeout)
+
+    async def _force_stop_after_failure(self, failed: list[tuple[str, ServerProcess]]) -> None:
+        results = await asyncio.gather(
+            *(proc.force_stop() for _, proc in failed), return_exceptions=True
+        )
+        for (server_id, _), result in zip(failed, results, strict=True):
+            if isinstance(result, BaseException):
+                log.error(
+                    "shutdown: server %s could not be stopped at all", server_id, exc_info=result
+                )
+            else:
+                _log_ending(server_id, result, "after its stop failed")
+
+
+def _log_ending(server_id: str, outcome: StopOutcome, cause: str) -> None:
+    """The one shutdown line per server; the louder the ending, the higher the
+    level, since a terminate or kill may have cost the last save."""
+    if outcome in (StopOutcome.exited, StopOutcome.not_running):
+        log.info("shutdown: server %s %s", server_id, outcome)
+    elif outcome in (StopOutcome.terminated, StopOutcome.killed):
+        log.warning("shutdown: server %s %s %s", server_id, outcome, cause)
+    else:
+        log.error("shutdown: server %s %s", server_id, outcome)
 
 
 # Process-wide singleton (matches the single-instance, LAN-scale deployment).

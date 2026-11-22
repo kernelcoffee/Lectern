@@ -15,6 +15,16 @@
 // globalSetup runs, and deleting the SQLite file under an initialized engine
 // leaves the next pooled connection staring at an empty, table-less database.
 // The java/ + cache/ dirs persist to keep repeat runs fast.
+//
+// Teardown: Minecraft servers run in their own session, so the SIGKILL that
+// Playwright sends to the backend's process group by default would not reach
+// them, and a server left running by a failed or aborted @full spec would keep
+// port 25565 and its directory into the next run. The backend is therefore
+// stopped with SIGTERM, which runs Lectern's own shutdown: every running
+// server gets its stop command and graceful-stop timeout. The budget follows
+// the docker-compose.yml rule (longest per-server timeout, 60 s by default,
+// plus about 45 s), and --timeout-graceful-shutdown 15 matches the Dockerfile
+// so an open request cannot use it up.
 
 import { defineConfig } from "@playwright/test";
 
@@ -35,10 +45,11 @@ export default defineConfig({
   webServer: [
     {
       command:
-        "bash -c 'cd ../backend && rm -f ../.e2e-data/lectern.sqlite && rm -rf ../.e2e-data/servers && source .venv/bin/activate && LECTERN_DATA=../.e2e-data exec uvicorn lectern.main:app --port 8010'",
+        "bash -c 'cd ../backend && rm -f ../.e2e-data/lectern.sqlite && rm -rf ../.e2e-data/servers && source .venv/bin/activate && LECTERN_DATA=../.e2e-data exec uvicorn lectern.main:app --port 8010 --timeout-graceful-shutdown 15'",
       url: "http://localhost:8010/api/health",
       reuseExistingServer: false,
       timeout: 30_000,
+      gracefulShutdown: { signal: "SIGTERM", timeout: 120_000 },
     },
     {
       command: "npm run dev -- --port 5174 --strictPort",
