@@ -117,6 +117,13 @@ which is why one content pipeline serves them all.
 - **F-SM-3 — Start / Stop / Restart / Kill.** The admin can control each server's process.
   Stop is graceful (sends the `stop` console command, waits a configurable timeout); Kill is a
   forced termination for hung processes.
+- **F-SM-3a — Graceful shutdown with Lectern.** When Lectern stops (container stop, SIGTERM,
+  Ctrl+C, a terminal hangup), every running server is stopped the way the Stop button does it
+  (its own stop command and graceful-stop timeout, then terminate, then kill), all at the same
+  time, so the world is saved. No server can be started once the shutdown has begun (auto-start,
+  crash restart and the second half of a restart are refused). Lectern's log has one line per
+  server saying how it ended. Servers that were running are not resumed on the next boot. The
+  shipped compose file allows two minutes for this; a hard kill of Lectern is out of scope.
 - **F-SM-4 — Live console.** The admin sees real-time console output streamed to the browser and
   can type commands that are sent to the running server. Recent history is shown on open.
 - **F-SM-5 — Edit configuration.** The admin can view and edit `server.properties` through a

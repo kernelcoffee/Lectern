@@ -87,6 +87,27 @@ LECTERN_TAG=master docker compose up -d         # ride the main branch
 docker compose pull && docker compose up -d     # upgrade in place
 ```
 
+**Stopping and upgrading with servers running.** When the container stops (an upgrade, `docker
+compose down`, a host reboot) Lectern stops every running Minecraft server the way the Stop
+button does: each gets its own stop command and graceful-stop timeout, all at the same time, so
+worlds are saved. A server that ignores the stop is terminated, then killed. Lectern's log
+(`docker logs lectern`) has one `shutdown:` line per server saying how it ended. Servers that
+were running are not started again on the next boot; only auto-start servers are.
+
+The shipped `docker-compose.yml` sets `stop_grace_period: 2m`; Docker's default of 10 s would
+kill slower servers mid-save. Two minutes covers a per-server graceful-stop timeout up to about
+75 s: 15 s for requests still open (uvicorn cancels them after that, see the image's
+`--timeout-graceful-shutdown 15`), the timeout itself, 10 s for the terminate step and a margin.
+If you raise a server's timeout above that, raise the grace period by the same amount. If you
+run your own compose file or `docker run`, add the value yourself:
+
+```bash
+docker run --stop-timeout 120 ...               # same as stop_grace_period: 2m
+```
+
+A hard kill of Lectern (`docker kill`, power loss, out-of-memory kill) still loses what the last
+autosave did not write.
+
 > **Multiple servers / custom ports:** the compose file publishes a single `25565`. To run
 > several servers at once, or use custom per-server ports, publish a range instead — e.g.
 > `"25565-25575:25565-25575"` in `docker-compose.yml`.
@@ -146,6 +167,16 @@ pip install -e ".[dev]"
 LECTERN_DATA=./data uvicorn lectern.main:app --reload
 python -m pytest -q            # tests
 ```
+
+Stopping the dev server with Ctrl+C (SIGINT) or SIGTERM stops running Minecraft servers
+gracefully, as in the container, and each server runs in its own session so the terminal's
+Ctrl+C reaches only Lectern. Closing the terminal or dropping an SSH session (SIGHUP) triggers the
+same graceful shutdown, except under `nohup`, where the hangup stays ignored and Lectern keeps
+running. A second Ctrl+C quits without the lifespan shutdown: each server then gets SIGTERM
+and Lectern waits for it to exit, with no deadline and no kill. On Linux each server is also
+started with a parent-death SIGTERM, so if Lectern is killed or crashes the kernel asks the
+server to exit; this helps only where Lectern is an ordinary process. It does not protect worlds
+in the container, where Lectern is PID 1 and the kernel kills the servers first.
 
 Frontend:
 

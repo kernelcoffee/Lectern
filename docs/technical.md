@@ -214,6 +214,35 @@ version no longer ships.
   After the exit, stop/kill wait (up to 5 s) for the stdout pump to report the final state, and
   the manager ignores reports from a process a restart has already replaced, so an old run's
   `stopped` never lands on its successor.
+- **Shutdown with Lectern:** `ServerManager.shutdown` (called from the lifespan in `main.py`
+  after the scheduler and stats sampler stop) sets a shutting-down flag and runs
+  `ServerProcess.stop` on every registered process at once, each with its own `stop_command` and
+  `shutdown_timeout`, so the wait is the slowest server, not the sum. A server still being
+  launched is waited for, then stopped; one already `stopping` is waited for, not sent a second
+  command. While the flag is set `ServerManager.start` raises `ShuttingDown` (409) and a crash
+  schedules no restart; `reconcile` clears the flag at the next startup. A status write that
+  fails is logged and never blocks a stop. Lectern's log gets a header line
+  (`shutdown: stopping N server(s)`) and one line per server (`shutdown: server <id> <outcome>`):
+  INFO for `exited` and `not_running`, WARNING for `terminated` or `killed`, ERROR for
+  `survived_kill`. A server whose stop raised is logged as "could not be stopped gracefully"
+  (ERROR, with traceback), then force-stopped; if that also raises, "could not be stopped at
+  all" (ERROR). The lifespan attaches a stderr handler so these reach `docker logs`. The outcome
+  is not an event and servers are not resumed at the next boot.
+  - **Time budget:** the image runs `uvicorn ... --timeout-graceful-shutdown 15`, so open
+    requests delay the stops by at most 15 s. `docker-compose.yml` sets `stop_grace_period: 2m`
+    (`docker run --stop-timeout 120`), enough for a graceful-stop timeout up to about 75 s: 15 s
+    for requests, the timeout, 10 s for the terminate step (`_TERMINATE_GRACE`), a margin.
+  - **Outside Docker:** servers are spawned with `start_new_session=True`, so a terminal Ctrl+C
+    reaches only Lectern. The lifespan turns SIGHUP into SIGTERM (`_hangup_shuts_down`) so a
+    closed terminal gets the same graceful shutdown, unless SIGHUP is ignored (`nohup`), not the
+    default, or the lifespan is off the main thread. On Linux each server also gets a
+    parent-death SIGTERM (`PR_SET_PDEATHSIG` in `_end_with_parent`), so a SIGKILLed or crashed
+    Lectern still makes the JVM save and exit. It does nothing when Lectern is PID 1 of the
+    container, where the kernel kills the servers first. On a forced quit (a second Ctrl+C) the
+    event loop cancels each server's output pump, which sends the server SIGTERM and waits for it
+    to exit with no deadline and no kill.
+  - **Not covered:** a hard kill of Lectern in the container, and a server that outlives Lectern
+    is not detected by `reconcile` (no PID is stored).
 - **Crash detection:** an unexpected process exit sets status `crashed`; if `crash_restart` is on,
   the server is restarted — **capped** (~3 consecutive attempts, counter reset once the server
   reaches `running`) so a boot-looping server doesn't restart forever (Crafty's lesson).
