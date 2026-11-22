@@ -34,6 +34,19 @@ class Settings(BaseSettings):
     # the frontend and proxies /api here.
     static_dir: Path | None = None
 
+    # Extra names or IP addresses, comma-separated and exact, that Lectern may
+    # be reached by (Host) and that pages calling it may be served from
+    # (Origin): typically a reverse proxy's public domain. Unlisted values pass
+    # only by these rules:
+    # - Host: any IP address, localhost, a single-word name, or a name under
+    #   .local, .lan, .home.arpa or .internal.
+    # - Origin: the request's own Host name, a loopback, private or link-local
+    #   IP address, or a LAN-safe name as above. A public IP address as Origin
+    #   must be listed.
+    # "*" switches both checks off (see request_guard.py). Set with
+    # LECTERN_ALLOWED_HOSTS.
+    allowed_hosts: str = ""
+
     # Sensible defaults surfaced in the create-server wizard.
     default_memory_mb: int = 2048
     # Proxies are lightweight — Velocity runs comfortably in 512 MB.

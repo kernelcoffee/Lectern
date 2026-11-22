@@ -12,6 +12,10 @@ import os
 import tempfile
 
 os.environ.setdefault("LECTERN_DATA", tempfile.mkdtemp(prefix="lectern-test-"))
+# The app is built at import with the Host and Origin checks as shipped; a
+# developer's own LECTERN_ALLOWED_HOSTS (exported or in .env, which an
+# environment variable overrides) must not change what the suite tests.
+os.environ["LECTERN_ALLOWED_HOSTS"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

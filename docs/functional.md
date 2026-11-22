@@ -327,6 +327,30 @@ which is why one content pipeline serves them all.
   **start**, **stop**, **restart**, or **backup** — using a cron-style schedule, and enable or
   disable each schedule.
 
+### 4.8 Request origin check
+
+- **F-RG-1 — Host rule.** Lectern answers an HTTP request or WebSocket handshake only when its
+  `Host` header is an IP address, `localhost`, a single-word name, a name ending in `.local`,
+  `.lan`, `.home.arpa` or `.internal`, or a name listed in `LECTERN_ALLOWED_HOSTS`
+  (comma-separated, exact names or IP addresses). A missing, repeated or malformed `Host` is
+  refused. This stops DNS rebinding.
+- **F-RG-2 — Origin rule.** When a request carries `Origin`, its host must equal the request's
+  `Host` name, be a loopback, private (10/8, 172.16/12, 192.168/16, fc00::/7) or link-local IP
+  address, be LAN-safe as in F-RG-1, or be listed. A public IP address is refused unless listed;
+  `Origin: null`, a non-http(s) scheme and a repeated or malformed `Origin` are refused. A request
+  with no `Origin` (a script, `curl`) passes the Origin rule. Ports are ignored. This stops
+  cross-site WebSockets and cross-site form or `fetch` requests.
+- **F-RG-3 — Refusal.** A refused HTTP request gets `403` and a `detail` message naming
+  `LECTERN_ALLOWED_HOSTS`; a refused WebSocket handshake is closed with code `1008` before it is
+  accepted. Nothing is created, changed or sent to a console.
+- **F-RG-4 — Reverse proxy.** Behind a reverse proxy the public name must be listed even when
+  the proxy rewrites `Host`, because the browser's `Origin` still carries it.
+- **F-RG-5 — Off switch.** `LECTERN_ALLOWED_HOSTS=*` switches both checks off and logs a warning
+  at startup. A list entry that is not a host name or IP address is ignored, with a startup
+  warning.
+- **Limit.** A cross-site simple `GET` (an image, a script, a followed link) carries no `Origin`
+  and faces only the Host rule, so `GET` routes must have no side effects.
+
 ---
 
 ## 5. Key User Flows
@@ -370,6 +394,7 @@ which is why one content pipeline serves them all.
 - Can import a `.mrpack` and get a runnable server.
 - Can generate and install a **Vanilla Tweaks** resource pack.
 - Can create, list, and restore backups, and schedule restarts/backups.
+- A request or WebSocket handshake with a foreign `Host` or `Origin` is refused (§4.8).
 - Runs on a LAN host via a single documented command (e.g. `docker compose up`).
 - Provider abstractions (server type, content source) are in place so Quilt/Paper/Forge and
   CurseForge can be added later without reworking the core.

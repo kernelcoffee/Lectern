@@ -54,8 +54,10 @@ WebSocket subscribers. This is the natural fit for FastAPI and keeps concurrency
 ```
 main.py            App factory; lifespan: init DB, start scheduler,
                    reconcile statuses, auto-start flagged servers.
-config.py          Settings: LECTERN_DATA dir, host/port, and the env defaults of the
-                   runtime tunables (app_settings.py layers DB overrides on top).
+config.py          Settings: LECTERN_DATA dir, host/port, LECTERN_ALLOWED_HOSTS, and the
+                   env defaults of the runtime tunables (app_settings.py layers DB
+                   overrides on top).
+request_guard.py   RequestGuard: pure ASGI middleware, Host and Origin check (see §9).
 db.py              SQLModel engine + session dependency.
 models.py          ORM tables (see §4).
 ws.py              ConsoleHub / ProgressHub / StatusHub: in-process fan-out hubs
@@ -586,8 +588,37 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
 - **Target:** a single Linux host on a trusted LAN.
 - **Docker-compose** bundles the FastAPI backend (serving the built React SPA as static files)
   and mounts `LECTERN_DATA` as a volume. One command: `docker compose up`.
-- Config via environment variables (`LECTERN_DATA`, bind host/port).
+- Config via environment variables (`LECTERN_DATA`, bind host/port, `LECTERN_ALLOWED_HOSTS`).
 - No TLS/auth assumed at launch (LAN trust); a single optional password may be added later.
+
+### Host and Origin check (`request_guard.py`)
+
+`RequestGuard` is added last in `create_app`, so it runs first: before CORS, any `/api` route,
+any `/ws` socket and the static SPA. It is a pure ASGI middleware because
+`BaseHTTPMiddleware` never sees WebSocket scopes. Lifespan scopes pass through. The browser is on
+the LAN and carries requests for any page it opens, so the guard keeps a foreign page from
+driving Lectern through it.
+
+| Rule | Passes without configuration | Otherwise |
+|---|---|---|
+| Host | any IP address; `localhost`; a single-word name; a name ending in `.local`, `.lan`, `.home.arpa`, `.internal` | must be listed in `LECTERN_ALLOWED_HOSTS` |
+| Origin (checked only when present) | the request's own Host name; a loopback, private (10/8, 172.16/12, 192.168/16, fc00::/7) or link-local IP address; a LAN-safe name | must be listed; a public IP address, `null`, a non-http(s) scheme are refused |
+
+- Both sides are normalised (lower case, port and IPv6 brackets stripped, trailing dot removed),
+  so ports are ignored. A missing, repeated or malformed `Host` or `Origin`, and an unbracketed
+  IPv6 `Host`, are refused. The private ranges are spelled out rather than `ip.is_private`, which
+  also covers documentation ranges such as 203.0.113.0/24.
+- `LECTERN_ALLOWED_HOSTS` is comma-separated; entries are names or IP addresses (IPv6 with or
+  without brackets). Behind a reverse proxy, list the public name even when the proxy rewrites
+  `Host`: the browser's `Origin` still carries it. `*` switches both checks off.
+- Startup warnings are logged from `lifespan` (`lectern.main`): one when `*` is set, one per
+  ignored entry that is not a host name or IP address.
+- **Refusal.** HTTP: `403` with JSON `{"detail": "Refused: Host 'x' is not allowed. ..."}`, naming
+  `LECTERN_ALLOWED_HOSTS`. WebSocket: closed with code `1008` before `accept`, which the server
+  answers as a 403 handshake. Each distinct refused value is logged once at WARNING; at most 256
+  values are remembered (oldest forgotten first), so a flood of made-up hosts cannot grow memory.
+- **Limit.** A cross-site simple `GET` (`<img>`, `<script>`, a link) carries no `Origin` and faces
+  only the Host rule, so `GET` routes must stay free of side effects.
 
 ---
 

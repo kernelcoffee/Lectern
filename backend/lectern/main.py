@@ -35,6 +35,12 @@ from .api import servers as servers_api
 from .api import settings as settings_api
 from .config import get_settings
 from .db import engine, init_db
+from .request_guard import (
+    ALLOWED_HOSTS_VARIABLE,
+    AllowPolicy,
+    RequestGuard,
+    parse_allowed_hosts,
+)
 from .scheduler import scheduler_service
 from .servers.manager import manager
 from .servers.properties import PropertiesPathError
@@ -112,9 +118,27 @@ def _hangup_shuts_down() -> Iterator[None]:
         signal.signal(signal.SIGHUP, signal.SIG_DFL)
 
 
+def _log_request_guard_policy(policy: AllowPolicy) -> None:
+    """Say at startup when the Host and Origin checks are off, and which
+    ``LECTERN_ALLOWED_HOSTS`` entries are ignored."""
+    if policy.disabled:
+        logger.warning(
+            "%s contains '*': the Host and Origin checks are off, so any web page the "
+            "admin's browser opens can send requests to Lectern",
+            ALLOWED_HOSTS_VARIABLE,
+        )
+    for entry in policy.rejected:
+        logger.warning(
+            "Ignoring %s entry %r: not a host name or IP address", ALLOWED_HOSTS_VARIABLE, entry
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     with _lectern_log_output(), _hangup_shuts_down():
+        # Logged here rather than in create_app so the lines carry Lectern's
+        # log format and appear once per startup, not on every import.
+        _log_request_guard_policy(app.state.request_guard_policy)
         # Startup: ensure the data directory tree exists, create tables, and
         # reconcile any stale "running" statuses left by a previous process.
         get_settings().ensure_dirs()
@@ -149,6 +173,13 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Added last, so it runs first: a request whose Host or Origin is not the
+    # LAN (DNS rebinding, a cross-site form or WebSocket) is refused before
+    # any route, socket or the web UI sees it. The lifespan logs the policy.
+    guard_policy = parse_allowed_hosts(get_settings().allowed_hosts)
+    app.state.request_guard_policy = guard_policy
+    app.add_middleware(RequestGuard, policy=guard_policy)
 
     @app.exception_handler(PropertiesPathError)
     async def properties_path_error(_request: Request, exc: PropertiesPathError) -> JSONResponse:
