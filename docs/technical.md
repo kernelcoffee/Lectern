@@ -591,6 +591,58 @@ Base: `https://vanillatweaks.net` (no official/stable API — isolate + fail gra
 - Config via environment variables (`LECTERN_DATA`, bind host/port, `LECTERN_ALLOWED_HOSTS`).
 - No TLS/auth assumed at launch (LAN trust); a single optional password may be added later.
 
+### Container user, startup script and health probe
+
+The production image runs Lectern and every server as `lectern` (uid 1000, gid 1000, home
+created, shell `nologin`). `/data` is created owned by 1000:1000 before `VOLUME`, so a new
+volume starts with nothing to hand over. The image has no `USER` line: it starts as root so
+`scripts/docker-entrypoint.sh` (the `ENTRYPOINT`, POSIX sh, `set -eu`) can fix an old root-owned
+`/data`; `docker exec` without `-u` is therefore a root shell. The `lectern` package is
+precompiled (`compileall`) because `/app` is not writable by lectern.
+
+```mermaid
+flowchart TD
+    start["docker-entrypoint.sh"] --> who{"id -u = 0?"}
+    who -->|no, user: set| w["check /data writable"] --> run
+    who -->|yes| drop["dry run of setpriv: SETUID, SETGID, SETPCAP"]
+    drop --> chk{"/data or a direct child not 1000:1000?"}
+    chk -->|no| acc
+    chk -->|yes| ho["handover walk, then check again"] --> acc["lectern can write and enter /data?"]
+    acc --> run["exec CMD via setpriv as 1000:1000<br/>(uvicorn stays process 1)"]
+```
+
+Every failure (no capability, unreadable folder, a handover that did not take, a folder lectern
+cannot write) prints `docker-entrypoint: <reason and fix>` and `Lectern was not started.` and
+exits 1; no path runs the command as root.
+
+**Handover rule.** The ownership check and the walk are Python (`python3 -I`) embedded in the
+script. The walk works on directory file descriptors with `O_NOFOLLOW`: a symbolic link gets its
+own owner changed, never its target; it does not leave the `/data` device and skips mount points
+listed in `/proc/self/mountinfo`, so a volume nested in `/data` keeps its owner. It changes
+deepest entries first, so the direct children change last and an interrupted handover is seen
+and finished by the next start. The check is repeated afterwards, because FAT and exFAT mounted
+with the quiet option report success for a `chown` they ignore. Under `user:` no ownership is
+changed.
+
+**Privilege drop.** `setpriv --reuid=1000 --regid=1000 --clear-groups --inh-caps=-all
+--ambient-caps=-all --bounding-set=-all --no-new-privs`, then `exec`. The container needs
+`SETUID`, `SETGID` and `SETPCAP`, plus `CHOWN` while handing over.
+
+**Health probe.** `HEALTHCHECK` (interval 30s, timeout 5s, start period 60s, retries 3) runs
+`scripts/docker-healthcheck.sh`, which drops to 1000:1000 the same way when started as root and
+runs `curl -q --noproxy '*' -fsS --max-time 4 http://127.0.0.1:8000/api/health`. An IP `Host`
+passes the request guard with the default `LECTERN_ALLOWED_HOSTS`. `--max-time 4` is below the
+5 s timeout because podman does not count a probe it had to kill; `-q` and `--noproxy` keep a
+`.curlrc` or proxy variables from steering it.
+
+**Smoke test.** `scripts/container-smoke.sh <image>` (bash; engine from `CONTAINER_ENGINE`,
+default `docker`) starts real containers with a unique name prefix and checks the
+above: default start, upgrade from root-owned named volume and bind mount, second start, links
+pointing outside, interrupted handover, refusals, `user:`, health, and `docker stop` exit 0.
+CI's `docker` job (pull requests only) builds the image with `load: true` and runs it as
+`scripts/container-smoke.sh lectern:ci`. Locally, with podman:
+`BUILDAH_FORMAT=docker docker build -q -t lectern:smoke . && scripts/container-smoke.sh lectern:smoke`.
+
 ### Host and Origin check (`request_guard.py`)
 
 `RequestGuard` is added last in `create_app`, so it runs first: before CORS, any `/api` route,
