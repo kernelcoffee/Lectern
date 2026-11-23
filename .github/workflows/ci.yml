@@ -109,8 +109,10 @@ jobs:
           retention-days: 7
 
   docker:
-    name: Docker — production image builds
-    # Build-only validation for PRs. Pushes to main and version tags go
+    name: Docker — production image builds and runs
+    # Validation for PRs: build the image, then prove with real containers
+    # that it runs Lectern as uid 1000, hands an old root-owned /data over,
+    # reports health and stops cleanly. Pushes to main and version tags go
     # through `publish` instead, which builds the same image and pushes it.
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
@@ -123,9 +125,12 @@ jobs:
           context: .
           file: Dockerfile
           push: false
+          load: true # into the runner's Docker, for the smoke test below
           tags: lectern:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Container smoke test
+        run: scripts/container-smoke.sh lectern:ci
 
   publish:
     name: Publish image to GHCR

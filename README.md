@@ -108,6 +108,37 @@ docker run --stop-timeout 120 ...               # same as stop_grace_period: 2m
 A hard kill of Lectern (`docker kill`, power loss, out-of-memory kill) still loses what the last
 autosave did not write.
 
+**Container user and health.** Lectern, and so every Minecraft server and mod it runs, runs as
+the unprivileged user `lectern` (uid 1000, gid 1000, fixed). The container starts as root only
+for a moment: `scripts/docker-entrypoint.sh` checks the data folder, then drops root for good
+and starts Lectern, which stays process 1.
+
+- **New install:** the image's `/data` already belongs to uid 1000, so nothing is handed over.
+- **First start after upgrading** an install that ran as root: if `/data` or one of its direct
+  children is not owned by 1000:1000, the script changes the owner of everything in it, once,
+  and logs two lines (`handing the data folder ... over` and `... now belongs to user lectern`).
+  On a large folder (many worlds and backups) this can take a while. Symbolic links are never
+  followed, and a volume or bind mount nested inside `/data` keeps its owner. Later starts change
+  nothing.
+- **Bind mounts:** the host folder ends up owned by uid 1000, usually the host's first user.
+  Data folders on filesystems that ignore owners, such as FAT or exFAT, are refused with a
+  message: mount them with `uid=1000,gid=1000`, move the data, or set `user:`. A folder that
+  uid 1000 owns but cannot write is refused too.
+- **`user:` in compose (or `docker run --user`):** Lectern runs as that id and no ownership is
+  changed. The folder must already be writable by it, or the container stops with a message
+  naming the id and the folder.
+- **Shell access:** the image has no `USER` line, so plain `docker exec` opens a root shell. Use
+  `docker exec -u lectern -it lectern bash` to act as Lectern does (files you create then have
+  the right owner).
+- **`cap_drop`:** if you drop capabilities, keep `SETUID`, `SETGID` and `SETPCAP` (needed to drop
+  root) and `CHOWN` for a start that hands data over. After that start `CHOWN` can be dropped.
+  Without the first three the container stops with a message and never runs Lectern as root.
+- **Health:** the image has a Docker `HEALTHCHECK` (every 30 s, 5 s timeout, 60 s start period,
+  3 retries) that calls `http://127.0.0.1:8000/api/health` as `lectern`. `docker ps` shows
+  `healthy` or `unhealthy`. The probe ignores `http_proxy`, `ALL_PROXY` and any `.curlrc`, so
+  proxy settings for Lectern's downloads never affect it. Podman drops `HEALTHCHECK` unless the
+  image is built in Docker format (`BUILDAH_FORMAT=docker`).
+
 > **Multiple servers / custom ports:** the compose file publishes a single `25565`. To run
 > several servers at once, or use custom per-server ports, publish a range instead — e.g.
 > `"25565-25575:25565-25575"` in `docker-compose.yml`.
